@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Invariantentests fuer labels.assign_track_ids.
+
+Laufen OHNE Datensatz (der liegt nicht im Repo) auf einem synthetischen
+Mini-Fixture mit von Hand bekannter Zuordnung. Pruefen Eigenschaften, die
+unabhaengig von der Parameterwahl gelten muessen -- im Gegensatz zum
+Bit-Vergleich der Portierung, der bei jeder gewollten Aenderung wertlos wird.
+"""
+import numpy as np
+import pytest
+
+from eventpiv.labels import (STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE,
+                             assign_track_ids)
+
+BBOX_DTYPE = np.dtype([("t", "<i8"), ("x", "<f4"), ("y", "<f4"),
+                       ("w", "<f4"), ("h", "<f4"), ("class_id", "<u4"),
+                       ("track_id", "<u4"), ("class_confidence", "<f4")])
+
+def make_bbox(entries):
+    """entries: Liste von (t, x_ecke, y_ecke, track_id)."""
+    b = np.zeros(len(entries), dtype=BBOX_DTYPE)
+    for i, (t, x, y, tid) in enumerate(entries):
+        b[i] = (t, x, y, 11.0, 11.0, 0, tid, 1.0)
+    return b
+
+
+@pytest.fixture
+def scene():
+    """Zwei Partikel, weit getrennt (Zentren 100.5 und 300.5), ein Rasterpunkt.
+
+    Events von Hand gesetzt:
+      0: exakt auf Zentrum A            -> sauber, track 7
+      1: 5 px neben A (typische Wolke)  -> sauber, track 7
+      2: auf Zentrum B                  -> sauber, track 9
+      3: 50 px im Nichts                -> Rausch
+      4: genau mittig zwischen A und B  -> Rausch (viel zu weit von beiden)
+    """
+    bbox = make_bbox([(1000, 95.0, 95.0, 7), (1000, 295.0, 295.0, 9)])
+    t = np.array([1000, 1000, 1000, 1000, 1000], dtype=np.float64)
+    x = np.array([100.5, 105.5, 300.5, 700.0, 200.5])
+    y = np.array([100.5, 100.5, 300.5, 700.0, 200.5])
+    return t, x, y, bbox
+
+
+def test_formatzusicherungen(scene):
+    t, x, y, bbox = scene
+    tid, st = assign_track_ids(t, x, y, bbox)
+    assert len(tid) == len(st) == len(t)
+    assert tid.dtype == np.int32 and st.dtype == np.uint8
+    assert set(np.unique(st)) <= {STATUS_CLEAN, STATUS_AMBIG, STATUS_NOISE}
+
+
+def test_track_id_genau_dann_wenn_sauber(scene):
+    """Kernzusicherung des Formats: -1 <=> nicht sauber."""
+    t, x, y, bbox = scene
+    tid, st = assign_track_ids(t, x, y, bbox)
+    np.testing.assert_array_equal(tid == -1, st != STATUS_CLEAN)
+
+
+def test_saubere_events_liegen_innerhalb_r_assign(scene):
+    """Prueft die Kernlogik direkt, ohne Referenzdatei."""
+    t, x, y, bbox = scene
+    r_assign = 8.0
+    tid, st = assign_track_ids(t, x, y, bbox, r_assign=r_assign)
+    centers = {int(b["track_id"]): (b["x"] + 5.5, b["y"] + 5.5) for b in bbox}
+    for i in np.flatnonzero(st == STATUS_CLEAN):
+        cx, cy = centers[int(tid[i])]
+        assert np.hypot(x[i] - cx, y[i] - cy) <= r_assign
+
+def test_zeitliche_zuordnung_zum_naechsten_rasterpunkt():
+    """Zwei Rasterpunkte, dasselbe Partikel bewegt sich dazwischen.
+
+    Das Event liegt zeitlich naeher an t=2000 -> muss gegen die DORTIGE
+    Boxposition gepruefft werden, nicht gegen die bei t=1000.
+    """
+    bbox = make_bbox([(1000, 95.0, 95.0, 4),      # Zentrum (100.5, 100.5)
+                      (2000, 195.0, 95.0, 4)])    # Zentrum (200.5, 100.5)
+    # t=1900 -> naeher an 2000; raeumlich auf dem SPAETEN Zentrum
+    t = np.array([1900.0]); x = np.array([200.5]); y = np.array([100.5])
+    tid, st = assign_track_ids(t, x, y, bbox)
+    assert st[0] == STATUS_CLEAN and tid[0] == 4
+
+    # dasselbe Event raeumlich auf dem FRUEHEN Zentrum -> zu weit weg
+    x2 = np.array([100.5])
+    _, st2 = assign_track_ids(t, x2, y, bbox)
+    assert st2[0] == STATUS_NOISE
+
+def test_bekannte_zuordnung(scene):
+    t, x, y, bbox = scene
+    tid, st = assign_track_ids(t, x, y, bbox)
+    assert list(st) == [STATUS_CLEAN, STATUS_CLEAN, STATUS_CLEAN,
+                        STATUS_NOISE, STATUS_NOISE]
+    assert tid[0] == tid[1] == 7 and tid[2] == 9
+
+
+def test_monotonie_r_assign(scene):
+    """Sehr grosses r_assign => es darf keinen Rausch-Status mehr geben."""
+    t, x, y, bbox = scene
+    _, st = assign_track_ids(t, x, y, bbox, r_assign=1e9)
+    assert not (st == STATUS_NOISE).any()
+
+
+def test_monotonie_r_ambig(scene):
+    """r_ambig = 0 => nie mehrdeutig (d2-d1 >= 0 immer)."""
+    t, x, y, bbox = scene
+    _, st = assign_track_ids(t, x, y, bbox, r_ambig=0.0)
+    assert not (st == STATUS_AMBIG).any()
+
+
+def test_mehrdeutig_wird_erkannt():
+    """Zwei Boxen dicht beieinander, Event exakt mittig -> MEHRDEUTIG."""
+    bbox = make_bbox([(1000, 95.0, 95.0, 1), (1000, 101.0, 95.0, 2)])
+    t = np.array([1000.0]); x = np.array([103.5]); y = np.array([100.5])
+    tid, st = assign_track_ids(t, x, y, bbox, r_assign=8.0, r_ambig=2.0)
+    assert st[0] == STATUS_AMBIG and tid[0] == -1
+
+
+def test_determinismus(scene):
+    t, x, y, bbox = scene
+    a = assign_track_ids(t, x, y, bbox)
+    b = assign_track_ids(t, x, y, bbox)
+    np.testing.assert_array_equal(a[0], b[0])
+    np.testing.assert_array_equal(a[1], b[1])
+
+
+def test_leere_eingabe():
+    bbox = make_bbox([(1000, 95.0, 95.0, 1)])
+    tid, st = assign_track_ids(np.array([]), np.array([]), np.array([]), bbox)
+    assert len(tid) == 0 and len(st) == 0

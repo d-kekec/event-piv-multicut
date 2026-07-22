@@ -7,6 +7,7 @@ outputs/
 runs/
 # Python
 __pycache__/
+.pytest_cache/
 *.py[cod]
 .ipynb_checkpoints/
 *.egg-info/
@@ -15,3 +16,4 @@ dist/
 # lokal
 .env
 slurm-*.out
+*Zone.Identifier
