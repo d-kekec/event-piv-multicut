@@ -22,13 +22,21 @@ def main():
     ap.add_argument("--label_dir", default=None)
     ap.add_argument("--no_strict", action="store_true",
                     help="Konsistenzpruefung alpha/r_max nur warnen")
+    ap.add_argument("--json_out", default=None,
+                    help="Kennzahlen als JSON ablegen (fuer die "
+                         "Subprozess-Isolation in pipeline.py)")
     args = ap.parse_args()
 
-    solve_and_evaluate(args.split, args.run_nr, args.model_tag,
-                       alpha=args.alpha, r_max=args.r_max, t0=args.t0,
-                       dt=args.dt, use_knn=args.use_knn, k_max=args.k_max,
-                       model_dir=args.model_dir, label_dir=args.label_dir,
-                       strict=not args.no_strict)
+    info = solve_and_evaluate(args.split, args.run_nr, args.model_tag,
+                              alpha=args.alpha, r_max=args.r_max, t0=args.t0,
+                              dt=args.dt, use_knn=args.use_knn,
+                              k_max=args.k_max, model_dir=args.model_dir,
+                              label_dir=args.label_dir,
+                              strict=not args.no_strict)
+    if args.json_out:
+        import json
+        from pathlib import Path
+        Path(args.json_out).write_text(json.dumps(info))
 
 
 if __name__ == "__main__":

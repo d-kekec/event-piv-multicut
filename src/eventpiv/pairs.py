@@ -219,3 +219,22 @@ def build_pair_dataset(clean_runs, overlap_runs, *, split="train",
                                    n_yes=n_yes, n_no=n_no))
     print(f"-> {out_path}")
     return out_path, data
+
+def win_dt_for(alpha, r_max, *, ref_alpha=10_000, ref_r_max=7.06,
+               ref_win_dt=40_000, cap=300_000) -> int:
+    """Sammelfenster so waehlen, dass die NEIN-Ausbeute konstant bleibt.
+
+    Die Zahl der NEIN-Paare ist proportional zum Nachbarschaftsvolumen,
+    also ~ r_max^2 * alpha. Verkleinert man die Nachbarschaft, bricht die
+    NEIN-Ausbeute ein -> ueber ein breiteres Sammelfenster kompensieren:
+
+        WIN_DT ~ 1 / (r_max^2 * alpha)
+
+    Geeicht am Referenzpunkt (BA_Datensatz_und_Pipeline.md, WIN_DT-Zusammenhang).
+    Gedeckelt gegen RAM. NAEHERUNG -- Overlap ist zeitlich nicht konstant,
+    die NEIN-Zahl danach pruefen.
+
+    Nur fuers SAMMELN; das Solve-Fenster bleibt klein.
+    """
+    v = int(ref_win_dt * (ref_r_max ** 2 * ref_alpha) / (r_max ** 2 * alpha))
+    return min(v, cap)
