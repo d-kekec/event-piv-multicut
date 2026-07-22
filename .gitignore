@@ -1,0 +1,17 @@
+# Artefakte
+*.npz
+*.pt
+*.dat
+archives/
+outputs/
+runs/
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+*.egg-info/
+build/
+dist/
+# lokal
+.env
+slurm-*.out

@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "event-piv-multicut"
+version = "0.1.0"
+description = "Event-basierte PIV: Partikel-Trajektorien aus Event-Kamera-Daten via Multicut (RAMA) mit gelernten Kantenkosten"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Devrim" }]
+
+# NUR Pakete, die per pip aus PyPI kommen und nicht anders installiert werden.
+# BEWUSST NICHT hier drin:
+#   torch    -> braucht --index-url .../whl/cu126 (CUDA-Variante), s. BA_Umgebung_Setup.md §7
+#   rama_py  -> wird aus Git kompiliert (GCC-13-Workaround), ebenda
+# Beide würden von pip sonst in falscher Variante nachinstalliert.
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "matplotlib",
+    "h5py",
+    "hdf5plugin",
+    "pyyaml",
+    "pillow",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Lizenztext des vendored PSEELoader muss mit installiert werden
+[tool.setuptools.package-data]
+"eventpiv.psee_io" = ["LICENSE*", "NOTICE*", "*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
