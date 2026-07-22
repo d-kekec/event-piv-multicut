@@ -231,3 +231,59 @@ def _sweep_tabelle(ergebnisse, n_konfigs, dauer):
     bester = ergebnisse[0]
     print(f"\n-> Bester Kandidat: alpha={bester['alpha']}, "
           f"r_max={bester['r_max']}")
+    
+def run_pipeline(*, alpha, r_max, clean_runs, overlap_runs,
+                 val_crossing=(), val_clean=(), feature_mode="dr",
+                 imbalance="sample", train_split="train", val_split="val",
+                 win_dt=None, solve_dt=DT_DEFAULT, t0=T0_DEFAULT, seed=0,
+                 steps=("labels", "dataset", "train", "evaluate")):
+    """Die komplette Kette mit EINEM Satz Parameter.
+
+    Der zentrale Zweck (unveraendert gegenueber run_pipeline_alpha1.py):
+    alpha/r_max werden an EINER Stelle gesetzt und an Datensatzbau UND
+    Bewertung durchgereicht -> Training und Einsatz sind konsistent.
+    Zusaetzlich prueft solve.check_consistency das jetzt hart gegen die
+    Metadaten der .pt -- die Konvention ist zur Zusicherung geworden.
+
+    steps: welche Stufen laufen sollen. 'labels' ist meist schon erledigt
+    (haengt NICHT von alpha/r_max ab) und wird uebersprungen, wenn die
+    Dateien existieren.
+    """
+    from eventpiv.labels import build_labels
+
+    t_all = time.time()
+    wdt = win_dt_for(alpha, r_max) if win_dt is None else win_dt
+    tag = f"{feature_mode}_{imbalance}"
+    print(f"PIPELINE  alpha={alpha}µs  r_max={r_max}px  WIN_DT={wdt}µs  "
+          f"feature={feature_mode}  imbalance={imbalance}")
+    print(f"Schritte: {list(steps)}\n")
+
+    if "labels" in steps:
+        print("=" * 60 + "\nSCHRITT: labels\n" + "=" * 60)
+        build_labels(sorted(set(clean_runs) | set(overlap_runs)),
+                     split=train_split)
+        val_runs = sorted(set(val_crossing) | set(val_clean))
+        if val_runs:
+            build_labels(val_runs, split=val_split)
+
+    if "dataset" in steps:
+        print("\n" + "=" * 60 + "\nSCHRITT: dataset\n" + "=" * 60)
+        build_pair_dataset(clean_runs, overlap_runs, split=train_split,
+                           alpha=alpha, r_max=r_max, win_dt=wdt, seed=seed)
+
+    if "train" in steps:
+        print("\n" + "=" * 60 + "\nSCHRITT: train\n" + "=" * 60)
+        train_edge_nn(feature_mode=feature_mode, imbalance=imbalance,
+                      seed=seed)
+
+    ergebnis = None
+    if "evaluate" in steps:
+        print("\n" + "=" * 60 + "\nSCHRITT: evaluate\n" + "=" * 60)
+        ergebnis = evaluate_on_val(tag, alpha=alpha, r_max=r_max,
+                                   crossing=val_crossing, clean=val_clean,
+                                   split=val_split, t0=t0, dt=solve_dt)
+
+    print("\n" + "=" * 60)
+    print(f"PIPELINE KOMPLETT in {time.time()-t_all:.0f}s")
+    print("=" * 60)
+    return ergebnis
