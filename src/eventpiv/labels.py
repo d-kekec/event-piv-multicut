@@ -187,6 +187,13 @@ def build_labels_for_run(split, run_nr, out_dir=None, t0=None, dt=None,
         print(f"  track_ids (sauber): "
               f"{len(np.unique(track_id[status == STATUS_CLEAN]))}")
 
+    # int16-Cast für track_id absichern. Bisher ist groesste track_id ueber alle
+    # Splits = 118. Aber wir wollen fatale Fehler frueh vermeiden.
+    if len(track_id):
+        assert track_id.max() < 2**15, \
+            f"track_id {track_id.max()} sprengt int16 -- Speicherformat anpassen!"
+
+
     # SCHLANK speichern -- verlustfreie Integer-Casts (Rohdaten sind ganzzahlig):
     #   t: µs, max ~8e6 << 2^32 -> uint32 | x,y: 0..1279 -> uint16 | p: uint8
     # t,x,y BLEIBEN erhalten (Interpretationsgrundlage), nur kompakter.
