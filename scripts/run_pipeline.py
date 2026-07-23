@@ -36,6 +36,8 @@ def main():
     ap.add_argument("--solve_dt", type=int, default=DT_DEFAULT)
     ap.add_argument("--t0", type=int, default=T0_DEFAULT)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--mode", default="PD", choices=("P", "PD", "PD+"),
+                    help="RAMA-Solvermodus ('P' = ohne Dual-Phase)")
     ap.add_argument("--steps", nargs="+", default=list(ALLE_SCHRITTE),
                     choices=ALLE_SCHRITTE)
     args = ap.parse_args()
@@ -44,7 +46,7 @@ def main():
                  clean_runs=args.clean_runs, overlap_runs=args.overlap_runs,
                  val_crossing=args.val_crossing, val_clean=args.val_clean,
                  feature_mode=args.feature_mode, imbalance=args.imbalance,
-                 solve_dt=args.solve_dt, t0=args.t0, seed=args.seed,
+                 solve_dt=args.solve_dt, t0=args.t0, seed=args.seed, mode=args.mode,
                  steps=tuple(args.steps))
 
 

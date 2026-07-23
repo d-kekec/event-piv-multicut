@@ -20,6 +20,8 @@ def main():
                     help="saubere Runs (Kontrolle)")
     ap.add_argument("--t0", type=int, default=T0_DEFAULT)
     ap.add_argument("--dt", type=int, default=DT_DEFAULT)
+    ap.add_argument("--mode", default="PD", choices=("P", "PD", "PD+"),
+                    help="RAMA-Solvermodus ('P' = ohne Dual-Phase)")
     ap.add_argument("--in_process", action="store_true",
                     help="ohne Subprozess-Isolation (schneller, aber ein "
                          "VRAM-Absturz beendet die ganze Bewertung)")
@@ -30,7 +32,7 @@ def main():
 
     evaluate_on_val(args.model_tag, alpha=args.alpha, r_max=args.r_max,
                     crossing=args.crossing, clean=args.clean,
-                    split=args.split, t0=args.t0, dt=args.dt,
+                    split=args.split, t0=args.t0, dt=args.dt, mode=args.mode,
                     isolated=not args.in_process, model_dir=args.model_dir,
                     label_dir=args.label_dir, strict=not args.no_strict)
 

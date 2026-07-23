@@ -45,7 +45,7 @@ DT_DEFAULT = 5_000          # µs Bewertungsfenster (einheitlich = fair)
 
 
 def _solve_isolated(split, run_nr, model_tag, *, alpha, r_max, t0, dt,
-                    model_dir, label_dir, strict):
+                    model_dir, label_dir, strict, mode="PD"):
     """Ein Run in einem eigenen Prozess. Rueckgabe: info-dict oder None.
 
     None bedeutet "nicht loesbar" -- Absturz, OOM oder leeres Fenster. Das
@@ -58,7 +58,7 @@ def _solve_isolated(split, run_nr, model_tag, *, alpha, r_max, t0, dt,
                "--split", split, "--run_nr", str(run_nr),
                "--model_tag", model_tag,
                "--alpha", str(alpha), "--r_max", str(r_max),
-               "--t0", str(t0), "--dt", str(dt),
+               "--t0", str(t0), "--dt", str(dt), "--mode", mode,
                "--json_out", str(jf)]
         if model_dir:
             cmd += ["--model_dir", str(model_dir)]
@@ -75,7 +75,7 @@ def _solve_isolated(split, run_nr, model_tag, *, alpha, r_max, t0, dt,
 
 def evaluate_runs(split, runs, model_tag, *, alpha, r_max,
                   t0=T0_DEFAULT, dt=DT_DEFAULT, isolated=True,
-                  model_dir=None, label_dir=None, strict=True, verbose=True):
+                  model_dir=None, label_dir=None, strict=True, verbose=True, mode="PD"):
     """Bewertet mehrere Runs. Rueckgabe: Liste aus info-dicts und None."""
     ergebnisse = []
     for r in runs:
@@ -83,14 +83,14 @@ def evaluate_runs(split, runs, model_tag, *, alpha, r_max,
             info = _solve_isolated(split, r, model_tag, alpha=alpha,
                                    r_max=r_max, t0=t0, dt=dt,
                                    model_dir=model_dir, label_dir=label_dir,
-                                   strict=strict)
+                                   strict=strict, mode=mode)
         else:
             try:
                 info = solve_and_evaluate(split, r, model_tag, alpha=alpha,
                                           r_max=r_max, t0=t0, dt=dt,
                                           model_dir=model_dir,
                                           label_dir=label_dir, strict=strict,
-                                          verbose=False)
+                                          verbose=False, mode=mode)
                 if "purity_mean" not in info:
                     info = None
             except Exception as e:
@@ -129,14 +129,14 @@ def summarize(name, infos, verbose=True) -> dict:
 
 def evaluate_on_val(model_tag, *, alpha, r_max, crossing=(), clean=(),
                     split="val", t0=T0_DEFAULT, dt=DT_DEFAULT, isolated=True,
-                    model_dir=None, label_dir=None, strict=True) -> dict:
+                    model_dir=None, label_dir=None, strict=True, mode="PD") -> dict:
     """Bewertung eines Netzes ueber CROSSING- und CLEAN-Runs."""
     print(f"Bewertung: alpha={alpha} r_max={r_max} Netz={model_tag} "
           f"Split={split}")
     print(f"Fenster [{t0/1000:.0f}ms +{dt/1000:.0f}ms]\n")
 
     gem = dict(alpha=alpha, r_max=r_max, t0=t0, dt=dt, isolated=isolated,
-               model_dir=model_dir, label_dir=label_dir, strict=strict)
+               model_dir=model_dir, label_dir=label_dir, strict=strict, mode=mode)
     print("CROSSING/OVERLAP-Runs (Schnitt-Test):")
     cross = evaluate_runs(split, crossing, model_tag, **gem)
     print("\nCLEAN-Runs (Kontrolle, darf nicht fragmentieren):")
@@ -153,7 +153,7 @@ def evaluate_on_val(model_tag, *, alpha, r_max, crossing=(), clean=(),
 def parameter_sweep(alphas, r_maxs, clean_runs, overlap_runs, *,
                     val_overlap, val_clean, feature_mode="dr",
                     imbalance="sample", train_split="train", val_split="val",
-                    solve_dt=DT_DEFAULT, t0=T0_DEFAULT, seed=0,
+                    solve_dt=DT_DEFAULT, t0=T0_DEFAULT, seed=0, mode="PD",
                     out_json=None) -> list[dict]:
     """Faehrt (alpha, r_max)-Konfigurationen durch und vergleicht sie.
 
@@ -190,9 +190,9 @@ def parameter_sweep(alphas, r_maxs, clean_runs, overlap_runs, *,
 
         z = evaluate_on_val(tag, alpha=alpha, r_max=r_max,
                             crossing=val_overlap, clean=val_clean,
-                            split=val_split, t0=t0, dt=solve_dt)
+                            split=val_split, t0=t0, dt=solve_dt, mode=mode)
         ergebnisse.append({"alpha": alpha, "r_max": r_max, "win_dt": wdt,
-                           "ov": z["crossing"], "cl": z["clean"]})
+                           "mode": mode, "ov": z["crossing"], "cl": z["clean"]})
 
     _sweep_tabelle(ergebnisse, len(konfigs), time.time() - t_all)
     if out_json:
@@ -235,7 +235,7 @@ def _sweep_tabelle(ergebnisse, n_konfigs, dauer):
 def run_pipeline(*, alpha, r_max, clean_runs, overlap_runs,
                  val_crossing=(), val_clean=(), feature_mode="dr",
                  imbalance="sample", train_split="train", val_split="val",
-                 win_dt=None, solve_dt=DT_DEFAULT, t0=T0_DEFAULT, seed=0,
+                 win_dt=None, solve_dt=DT_DEFAULT, t0=T0_DEFAULT, seed=0, mode="PD",
                  steps=("labels", "dataset", "train", "evaluate")):
     """Die komplette Kette mit EINEM Satz Parameter.
 
@@ -281,7 +281,7 @@ def run_pipeline(*, alpha, r_max, clean_runs, overlap_runs,
         print("\n" + "=" * 60 + "\nSCHRITT: evaluate\n" + "=" * 60)
         ergebnis = evaluate_on_val(tag, alpha=alpha, r_max=r_max,
                                    crossing=val_crossing, clean=val_clean,
-                                   split=val_split, t0=t0, dt=solve_dt)
+                                   split=val_split, t0=t0, dt=solve_dt, mode=mode)
 
     print("\n" + "=" * 60)
     print(f"PIPELINE KOMPLETT in {time.time()-t_all:.0f}s")

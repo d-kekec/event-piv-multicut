@@ -31,6 +31,8 @@ def main():
     ap.add_argument("--val_clean", type=int, nargs="+", default=VAL_CLEAN)
     ap.add_argument("--solve_dt", type=int, default=DT_DEFAULT)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--mode", default="PD", choices=("P", "PD", "PD+"),
+                    help="RAMA-Solvermodus ('P' = ohne Dual-Phase)")
     ap.add_argument("--out_json", default=None)
     args = ap.parse_args()
 
@@ -38,7 +40,7 @@ def main():
                     args.overlap_runs, val_overlap=args.val_overlap,
                     val_clean=args.val_clean, feature_mode=args.feature_mode,
                     imbalance=args.imbalance, solve_dt=args.solve_dt,
-                    seed=args.seed, out_json=args.out_json)
+                    seed=args.seed, mode=args.mode, out_json=args.out_json)
 
 
 if __name__ == "__main__":

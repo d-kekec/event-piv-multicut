@@ -39,7 +39,8 @@ from eventpiv.graph import edge_deltas, neighborhood_pairs
 from eventpiv.model import SWAP_RAW6, build_features, is_symmetric
 
 
-def edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, device="cuda"):
+def edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, device="cuda",
+               batch=4_000_000):
     """Logit je Kante = Multicut-Kantenkosten. Rueckgabe: float32-GPU-Tensor.
 
     Der Logit wird DIREKT als Kosten verwendet, ohne Nachskalierung -- durch
@@ -48,27 +49,43 @@ def edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, device="cuda"):
 
     Die Features entstehen ueber dieselbe build_features wie im Training,
     nur mit xp=torch statt xp=numpy.
+
+    STAPELWEISE, und das ist bei grossen Fenstern kein Detail: die versteckte
+    Schicht ist (n, hidden) gross. Bei 80 M Kanten und hidden=8 sind das
+    2.5 GB -- pro Zwischenergebnis, und Linear und Tanh legen je eines an.
+    Auf einen Schlag gerechnet sprengt das die Karte, bevor RAMA ueberhaupt
+    startet. Mit batch=4M bleibt der Spitzenbedarf bei ~150 MB.
     """
-    dt_np, dx_np, dy_np = edge_deltas(t, x, y, i, j)
-    zu = lambda a: torch.as_tensor(np.ascontiguousarray(a),
-                                   dtype=torch.float32, device=device)
-    dt, dx, dy = zu(dt_np), zu(dx_np), zu(dy_np)
+    n_edges = len(i)
+    out = torch.empty(n_edges, dtype=torch.float32, device=device)
 
-    extra = {}
-    if feature_mode == "raw6":
-        extra = {"ti": zu(t[i]), "xi": zu(x[i]), "yi": zu(y[i])}
+    for s in range(0, n_edges, batch):
+        sl = slice(s, min(s + batch, n_edges))
+        ii, jj = i[sl], j[sl]
 
-    feats = build_features(dt, dx, dy, mode=feature_mode, xp=torch, **extra)
-    feats = (feats - mu) / sig
+        zu = lambda a: torch.as_tensor(np.ascontiguousarray(a, np.float32),
+                                       device=device)
+        # edge_deltas statt inline: die Delta-Vorschrift bleibt an EINER
+        # Stelle (graph.py), auch wenn hier nur ein Stapel gerechnet wird.
+        dt, dx, dy = (zu(a) for a in edge_deltas(t, x, y, ii, jj))
 
-    with torch.no_grad():
-        logit = model(feats).squeeze(1)
-        if not is_symmetric(feature_mode):
-            # c_ij muss gleich c_ji sein -> ueber den Tausch mitteln
-            roh = feats * sig + mu
-            getauscht = (roh[:, SWAP_RAW6] - mu) / sig
-            logit = 0.5 * (logit + model(getauscht).squeeze(1))
-    return logit
+        extra = {}
+        if feature_mode == "raw6":
+            extra = {"ti": zu(t[ii]), "xi": zu(x[ii]), "yi": zu(y[ii])}
+
+        feats = build_features(dt, dx, dy, mode=feature_mode, xp=torch, **extra)
+        feats = (feats - mu) / sig
+
+        with torch.no_grad():
+            logit = model(feats).squeeze(1)
+            if not is_symmetric(feature_mode):
+                # c_ij muss gleich c_ji sein -> ueber den Tausch mitteln
+                roh = feats * sig + mu
+                getauscht = (roh[:, SWAP_RAW6] - mu) / sig
+                logit = 0.5 * (logit + model(getauscht).squeeze(1))
+        out[sl] = logit
+
+    return out
 
 
 def solve_multicut(i, j, costs_gpu, num_nodes, device_index=0, mode="PD"):
@@ -84,8 +101,11 @@ def solve_multicut(i, j, costs_gpu, num_nodes, device_index=0, mode="PD"):
         raise ValueError("Leere Instanz -- der Pointer-Pfad crasht darauf "
                          "(cudaErrorIllegalAddress), vorher abfangen.")
 
-    i_t = torch.as_tensor(np.ascontiguousarray(i), device="cuda").to(torch.int32)
-    j_t = torch.as_tensor(np.ascontiguousarray(j), device="cuda").to(torch.int32)
+    # int32-Cast auf der CPU: torch.as_tensor(int64_array) legt sonst erst
+    # ein int64-Array auf der GPU an (bei 80 M Kanten 636 MB je Richtung)
+    # und castet danach.
+    i_t = torch.as_tensor(np.ascontiguousarray(i, np.int32), device="cuda")
+    j_t = torch.as_tensor(np.ascontiguousarray(j, np.int32), device="cuda")
     c_t = costs_gpu.contiguous().to(torch.float32)
     node_labels = torch.zeros(num_nodes, device="cuda",
                               dtype=torch.int32).contiguous()
@@ -93,6 +113,12 @@ def solve_multicut(i, j, costs_gpu, num_nodes, device_index=0, mode="PD"):
     opts = rama_py.multicut_solver_options(mode)
     opts.sanitize_graph = True      # lueckenhafte Indizes / Doppelkanten erlaubt
     opts.verbose = False
+
+    # PyTorchs Caching-Allocator gibt freigegebenen Speicher NICHT an CUDA
+    # zurueck. RAMA allokiert per cudaMalloc und sieht den Cache nicht --
+    # ohne diese Zeile scheitert es mit bad_alloc auf einer rechnerisch
+    # halbleeren Karte.
+    torch.cuda.empty_cache()
 
     torch.cuda.synchronize()
     rama_py.rama_cuda_gpu_pointers(
@@ -130,12 +156,16 @@ def check_consistency(ckpt, alpha, r_max, strict=True):
 
 def solve_window(split, run_nr, model, mu, sig, feature_mode, *,
                  alpha, r_max, t0, dt, use_knn=False, k_max=24,
-                 verbose=True):
+                 mode="PD", verbose=True):
     """Ein Zeitfenster eines Runs loesen. Rueckgabe: (labels, events, info).
 
     events ist ein dict mit t, x, y (float64); info enthaelt Kennzahlen zum
     Lauf selbst (Kantenzahl, Anteil negativer Kosten, Zeiten).
     """
+    # Nur um Peak Memory je Fenster besser zu sehen.
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+    
     ev = load_events(split, run_nr, t0=t0, dt=dt)
     t = ev["t"].astype(np.float64)
     x = ev["x"].astype(np.float64)
@@ -164,18 +194,21 @@ def solve_window(split, run_nr, model, mu, sig, feature_mode, *,
               f"[{t_costs:.1f}s]")
 
     tic = time.time()
-    labels = solve_multicut(i, j, costs, num_nodes=n)
+    labels = solve_multicut(i, j, costs, num_nodes=n, mode=mode)
     t_rama = time.time() - tic
     if verbose:
-        print(f"  RAMA: {len(np.unique(labels))} Cluster [{t_rama:.1f}s]")
+        print(f"  RAMA ({mode}): {len(np.unique(labels))} Cluster "
+              f"[{t_rama:.1f}s, Torch-Peak "
+              f"{torch.cuda.max_memory_allocated()/2**30:.1f} GB]")
 
     info = {"n_events": n, "n_edges": int(len(i)), "frac_neg": frac_neg,
-            "t_graph": t_graph, "t_costs": t_costs, "t_rama": t_rama}
+            "mode": mode, "t_graph": t_graph, "t_costs": t_costs,
+            "t_rama": t_rama}
     return labels, {"t": t, "x": x, "y": y}, info
 
 
 def solve_and_evaluate(split, run_nr, model_tag, *, alpha, r_max,
-                       t0=1_700_000, dt=5_000, use_knn=False, k_max=24,
+                       t0=1_700_000, dt=5_000, use_knn=False, k_max=24, mode="PD",
                        model_dir=None, label_dir=None, strict=True,
                        verbose=True):
     """Vollstaendige Kette fuer EINEN Run inklusive GT-Abgleich.
@@ -200,7 +233,7 @@ def solve_and_evaluate(split, run_nr, model_tag, *, alpha, r_max,
     labels, ev, info = solve_window(split, run_nr, model, mu, sig,
                                     feature_mode, alpha=alpha, r_max=r_max,
                                     t0=t0, dt=dt, use_knn=use_knn,
-                                    k_max=k_max, verbose=verbose)
+                                    k_max=k_max, mode=mode, verbose=verbose)
     info["run"] = run_nr
     if labels is None:
         return info
