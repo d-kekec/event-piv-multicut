@@ -28,6 +28,14 @@ def szene():
     sta[9] = STATUS_NOISE        # Partikel 2
     return t, x, y, tid, sta
 
+def test_geom_wird_durchgereicht(szene):
+    """Zylinder ist weiter als Ellipsoid -> mindestens so viele Paare."""
+    t, x, y, tid, sta = szene
+    e = collect_pairs(t, x, y, tid, sta, want_label=None,
+                      geom="ellipsoid", **PARAMS)
+    z = collect_pairs(t, x, y, tid, sta, want_label=None,
+                      geom="cylinder", **PARAMS)
+    assert len(z["label"]) >= len(e["label"])
 
 def test_label_entspricht_track_id(szene):
     t, x, y, tid, sta = szene

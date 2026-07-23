@@ -50,7 +50,7 @@ FIELDS = ("dt", "dx", "dy", "ti", "xi", "yi", "label", "run")
 
 
 def collect_pairs(t, x, y, track_id, status, *, alpha, r_max,
-                  win_offsets, win_dt, slab_dt, want_label):
+                  win_offsets, win_dt, slab_dt, want_label, geom="ellipsoid"):
     """Sammelt Paare aus EINEM Run. Reine Funktion -- Arrays rein, Arrays raus.
 
     t, x, y      : Eventkoordinaten (float64)
@@ -90,7 +90,7 @@ def collect_pairs(t, x, y, track_id, status, *, alpha, r_max,
             ts, xs, ys = tw[ext], xw[ext], yw[ext]
             tids, stas = tidw[ext], staw[ext]
 
-            i, j = neighborhood_pairs(ts, xs, ys, alpha, r_max)
+            i, j = neighborhood_pairs(ts, xs, ys, alpha, r_max, geom=geom)
             if len(i) == 0:
                 continue
 
@@ -137,7 +137,7 @@ def cap_arrays(data: dict, n_max, rng) -> dict:
 
 
 def build_pairs_for_run(split, run_nr, want_label, *, alpha, r_max,
-                        win_offsets, win_dt, slab_dt, label_dir=None):
+                        win_offsets, win_dt, slab_dt, label_dir=None, geom="ellipsoid"):
     """Laedt die Label-Datei eines Runs und sammelt daraus Paare."""
     path = (config.label_file(split, run_nr) if label_dir is None
             else Path(label_dir) / f"run{run_nr}_eventlabels.npz")
@@ -148,15 +148,15 @@ def build_pairs_for_run(split, run_nr, want_label, *, alpha, r_max,
     d = np.load(path)
     return collect_pairs(d["t"], d["x"], d["y"], d["track_id"], d["status"],
                          alpha=alpha, r_max=r_max, win_offsets=win_offsets,
-                         win_dt=win_dt, slab_dt=slab_dt, want_label=want_label)
+                         win_dt=win_dt, slab_dt=slab_dt, want_label=want_label, geom=geom)
 
 
 def build_pair_dataset(clean_runs, overlap_runs, *, split="train",
                        alpha=ALPHA_DEFAULT, r_max=R_MAX_DEFAULT,
-                       win_offsets=WIN_OFFSETS_DEFAULT,
+                       win_offsets=WIN_OFFSETS_DEFAULT, win_dt_yes = None,
                        win_dt=WIN_DT_DEFAULT, slab_dt=SLAB_DT_DEFAULT,
                        max_yes=MAX_PER_RUN_DEFAULT, max_no=MAX_PER_RUN_DEFAULT,
-                       label_dir=None, out_path=None, seed=0):
+                       label_dir=None, out_path=None, seed=0, geom="ellipsoid"):
     """Baut den kompletten Paar-Datensatz und schreibt ihn als .npz.
 
     clean_runs   : JA-Quelle  (weit getrennte Runs)
@@ -169,21 +169,24 @@ def build_pair_dataset(clean_runs, overlap_runs, *, split="train",
     t_start = time.time()
     teile = []
 
-    def sammle(runs, want_label, n_max, kind):
-        print(f"{kind}-Paare aus {len(runs)} Run(s):")
+    def sammle(runs, want_label, n_max, kind, wdt):
+        print(f"{kind}-Paare aus {len(runs)} Run(s) (win_dt={wdt/1000:.0f}ms):")
         for r in runs:
             d = cap_arrays(
                 build_pairs_for_run(split, r, want_label, alpha=alpha,
                                     r_max=r_max, win_offsets=win_offsets,
-                                    win_dt=win_dt, slab_dt=slab_dt,
+                                    win_dt=wdt, slab_dt=slab_dt, geom=geom,
                                     label_dir=label_dir),
                 n_max, rng)
             d["run"] = np.full(len(d["label"]), r, np.int16)
             teile.append(d)
             print(f"  run{r:<3d}: {len(d['label']):>10,} {kind}-Paare")
 
-    sammle(clean_runs, 1, max_yes, "JA")
-    sammle(overlap_runs, 0, max_no, "NEIN")
+    # win_dt_for ist auf die NEIN-Ausbeute geeicht. Saubere Runs liefern
+    # physikalisch NULL NEIN-Paare -- das breite Fenster kostet dort nur
+    # Zeit und RAM, ohne etwas beizutragen.
+    sammle(clean_runs, 1, max_yes, "JA", win_dt_yes or WIN_DT_DEFAULT)
+    sammle(overlap_runs, 0, max_no, "NEIN", win_dt)
 
     # Feldweise zusammenfuegen und die Teile SOFORT freigeben. Sonst liegen
     # am Ende alle Teile UND das Ergebnis gleichzeitig im RAM (Faktor 2).
@@ -205,12 +208,13 @@ def build_pair_dataset(clean_runs, overlap_runs, *, split="train",
         print(f"  Verhaeltnis JA:NEIN = {n_yes/n_no:,.1f} : 1")
     print(f"  Zeit: {time.time()-t_start:.0f}s")
 
-    out_path = (config.pairs_dir() / "pairs_dataset.npz" if out_path is None
-                else Path(out_path))
+    out_path = pairs_path(geom) if out_path is None else Path(out_path)
+        
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez(out_path, alpha=alpha, r_max=r_max, **data,
+    np.savez(out_path, alpha=alpha, r_max=r_max, geom=geom, **data,
              meta=config.meta_json(stage="pair_dataset", split=split,
-                                   alpha=alpha, r_max=r_max, win_dt=win_dt,
+                                   alpha=alpha, r_max=r_max, geom=geom,
+                                   win_dt=win_dt, win_dt_yes=win_dt_yes,
                                    slab_dt=slab_dt,
                                    win_offsets=list(win_offsets),
                                    clean_runs=list(clean_runs),
@@ -230,11 +234,19 @@ def win_dt_for(alpha, r_max, *, ref_alpha=10_000, ref_r_max=7.06,
 
         WIN_DT ~ 1 / (r_max^2 * alpha)
 
-    Geeicht am Referenzpunkt (BA_Datensatz_und_Pipeline.md, WIN_DT-Zusammenhang).
-    Gedeckelt gegen RAM. NAEHERUNG -- Overlap ist zeitlich nicht konstant,
-    die NEIN-Zahl danach pruefen.
+    Geeicht am ELLIPSOID. Zylinder und Hyperboloid haben ein groesseres
+    Volumen (Faktor ~1.5 bzw. leicht darueber), liefern also mehr NEIN-Paare
+    je Zeit -- das Fenster ist dort konservativ, nicht falsch.
 
     Nur fuers SAMMELN; das Solve-Fenster bleibt klein.
     """
     v = int(ref_win_dt * (ref_r_max ** 2 * ref_alpha) / (r_max ** 2 * alpha))
     return min(v, cap)
+
+def pairs_path(geom="ellipsoid", out_dir=None):
+    """Standardpfad des Paar-Datensatzes -- EINE Namensregel fuer Bauen
+    und Laden. Sonst muss man den Datensatz erst erzeugen, um zu wissen,
+    wie er heisst."""
+    name = ("pairs_dataset.npz" if geom == "ellipsoid"
+            else f"pairs_dataset_{geom}.npz")
+    return (config.pairs_dir() if out_dir is None else Path(out_dir)) / name

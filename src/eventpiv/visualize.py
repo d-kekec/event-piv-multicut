@@ -251,7 +251,7 @@ def animate_run(split, run_nr, *, t0=None, dt=None, frame_ms=20.0,
 def animate_clusters(split, run_nr, model_tag, *, alpha, r_max,
                      t0=1_700_000, dt=5_000, frame_ms=0.25, trail=True,
                      downscale=1, point=2, min_size=5, color_by="cluster",
-                     show_gt=True, crop=True, use_knn=False, k_max=24, mode="PD",
+                     show_gt=True, crop=True, use_knn=False, k_max=24, geom="ellipsoid", mode="PD",
                      model_dir=None, label_dir=None, strict=True,
                      out_dir=None):
     """Loest ein Fenster und animiert Rohevents, Cluster und GT nebeneinander.
@@ -274,14 +274,14 @@ def animate_clusters(split, run_nr, model_tag, *, alpha, r_max,
             else Path(model_dir))
     model, mu, sig, feature_mode, ckpt = load_checkpoint(
         mdir / f"edge_nn_{model_tag}.pt", device="cuda")
-    check_consistency(ckpt, alpha, r_max, strict=strict)
+    check_consistency(ckpt, alpha, r_max, geom=geom, strict=strict)
 
     print(f"run{run_nr} ({split}), Fenster [{t0/1000:.0f}ms "
           f"+{dt/1000:.1f}ms], Netz '{model_tag}'")
     labels, ev, info = solve_window(split, run_nr, model, mu, sig,
                                     feature_mode, alpha=alpha, r_max=r_max,
                                     t0=t0, dt=dt, use_knn=use_knn,
-                                    k_max=k_max, mode=mode)
+                                    k_max=k_max, geom=geom, mode=mode)
     if labels is None:
         raise ValueError("Keine Loesung (leeres Fenster oder keine Kanten).")
 

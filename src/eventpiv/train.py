@@ -29,7 +29,7 @@ import torch.nn as nn
 from eventpiv import config
 from eventpiv.model import (EdgeMLP, SWAP_RAW6, build_features, check_mode,
                             feature_names, is_symmetric, n_features,
-                            save_checkpoint)
+                            save_checkpoint, model_tag)
 
 IMBALANCE_MODES = ("sample", "weight")
 
@@ -118,12 +118,13 @@ def train_edge_nn(data_path=None, *, feature_mode="dr", imbalance="sample",
     # Bisher war das eine Konvention (Orchestrator reicht beides durch).
     alpha = float(d["alpha"]) if "alpha" in d else None
     r_max = float(d["r_max"]) if "r_max" in d else None
+    geom = str(d["geom"]) if "geom" in d else "ellipsoid"
 
     if verbose:
         print(f"Datensatz: {data_path}")
         print(f"  {len(label):,} Paare "
               f"(JA {int(label.sum()):,} / NEIN {int((label == 0).sum()):,})")
-        print(f"  alpha={alpha}, r_max={r_max}")
+        print(f"  alpha={alpha}, r_max={r_max}, geom={geom}")
 
     kwargs = {}
     if feature_mode == "raw6":
@@ -217,11 +218,11 @@ def train_edge_nn(data_path=None, *, feature_mode="dr", imbalance="sample",
               f"TPR(JA) {tpr:.3f} | TNR(NEIN) {tnr:.3f}")
 
     out_dir = config.model_dir() if out_dir is None else out_dir
-    tag = f"{feature_mode}_{imbalance}"
+    tag = model_tag(feature_mode, imbalance, geom)
     path = save_checkpoint(
         f"{out_dir}/edge_nn_{tag}.pt", model, mu, sig, feature_mode, hidden,
         **json.loads(config.meta_json(
-            stage="edge_nn", tag=tag, alpha=alpha, r_max=r_max,
+            stage="edge_nn", tag=tag, alpha=alpha, r_max=r_max, geom=geom,
             imbalance=imbalance, sample_ratio=sample_ratio, epochs=epochs,
             lr=lr, batch=batch, val_frac=val_frac, seed=seed,
             data_path=str(data_path), **kennzahlen)))

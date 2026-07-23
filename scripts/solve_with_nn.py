@@ -5,7 +5,7 @@ import argparse
 
 from eventpiv import config
 from eventpiv.solve import solve_and_evaluate
-
+from eventpiv.graph import NEIGHBORHOOD_MODES
 
 def main():
     ap = argparse.ArgumentParser(description="NN-Kosten -> RAMA -> GT-Abgleich")
@@ -18,6 +18,10 @@ def main():
     ap.add_argument("--dt", type=int, default=5_000)
     ap.add_argument("--use_knn", action="store_true")
     ap.add_argument("--k_max", type=int, default=24)
+    ap.add_argument("--geom", default="ellipsoid", choices=NEIGHBORHOOD_MODES,
+                    help="Form der Nachbarschaft."
+                         "War zunaechst Trainings/Einsatz-inkosistent."
+                         "Baue dies derzeit um.")
     ap.add_argument("--mode", default="PD", choices=("P", "PD", "PD+"),
                     help="RAMA-Solvermodus. 'P' ueberspringt die Dual-Phase "
                          "-- deutlich groessere Instanzen moeglich, aber "
@@ -36,7 +40,7 @@ def main():
     info = solve_and_evaluate(args.split, args.run_nr, args.model_tag,
                               alpha=args.alpha, r_max=args.r_max, t0=args.t0,
                               dt=args.dt, use_knn=args.use_knn,
-                              k_max=args.k_max, model_dir=args.model_dir, mode=args.mode,
+                              k_max=args.k_max, geom=args.geom, model_dir=args.model_dir, mode=args.mode,
                               label_dir=args.label_dir,
                               strict=not args.no_strict)
     if args.json_out:

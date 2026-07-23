@@ -129,7 +129,7 @@ def solve_multicut(i, j, costs_gpu, num_nodes, device_index=0, mode="PD"):
     return node_labels.cpu().numpy()
 
 
-def check_consistency(ckpt, alpha, r_max, strict=True):
+def check_consistency(ckpt, alpha, r_max, geom="ellipsoid", strict=True):
     """Prueft, ob das Netz mit DIESEN alpha/r_max trainiert wurde.
 
     Der Kern der Stolperfalle aus BA_NN §3.7: bei geaenderten alpha/r_max
@@ -143,11 +143,13 @@ def check_consistency(ckpt, alpha, r_max, strict=True):
         print("  WARN: .pt enthaelt keine alpha/r_max-Metadaten "
               "(vor der Modularisierung erzeugt) -- Konsistenz UNGEPRUEFT.")
         return
-    passt = (trainiert[0] == alpha) and (abs(trainiert[1] - r_max) < 1e-9)
+    passt = (trainiert[0] == alpha) and (abs(trainiert[1] - r_max) < 1e-9) \
+        and (meta.get("geom", "ellipsoid") == geom)
     if passt:
         return
-    text = (f"Netz wurde mit alpha={trainiert[0]}, r_max={trainiert[1]} "
-            f"trainiert, Einsatz mit alpha={alpha}, r_max={r_max}. "
+    text = (f"Netz wurde mit alpha={trainiert[0]}, r_max={trainiert[1]}, "
+            f"geom={meta.get('geom', 'ellipsoid')} trainiert, Einsatz mit "
+            f"alpha={alpha}, r_max={r_max}, geom={geom}. "
             "Training/Einsatz inkonsistent -- Datensatz und Netz neu bauen.")
     if strict:
         raise ValueError(text)
@@ -155,7 +157,7 @@ def check_consistency(ckpt, alpha, r_max, strict=True):
 
 
 def solve_window(split, run_nr, model, mu, sig, feature_mode, *,
-                 alpha, r_max, t0, dt, use_knn=False, k_max=24,
+                 alpha, r_max, t0, dt, use_knn=False, k_max=24, geom="ellipsoid",
                  mode="PD", verbose=True):
     """Ein Zeitfenster eines Runs loesen. Rueckgabe: (labels, events, info).
 
@@ -177,11 +179,11 @@ def solve_window(split, run_nr, model, mu, sig, feature_mode, *,
         return None, {"t": t, "x": x, "y": y}, {"n_events": 0}
 
     tic = time.time()
-    i, j = neighborhood_pairs(t, x, y, alpha, r_max,
+    i, j = neighborhood_pairs(t, x, y, alpha, r_max, geom=geom,
                               use_knn=use_knn, k_max=k_max, dedup=use_knn)
     t_graph = time.time() - tic
     if verbose:
-        print(f"  {len(i):,} Kanten [{t_graph:.1f}s]")
+        print(f"  {len(i):,} Kanten [{t_graph:.1f}s, {geom}]")
     if len(i) == 0:
         return None, {"t": t, "x": x, "y": y}, {"n_events": n, "n_edges": 0}
 
@@ -202,13 +204,13 @@ def solve_window(split, run_nr, model, mu, sig, feature_mode, *,
               f"{torch.cuda.max_memory_allocated()/2**30:.1f} GB]")
 
     info = {"n_events": n, "n_edges": int(len(i)), "frac_neg": frac_neg,
-            "mode": mode, "t_graph": t_graph, "t_costs": t_costs,
-            "t_rama": t_rama}
+            "mode": mode, "geom": geom, "t_graph": t_graph,
+            "t_costs": t_costs, "t_rama": t_rama}
     return labels, {"t": t, "x": x, "y": y}, info
 
 
 def solve_and_evaluate(split, run_nr, model_tag, *, alpha, r_max,
-                       t0=1_700_000, dt=5_000, use_knn=False, k_max=24, mode="PD",
+                       t0=1_700_000, dt=5_000, use_knn=False, k_max=24, geom="ellipsoid", mode="PD",
                        model_dir=None, label_dir=None, strict=True,
                        verbose=True):
     """Vollstaendige Kette fuer EINEN Run inklusive GT-Abgleich.
@@ -223,7 +225,7 @@ def solve_and_evaluate(split, run_nr, model_tag, *, alpha, r_max,
     mdir = config.model_dir(create=False) if model_dir is None else Path(model_dir)
     model, mu, sig, feature_mode, ckpt = load_checkpoint(
         mdir / f"edge_nn_{model_tag}.pt", device="cuda")
-    check_consistency(ckpt, alpha, r_max, strict=strict)
+    check_consistency(ckpt, alpha, r_max, geom=geom, strict=strict)
 
     if verbose:
         print(f"run{run_nr} ({split}), Fenster [{t0/1000:.0f}ms "
@@ -233,7 +235,7 @@ def solve_and_evaluate(split, run_nr, model_tag, *, alpha, r_max,
     labels, ev, info = solve_window(split, run_nr, model, mu, sig,
                                     feature_mode, alpha=alpha, r_max=r_max,
                                     t0=t0, dt=dt, use_knn=use_knn,
-                                    k_max=k_max, mode=mode, verbose=verbose)
+                                    k_max=k_max, geom=geom, mode=mode, verbose=verbose)
     info["run"] = run_nr
     if labels is None:
         return info

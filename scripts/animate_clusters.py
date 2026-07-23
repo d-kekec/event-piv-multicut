@@ -23,7 +23,7 @@ import argparse
 
 from eventpiv import config
 from eventpiv.visualize import animate_clusters
-
+from eventpiv.graph import NEIGHBORHOOD_MODES
 
 def main():
     ap = argparse.ArgumentParser(
@@ -54,6 +54,13 @@ def main():
                     help="GT-Panel weglassen")
     ap.add_argument("--use_knn", action="store_true")
     ap.add_argument("--k_max", type=int, default=24)
+    
+    ap.add_argument("--geom", default="ellipsoid", choices=NEIGHBORHOOD_MODES,
+                    help="Form der Nachbarschaft. ACHTUNG: das Netz wurde "
+                         "auf ELLIPSOID-Paaren trainiert -- andere Werte "
+                         "sind Training/Einsatz-inkonsistent und nur zur "
+                         "Exploration gedacht (Kantenzahl, Struktur), "
+                         "nicht fuer belastbare Metriken.")
     ap.add_argument("--mode", default="PD", choices=("P", "PD", "PD+"),
                     help="RAMA-Solvermodus ('P' = ohne Dual-Phase)")
     ap.add_argument("--model_dir", default=None)
@@ -70,7 +77,7 @@ def main():
                      point=args.point, min_size=args.min_size,
                      color_by=args.color_by, show_gt=not args.no_gt,
                      crop=not args.no_crop, use_knn=args.use_knn,
-                     k_max=args.k_max, mode=args.mode, model_dir=args.model_dir,
+                     k_max=args.k_max, geom=args.geom, mode=args.mode, model_dir=args.model_dir,
                      label_dir=args.label_dir, strict=not args.no_strict,
                      out_dir=args.out_dir)
 

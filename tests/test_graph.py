@@ -10,8 +10,7 @@ sich Parameter oder Implementierung aendern.
 import numpy as np
 import pytest
 
-from eventpiv.graph import edge_deltas, neighborhood_pairs
-
+from eventpiv.graph import edge_deltas, neighborhood_pairs, NEIGHBORHOOD_MODES, V_MAX_DEFAULT
 
 def brute_force(t, x, y, alpha, r_max):
     """O(n^2)-Referenz. Bildet die KUGEL-Bedingung ab, die der Code
@@ -26,6 +25,35 @@ def brute_force(t, x, y, alpha, r_max):
                 out.append((a, b) if t[a] <= t[b] else (b, a))
     return sorted(out)
 
+def brute_force_geom(t, x, y, alpha, r_max, geom, v_max=V_MAX_DEFAULT):
+    """O(n^2)-Referenz fuer alle drei Formen -- unabhaengig vom KDTree."""
+    s = r_max / alpha
+    out = []
+    for a in range(len(t)):
+        for b in range(a + 1, len(t)):
+            dt = abs(t[a] - t[b])
+            dr2 = (x[a] - x[b])**2 + (y[a] - y[b])**2
+            if geom == "ellipsoid":
+                drin = dr2 + (s * dt)**2 <= r_max**2
+            elif geom == "cylinder":
+                drin = (dt <= alpha) and (dr2 <= r_max**2)
+            else:
+                drin = (dt <= alpha) and (dr2 <= r_max**2 + (v_max * dt)**2)
+            if drin:
+                out.append((a, b) if t[a] <= t[b] else (b, a))
+    return sorted(out)
+
+
+@pytest.mark.parametrize("geom", NEIGHBORHOOD_MODES)
+@pytest.mark.parametrize("alpha,r_max", [(3_000, 5.0), (10_000, 7.06),
+                                         (20_000, 3.0)])
+def test_alle_geometrien_gegen_brute_force(wolke, geom, alpha, r_max):
+    """Die umschliessende Kugel plus Nachfilter muss exakt den Koerper
+    treffen -- zu grosse Kugel waere nur langsam, eine zu KLEINE wuerde
+    still Kanten verlieren."""
+    t, x, y = wolke
+    i, j = neighborhood_pairs(t, x, y, alpha, r_max, geom=geom)
+    assert als_menge(i, j) == brute_force_geom(t, x, y, alpha, r_max, geom)
 
 def als_menge(i, j):
     return sorted(zip(i.tolist(), j.tolist()))
@@ -77,14 +105,18 @@ def test_keine_selbstkanten_keine_duplikate(wolke):
     assert len(np.unique(lo * len(t) + hi)) == len(i)
 
 
-def test_verify_filtert_nichts(wolke):
-    """Belegt die Aussage aus dem graph.py-Docstring: die Quader-Nachpruefung
-    ist per Konstruktion ein No-op, weil die Kugel sie impliziert."""
+def test_geometrien_sind_ineinander_enthalten(wolke):
+    """ellipsoid ⊆ cylinder ⊆ hyperboloid -- die Formen sind geschachtelt.
+
+    Ersetzt den frueheren verify-Test: dass die Quaderbedingung das
+    Ellipsoid nicht filtert, ist der Spezialfall ellipsoid ⊆ cylinder.
+    """
     t, x, y = wolke
-    ohne = neighborhood_pairs(t, x, y, 10_000, 7.0, verify=False)
-    mit  = neighborhood_pairs(t, x, y, 10_000, 7.0, verify=True)
-    np.testing.assert_array_equal(ohne[0], mit[0])
-    np.testing.assert_array_equal(ohne[1], mit[1])
+    mengen = {m: set(als_menge(*neighborhood_pairs(t, x, y, 10_000, 7.0,
+                                                   geom=m)))
+              for m in ("ellipsoid", "cylinder", "hyperboloid")}
+    assert mengen["ellipsoid"] <= mengen["cylinder"] <= mengen["hyperboloid"]
+    assert len(mengen["cylinder"]) > len(mengen["ellipsoid"])
 
 
 def test_dedup_aendert_die_kantenmenge_nicht(wolke):

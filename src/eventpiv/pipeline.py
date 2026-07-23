@@ -36,16 +36,17 @@ from pathlib import Path
 import numpy as np
 
 from eventpiv import config
-from eventpiv.pairs import build_pair_dataset, win_dt_for
+from eventpiv.pairs import build_pair_dataset, pairs_path, win_dt_for
 from eventpiv.solve import solve_and_evaluate
 from eventpiv.train import train_edge_nn
+from eventpiv.model import model_tag as make_model_tag
 
 T0_DEFAULT = 1_700_000      # µs Fensterstart der Bewertung
 DT_DEFAULT = 5_000          # µs Bewertungsfenster (einheitlich = fair)
 
 
 def _solve_isolated(split, run_nr, model_tag, *, alpha, r_max, t0, dt,
-                    model_dir, label_dir, strict, mode="PD"):
+                    model_dir, label_dir, strict, mode="PD", geom="ellipsoid"):
     """Ein Run in einem eigenen Prozess. Rueckgabe: info-dict oder None.
 
     None bedeutet "nicht loesbar" -- Absturz, OOM oder leeres Fenster. Das
@@ -58,7 +59,7 @@ def _solve_isolated(split, run_nr, model_tag, *, alpha, r_max, t0, dt,
                "--split", split, "--run_nr", str(run_nr),
                "--model_tag", model_tag,
                "--alpha", str(alpha), "--r_max", str(r_max),
-               "--t0", str(t0), "--dt", str(dt), "--mode", mode,
+               "--t0", str(t0), "--dt", str(dt), "--mode", mode,"--geom", geom,
                "--json_out", str(jf)]
         if model_dir:
             cmd += ["--model_dir", str(model_dir)]
@@ -75,7 +76,7 @@ def _solve_isolated(split, run_nr, model_tag, *, alpha, r_max, t0, dt,
 
 def evaluate_runs(split, runs, model_tag, *, alpha, r_max,
                   t0=T0_DEFAULT, dt=DT_DEFAULT, isolated=True,
-                  model_dir=None, label_dir=None, strict=True, verbose=True, mode="PD"):
+                  model_dir=None, label_dir=None, strict=True, verbose=True, mode="PD", geom="ellipsoid"):
     """Bewertet mehrere Runs. Rueckgabe: Liste aus info-dicts und None."""
     ergebnisse = []
     for r in runs:
@@ -83,14 +84,14 @@ def evaluate_runs(split, runs, model_tag, *, alpha, r_max,
             info = _solve_isolated(split, r, model_tag, alpha=alpha,
                                    r_max=r_max, t0=t0, dt=dt,
                                    model_dir=model_dir, label_dir=label_dir,
-                                   strict=strict, mode=mode)
+                                   strict=strict, mode=mode, geom=geom)
         else:
             try:
                 info = solve_and_evaluate(split, r, model_tag, alpha=alpha,
                                           r_max=r_max, t0=t0, dt=dt,
                                           model_dir=model_dir,
                                           label_dir=label_dir, strict=strict,
-                                          verbose=False, mode=mode)
+                                          verbose=False, mode=mode, geom=geom)
                 if "purity_mean" not in info:
                     info = None
             except Exception as e:
@@ -129,14 +130,14 @@ def summarize(name, infos, verbose=True) -> dict:
 
 def evaluate_on_val(model_tag, *, alpha, r_max, crossing=(), clean=(),
                     split="val", t0=T0_DEFAULT, dt=DT_DEFAULT, isolated=True,
-                    model_dir=None, label_dir=None, strict=True, mode="PD") -> dict:
+                    model_dir=None, label_dir=None, strict=True, mode="PD", geom="ellipsoid") -> dict:
     """Bewertung eines Netzes ueber CROSSING- und CLEAN-Runs."""
     print(f"Bewertung: alpha={alpha} r_max={r_max} Netz={model_tag} "
           f"Split={split}")
     print(f"Fenster [{t0/1000:.0f}ms +{dt/1000:.0f}ms]\n")
 
     gem = dict(alpha=alpha, r_max=r_max, t0=t0, dt=dt, isolated=isolated,
-               model_dir=model_dir, label_dir=label_dir, strict=strict, mode=mode)
+               model_dir=model_dir, label_dir=label_dir, strict=strict, mode=mode, geom=geom)
     print("CROSSING/OVERLAP-Runs (Schnitt-Test):")
     cross = evaluate_runs(split, crossing, model_tag, **gem)
     print("\nCLEAN-Runs (Kontrolle, darf nicht fragmentieren):")
@@ -153,7 +154,7 @@ def evaluate_on_val(model_tag, *, alpha, r_max, crossing=(), clean=(),
 def parameter_sweep(alphas, r_maxs, clean_runs, overlap_runs, *,
                     val_overlap, val_clean, feature_mode="dr",
                     imbalance="sample", train_split="train", val_split="val",
-                    solve_dt=DT_DEFAULT, t0=T0_DEFAULT, seed=0, mode="PD",
+                    solve_dt=DT_DEFAULT, t0=T0_DEFAULT, seed=0, mode="PD", geom="ellipsoid",
                     out_json=None) -> list[dict]:
     """Faehrt (alpha, r_max)-Konfigurationen durch und vergleicht sie.
 
@@ -173,26 +174,30 @@ def parameter_sweep(alphas, r_maxs, clean_runs, overlap_runs, *,
     print(f"SWEEP ueber {len(konfigs)} Konfigurationen: "
           f"alpha={list(alphas)}, r_max={list(r_maxs)}")
 
-    tag = f"{feature_mode}_{imbalance}"
+    tag = make_model_tag(feature_mode, imbalance, geom)
     ergebnisse = []
     for alpha, r_max in konfigs:
         wdt = win_dt_for(alpha, r_max)
         print(f"\n{'='*60}\nKONFIG  alpha={alpha}  r_max={r_max}  "
               f"(WIN_DT={wdt})\n{'='*60}")
         try:
-            build_pair_dataset(clean_runs, overlap_runs, split=train_split,
-                               alpha=alpha, r_max=r_max, win_dt=wdt, seed=seed)
-            train_edge_nn(feature_mode=feature_mode, imbalance=imbalance,
-                          seed=seed, verbose=True)
+            pfad, _ = build_pair_dataset(clean_runs, overlap_runs,
+                                         split=train_split, alpha=alpha,
+                                         r_max=r_max, win_dt=wdt, geom=geom,
+                                         seed=seed)
+            train_edge_nn(pfad, feature_mode=feature_mode,
+                          imbalance=imbalance, seed=seed)
+            
         except Exception as e:
             print(f"  Konfiguration uebersprungen: {type(e).__name__}: {e}")
             continue
 
         z = evaluate_on_val(tag, alpha=alpha, r_max=r_max,
                             crossing=val_overlap, clean=val_clean,
-                            split=val_split, t0=t0, dt=solve_dt, mode=mode)
+                            split=val_split, t0=t0, dt=solve_dt, mode=mode, geom=geom)
         ergebnisse.append({"alpha": alpha, "r_max": r_max, "win_dt": wdt,
-                           "mode": mode, "ov": z["crossing"], "cl": z["clean"]})
+                           "mode": mode, "geom": geom,
+                           "ov": z["crossing"], "cl": z["clean"]})
 
     _sweep_tabelle(ergebnisse, len(konfigs), time.time() - t_all)
     if out_json:
@@ -235,7 +240,7 @@ def _sweep_tabelle(ergebnisse, n_konfigs, dauer):
 def run_pipeline(*, alpha, r_max, clean_runs, overlap_runs,
                  val_crossing=(), val_clean=(), feature_mode="dr",
                  imbalance="sample", train_split="train", val_split="val",
-                 win_dt=None, solve_dt=DT_DEFAULT, t0=T0_DEFAULT, seed=0, mode="PD",
+                 win_dt=None, solve_dt=DT_DEFAULT, t0=T0_DEFAULT, seed=0, mode="PD", geom="ellipsoid",
                  steps=("labels", "dataset", "train", "evaluate")):
     """Die komplette Kette mit EINEM Satz Parameter.
 
@@ -253,9 +258,10 @@ def run_pipeline(*, alpha, r_max, clean_runs, overlap_runs,
 
     t_all = time.time()
     wdt = win_dt_for(alpha, r_max) if win_dt is None else win_dt
-    tag = f"{feature_mode}_{imbalance}"
+    tag = make_model_tag(feature_mode, imbalance, geom)
+    pfad = pairs_path(geom)
     print(f"PIPELINE  alpha={alpha}µs  r_max={r_max}px  WIN_DT={wdt}µs  "
-          f"feature={feature_mode}  imbalance={imbalance}")
+          f"geom={geom} feature={feature_mode}  imbalance={imbalance}")
     print(f"Schritte: {list(steps)}\n")
 
     if "labels" in steps:
@@ -268,20 +274,22 @@ def run_pipeline(*, alpha, r_max, clean_runs, overlap_runs,
 
     if "dataset" in steps:
         print("\n" + "=" * 60 + "\nSCHRITT: dataset\n" + "=" * 60)
-        build_pair_dataset(clean_runs, overlap_runs, split=train_split,
-                           alpha=alpha, r_max=r_max, win_dt=wdt, seed=seed)
+        pfad, _ = build_pair_dataset(clean_runs, overlap_runs,
+                                     split=train_split, alpha=alpha,
+                                     r_max=r_max, win_dt=wdt, geom=geom,
+                                     seed=seed)
 
     if "train" in steps:
         print("\n" + "=" * 60 + "\nSCHRITT: train\n" + "=" * 60)
-        train_edge_nn(feature_mode=feature_mode, imbalance=imbalance,
-                      seed=seed)
+        train_edge_nn(pfad, feature_mode=feature_mode,
+                      imbalance=imbalance, seed=seed)
 
     ergebnis = None
     if "evaluate" in steps:
         print("\n" + "=" * 60 + "\nSCHRITT: evaluate\n" + "=" * 60)
         ergebnis = evaluate_on_val(tag, alpha=alpha, r_max=r_max,
                                    crossing=val_crossing, clean=val_clean,
-                                   split=val_split, t0=t0, dt=solve_dt, mode=mode)
+                                   split=val_split, t0=t0, dt=solve_dt, mode=mode, geom=geom)
 
     print("\n" + "=" * 60)
     print(f"PIPELINE KOMPLETT in {time.time()-t_all:.0f}s")
