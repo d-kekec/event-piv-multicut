@@ -5,6 +5,7 @@ import argparse
 
 from eventpiv import config
 from eventpiv.pipeline import DT_DEFAULT, T0_DEFAULT, evaluate_on_val
+from eventpiv.graph import NEIGHBORHOOD_MODES
 
 
 def main():
@@ -22,6 +23,9 @@ def main():
     ap.add_argument("--dt", type=int, default=DT_DEFAULT)
     ap.add_argument("--mode", default="PD", choices=("P", "PD", "PD+"),
                     help="RAMA-Solvermodus ('P' = ohne Dual-Phase)")
+    ap.add_argument("--geom", default="ellipsoid", choices=NEIGHBORHOOD_MODES,
+                    help="Nachbarschaftsform -- MUSS zu der passen, mit der "
+                         "das Netz trainiert wurde (check_consistency)")
     ap.add_argument("--in_process", action="store_true",
                     help="ohne Subprozess-Isolation (schneller, aber ein "
                          "VRAM-Absturz beendet die ganze Bewertung)")
@@ -32,7 +36,7 @@ def main():
 
     evaluate_on_val(args.model_tag, alpha=args.alpha, r_max=args.r_max,
                     crossing=args.crossing, clean=args.clean,
-                    split=args.split, t0=args.t0, dt=args.dt, mode=args.mode,
+                    split=args.split, t0=args.t0, dt=args.dt, mode=args.mode, geom=args.geom,
                     isolated=not args.in_process, model_dir=args.model_dir,
                     label_dir=args.label_dir, strict=not args.no_strict)
 

@@ -107,8 +107,13 @@ def solve_multicut(i, j, costs_gpu, num_nodes, device_index=0, mode="PD"):
     i_t = torch.as_tensor(np.ascontiguousarray(i, np.int32), device="cuda")
     j_t = torch.as_tensor(np.ascontiguousarray(j, np.int32), device="cuda")
     c_t = costs_gpu.contiguous().to(torch.float32)
-    node_labels = torch.zeros(num_nodes, device="cuda",
-                              dtype=torch.int32).contiguous()
+    
+    # Mit -1 vorbelegen, nicht mit 0: 0 ist eine gueltige Cluster-ID. Schreibt
+    # RAMA kantenlose Knoten nicht (sanitize_graph entfernt sie), landeten sie
+    # sonst still in Cluster 0. -1 heisst "keinem Cluster zugeordnet" und wird
+    # von cluster_metrics korrekt herausgefiltert.
+    node_labels = torch.full((num_nodes,), -1, device="cuda",
+                             dtype=torch.int32).contiguous()
 
     opts = rama_py.multicut_solver_options(mode)
     opts.sanitize_graph = True      # lueckenhafte Indizes / Doppelkanten erlaubt

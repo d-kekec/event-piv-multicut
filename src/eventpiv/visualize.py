@@ -93,23 +93,29 @@ def color_lookup(ids, *, min_size=1, ignore=(-1,)):
     colors[idx] = distinct_colors(len(idx))
     return uniq, colors
 
-
-def majority_gt_colors(labels, track_id, status, *, min_size=1):
+def majority_gt_colors(labels, track_id, status, *, min_size=1, ignore=(-1,)):
     """Faerbt jeden Cluster in der Farbe seines Mehrheits-GT-Partikels.
 
     Macht das Cluster-Panel direkt mit dem GT-Panel vergleichbar: gleiche
     Farbe = gleiches Partikel. ACHTUNG: Fragmentierung wird dadurch
     unsichtbar (s. Modul-Docstring).
+
+    Behandelt -1 und kleine Cluster wie color_lookup: Label -1 ist KEIN
+    Cluster, sondern das Sammelbecken der kantenlosen Knoten. Ohne diese
+    Ausnahme gewinnt dort ein einzelnes sauberes Event die Mehrheits-
+    abstimmung und faerbt den gesamten isolierten Rauschanteil ein.
     """
     labels = np.asarray(labels)
     sauber = np.asarray(status) == STATUS_CLEAN
 
     gt_uniq, gt_colors = color_lookup(np.asarray(track_id)[sauber],
                                       min_size=min_size)
-    lab_uniq = np.unique(labels)
+    lab_uniq, lab_counts = np.unique(labels, return_counts=True)
     colors = np.tile(GREY, (len(lab_uniq), 1))
 
-    for k, c in enumerate(lab_uniq):
+    for k, (c, n) in enumerate(zip(lab_uniq, lab_counts)):
+        if c in ignore or n < min_size:
+            continue
         m = sauber & (labels == c)
         if not m.any():
             continue
