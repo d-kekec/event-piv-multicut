@@ -23,6 +23,8 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+from eventpiv.runconfig import slug
+
 # ============================================================
 # Wurzeln
 # ============================================================
@@ -32,15 +34,27 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _env_path(var_name: str, default: Path) -> Path:
-    """Pfad aus Umgebungsvariable, sonst Default. '~' wird aufgeloest."""
+def _env_path(var_name: str, default: Path | None) -> Path:
+    """Pfad aus Umgebungsvariable. '~' wird aufgeloest.
+
+    Ohne Default MUSS die Variable gesetzt sein: ein Fallback auf das Home
+    liefert plausibel aussehende, aber falsche Pfade (~/train, ~/labels/) --
+    der Lauf tut dann still nichts oder schreibt an die falsche Stelle.
+    """
     value = os.environ.get(var_name)
-    raw = Path(value) if value else Path(default)
-    return raw.expanduser().resolve()
+    if value:
+        return Path(value).expanduser().resolve()
+    if default is None:
+        raise RuntimeError(
+            f"${var_name} ist nicht gesetzt. In ~/.bashrc eintragen "
+            f"(BA_Umgebung_Setup.md §6) -- ohne die Variable gibt es keinen "
+            f"sinnvollen Default.")
+    return Path(default).expanduser().resolve()
 
+# Eingabe/Ausgabe von Dateien wird hier angesteuert.
+DATA_ROOT = _env_path("EVENTPIV_DATA", None)   # muss zeigen auf den Ordner MIT train/val/test
+OUT_ROOT  = _env_path("EVENTPIV_OUT",  None)   # Ausgabewurzel
 
-DATA_ROOT = _env_path("EVENTPIV_DATA", Path.home() / "datasets" / "batch1")
-OUT_ROOT  = _env_path("EVENTPIV_OUT",  Path.home() / "ba-out")
 
 VALID_SPLITS = ("train", "val", "test")
 
@@ -59,8 +73,8 @@ def _check_split(split: str) -> str:
 # ============================================================
 
 def split_dir(split: str) -> Path:
-    """Ordner mit den Rohdaten eines Splits."""
-    return DATA_ROOT / "Eventstream" / _check_split(split)
+    """Ordner mit den Rohdaten eines Splits. DATA_ROOT zeigt direkt auf das Verzeichnis, das train/val/test Ordner enthält."""
+    return DATA_ROOT / _check_split(split)
 
 
 def run_files(split: str, run_nr: int, must_exist: bool = True) -> tuple[Path, Path]:
@@ -113,6 +127,41 @@ def model_dir(create: bool = True) -> Path:
 
 def results_dir(create: bool = True) -> Path:
     return _ensure(OUT_ROOT / "results", create)
+
+# ============================================================
+# Abgeleitete Artefaktpfade (BA_Konfiguration.md §4)
+# ============================================================
+# Der Baum IST die Abhaengigkeitskette: eine Ebene je Stufe. Ein Artefakt
+# haengt damit sichtbar unter allem, wovon es abhaengt -- und zwei Laeufe mit
+# verschiedenen Parametern koennen sich nicht mehr still ueberschreiben
+# (unter --multirun sonst sogar gleichzeitig).
+#
+# Labels liegen bewusst DANEBEN, nicht unter wp/: sie haengen von keinem
+# dieser Parameter ab (…Pipeline_Dateien.md §7.4).
+
+
+
+
+def wp_dir(nb, create: bool = True) -> Path:
+    """Arbeitspunkt = Nachbarschaft. Wurzel aller abgeleiteten Artefakte."""
+    return _ensure(OUT_ROOT / "wp" / slug(nb), create)
+
+
+def pairs_file(nb, ps, create: bool = True) -> Path:
+    return _ensure(wp_dir(nb, create) / "pairs" / slug(ps), create) / "pairs.npz"
+
+
+def model_file(nb, ps, tr, create: bool = True) -> Path:
+    d = _ensure(wp_dir(nb, create) / "pairs" / slug(ps) / slug(tr), create)
+    return d / "model.pt"
+
+
+def solve_file(nb, ps, tr, sel, win, sv, create: bool = True) -> Path:
+    """Ergebnis EINES Solves. Dateiname aus Laufauswahl, Fenster und Solver --
+    die drei Dinge, die NICHT zur Identitaet des Netzes gehoeren."""
+    d = _ensure(wp_dir(nb, create) / "pairs" / slug(ps) / slug(tr) / "solves",
+                create)
+    return d / f"{sel.split}_run{sel.run_nr}_{win.short()}_{sv.short()}.json"
 
 
 # ============================================================
