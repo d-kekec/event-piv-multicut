@@ -33,6 +33,7 @@ from scipy.spatial import cKDTree
 
 from eventpiv import config
 from eventpiv.data import load_bbox, load_events
+from eventpiv.runconfig import LabelCfg, Labeling, identity_meta
 
 from pathlib import Path
 
@@ -41,10 +42,13 @@ STATUS_CLEAN = 0
 STATUS_AMBIG = 1
 STATUS_NOISE = 2
 
-# --- Defaults (Herkunft: run3-Abgleich, BA_Datensatz §2.2) ---
-BOX_W_DEFAULT    = 11.0   # px, Boxbreite = Hoehe, Konstante des Datensatzes
-R_ASSIGN_DEFAULT = 8.0    # px, max. Abstand Event <-> naechstes Zentrum
-R_AMBIG_DEFAULT  = 2.0    # px, (d2-d1) darunter -> mehrdeutig
+# --- Defaults: EINE Quelle, runconfig.Labeling. Die Modulkonstanten bleiben
+# als Namen bestehen (tests/test_labels.py benutzt sie), beziehen ihren Wert
+# aber von dort -- sonst gaebe es zwei Wahrheiten ueber dieselbe Zahl.
+_LB_DEFAULT      = Labeling()
+BOX_W_DEFAULT    = _LB_DEFAULT.box_w      # px, Boxbreite = Hoehe (Datensatz-Konstante)
+R_ASSIGN_DEFAULT = _LB_DEFAULT.r_assign   # px, max. Abstand Event <-> naechstes Zentrum
+R_AMBIG_DEFAULT  = _LB_DEFAULT.r_ambig    # px, (d2-d1) darunter -> mehrdeutig
 
 
 def assign_track_ids(t, x, y, bbox,
@@ -151,30 +155,36 @@ def label_stats(status) -> dict:
     }
 
 
-def build_labels_for_run(split, run_nr, out_dir=None, t0=None, dt=None,
-                         r_assign=R_ASSIGN_DEFAULT, r_ambig=R_AMBIG_DEFAULT,
-                         box_w=BOX_W_DEFAULT, overwrite=False, verbose=True):
+def build_labels_for_run(cfg: LabelCfg, run_nr, verbose=True):
     """Laedt einen Run, labelt ihn, schreibt <run>_eventlabels.npz.
 
-    Rueckgabe: (Pfad, stats-dict). Wenn die Datei existiert und
-    overwrite=False, wird nur der Pfad zurueckgegeben (stats=None).
+    KEIN Zeitfenster mehr: Labels gelten immer fuer den GANZEN Run. Ein
+    Teilfenster brach spaeter in evaluate.align_gt_window ab -- die
+    Fehlermeldung dort ist der Beleg, dass der Fall schon vorgekommen ist.
+    Ausgabe haengt weiterhin NICHT von alpha/r_max/geom ab, deshalb liegen
+    Labels ausserhalb von wp/ (BA_Konfiguration.md §4).
+
+    Rueckgabe: (Pfad, stats-dict); stats=None, wenn uebersprungen.
     """
-    out_dir = config.label_dir(split) if out_dir is None else Path(out_dir)
+    split = cfg.selection.split
+    lb = cfg.labeling
+    out_dir = (Path(cfg.io.out_path) if cfg.io.out_path
+               else config.label_dir(split))
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"run{run_nr}_eventlabels.npz"
 
-    if out_path.exists() and not overwrite:
+    if out_path.exists() and not cfg.io.overwrite:
         if verbose:
             print(f"  run{run_nr}: existiert schon -> uebersprungen")
         return out_path, None
 
     bbox = load_bbox(split, run_nr)
-    ev = load_events(split, run_nr, t0=t0, dt=dt)
+    ev = load_events(split, run_nr)
 
     tic = time.time()
     track_id, status = assign_track_ids(ev["t"], ev["x"], ev["y"], bbox,
-                                        r_assign=r_assign, r_ambig=r_ambig,
-                                        box_w=box_w)
+                                        r_assign=lb.r_assign,
+                                        r_ambig=lb.r_ambig, box_w=lb.box_w)
     elapsed = time.time() - tic
 
     st = label_stats(status)
@@ -187,16 +197,12 @@ def build_labels_for_run(split, run_nr, out_dir=None, t0=None, dt=None,
         print(f"  track_ids (sauber): "
               f"{len(np.unique(track_id[status == STATUS_CLEAN]))}")
 
-    # int16-Cast für track_id absichern. Bisher ist groesste track_id ueber alle
-    # Splits = 118. Aber wir wollen fatale Fehler frueh vermeiden.
     if len(track_id):
         assert track_id.max() < 2**15, \
             f"track_id {track_id.max()} sprengt int16 -- Speicherformat anpassen!"
 
-
     # SCHLANK speichern -- verlustfreie Integer-Casts (Rohdaten sind ganzzahlig):
     #   t: µs, max ~8e6 << 2^32 -> uint32 | x,y: 0..1279 -> uint16 | p: uint8
-    # t,x,y BLEIBEN erhalten (Interpretationsgrundlage), nur kompakter.
     np.savez(out_path,
              t=ev["t"].astype(np.uint32),
              x=ev["x"].astype(np.uint16),
@@ -205,9 +211,8 @@ def build_labels_for_run(split, run_nr, out_dir=None, t0=None, dt=None,
              track_id=track_id.astype(np.int16),
              status=status.astype(np.uint8),
              meta=config.meta_json(stage="event_labels", split=split,
-                                   run=run_nr, r_assign=r_assign,
-                                   r_ambig=r_ambig, box_w=box_w,
-                                   t0=t0, dt=dt, **st))
+                                   run=run_nr, **identity_meta(labeling=lb),
+                                   **st))
 
     del ev, track_id, status
     gc.collect()                      # RAM-Druck bei Batch-Laeufen daempfen
@@ -215,16 +220,22 @@ def build_labels_for_run(split, run_nr, out_dir=None, t0=None, dt=None,
         print(f"  -> {out_path.name}\n")
     return out_path, st
 
+def build_labels(cfg: LabelCfg, verbose=True) -> list[int]:
+    """Alle Runs aus cfg.selection. Rueckgabe: fehlgeschlagene Run-Nummern.
 
-def build_labels(runs, split="train", **kwargs):
-    """Mehrere Runs. Rueckgabe: Liste der fehlgeschlagenen Run-Nummern."""
+    LEERE Run-Liste bedeutet ALLE Runs des Splits -- das ersetzt das
+    fruehere --all_split. Keine Einschraenkung anzugeben heisst, keine zu
+    wollen; ein zweites Flag daneben waere eine Zustandsverdopplung.
+    """
+    split = cfg.selection.split
+    runs = list(cfg.selection.runs) or config.available_runs(split)
+    lb = cfg.labeling
     print(f"Event-Label-Erzeugung, Split '{split}', {len(runs)} Run(s), "
-          f"R_ASSIGN={kwargs.get('r_assign', R_ASSIGN_DEFAULT)}px, "
-          f"R_AMBIG={kwargs.get('r_ambig', R_AMBIG_DEFAULT)}px\n")
+          f"R_ASSIGN={lb.r_assign}px, R_AMBIG={lb.r_ambig}px\n")
     failed = []
     for r in runs:
         try:
-            build_labels_for_run(split, r, **kwargs)
+            build_labels_for_run(cfg, r, verbose=verbose)
         except Exception as e:
             print(f"  !! run{r} uebersprungen: {type(e).__name__}: {e}")
             failed.append(r)
