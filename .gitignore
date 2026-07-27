@@ -2,9 +2,13 @@
 *.npz
 *.pt
 *.dat
+logs/
 archives/
 outputs/
+multirun/
 runs/
+slurm/
+.vscode/
 # Python
 __pycache__/
 .pytest_cache/
