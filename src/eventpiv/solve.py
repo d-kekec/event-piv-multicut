@@ -37,12 +37,15 @@ from eventpiv.data import load_events
 from eventpiv.evaluate import align_gt_window, cluster_metrics
 from eventpiv.graph import edge_deltas, neighborhood_pairs
 from eventpiv.model import SWAP_RAW6, build_features, is_symmetric
+from eventpiv.runconfig import Neighborhood, SolveCfg, canonical, same_neighborhood
 
 
-def edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, device="cuda",
-               batch=4_000_000):
+def edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, cp):
     """Logit je Kante = Multicut-Kantenkosten. Rueckgabe: float32-GPU-Tensor.
 
+    cp : runconfig.Compute -- device und cost_batch waren hartkodiert
+         (device="cuda", batch=4_000_000). Auf tujestpolin mit bis zu sechs
+         Karten ist device_index keine Konstante (Befund 27.07.2026).
     Der Logit wird DIREKT als Kosten verwendet, ohne Nachskalierung -- durch
     Sigmoid+BCE ist er die Log-Odds, also genau die von RAMA erwartete
     Kalibrierung (BA_RAMA_Verstaendnis.md §1.4).
@@ -56,6 +59,7 @@ def edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, device="cuda",
     Auf einen Schlag gerechnet sprengt das die Karte, bevor RAMA ueberhaupt
     startet. Mit batch=4M bleibt der Spitzenbedarf bei ~150 MB.
     """
+    device, batch = cp.device, cp.cost_batch
     n_edges = len(i)
     out = torch.empty(n_edges, dtype=torch.float32, device=device)
 
@@ -88,7 +92,7 @@ def edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, device="cuda",
     return out
 
 
-def solve_multicut(i, j, costs_gpu, num_nodes, device_index=0, mode="PD"):
+def solve_multicut(i, j, costs_gpu, num_nodes, cp, mode="PD"):
     """RAMA ueber den GPU-Pointer-Pfad. Rueckgabe: node_labels (numpy int32).
 
     Import von rama_py bewusst LOKAL: so laesst sich solve.py importieren
@@ -104,8 +108,8 @@ def solve_multicut(i, j, costs_gpu, num_nodes, device_index=0, mode="PD"):
     # int32-Cast auf der CPU: torch.as_tensor(int64_array) legt sonst erst
     # ein int64-Array auf der GPU an (bei 80 M Kanten 636 MB je Richtung)
     # und castet danach.
-    i_t = torch.as_tensor(np.ascontiguousarray(i, np.int32), device="cuda")
-    j_t = torch.as_tensor(np.ascontiguousarray(j, np.int32), device="cuda")
+    i_t = torch.as_tensor(np.ascontiguousarray(i, np.int32), device=cp.device)
+    j_t = torch.as_tensor(np.ascontiguousarray(j, np.int32), device=cp.device)
     c_t = costs_gpu.contiguous().to(torch.float32)
     
     # Mit -1 vorbelegen, nicht mit 0: 0 ist eine gueltige Cluster-ID. Schreibt
@@ -129,51 +133,83 @@ def solve_multicut(i, j, costs_gpu, num_nodes, device_index=0, mode="PD"):
     rama_py.rama_cuda_gpu_pointers(
         i_t.data_ptr(), j_t.data_ptr(), c_t.data_ptr(),
         node_labels.data_ptr(), num_nodes, num_edges,
-        device_index, opts)
+        cp.device_index, opts)
     torch.cuda.synchronize()
     return node_labels.cpu().numpy()
 
 
-def check_consistency(ckpt, alpha, r_max, geom="ellipsoid", strict=True):
-    """Prueft, ob das Netz mit DIESEN alpha/r_max trainiert wurde.
+def neighborhood_from_meta(meta: dict) -> Neighborhood | None:
+    """Neighborhood aus einem Metadatenblock rekonstruieren.
 
-    Der Kern der Stolperfalle aus BA_NN §3.7: bei geaenderten alpha/r_max
-    sieht das Netz im Einsatz eine andere Kantenverteilung als im Training.
-    Bisher war die Konsistenz eine Konvention (der Orchestrator reichte beides
-    durch) -- jetzt eine Zusicherung.
+    Liest die NEUE verschachtelte Struktur (meta["neighborhood"]) UND die
+    ALTE flache (alpha/r_max/geom auf oberster Ebene). Rueckwaertskompatibel,
+    weil sonst alle vor dem 27.07.2026 erzeugten .pt ausfallen -- und mit
+    ihnen der einzige verifizierte Anker.
+
+    Fehlende Felder werden mit dem historisch richtigen Wert gefuellt:
+      geom  fehlt -> "ellipsoid". Vor Einfuehrung des Parameters lieferte der
+                     KDTree immer das Ellipsoid (BA_NN_Kantenkosten.md §2).
+      v_max fehlt -> V_MAX_DEFAULT. Der Wert war nie konfigurierbar, also
+                     kann er nichts anderes gewesen sein.
+    Beides ist Rekonstruktion, nicht Messung -- fuer neue Dateien entfaellt
+    sie, weil dort asdict(cfg) alles mitschreibt.
     """
-    meta = ckpt.get("meta", {}) or {}
-    trainiert = (meta.get("alpha"), meta.get("r_max"))
-    if trainiert == (None, None):
-        print("  WARN: .pt enthaelt keine alpha/r_max-Metadaten "
-              "(vor der Modularisierung erzeugt) -- Konsistenz UNGEPRUEFT.")
+    if isinstance(meta.get("neighborhood"), dict):
+        return Neighborhood(**meta["neighborhood"])
+    if meta.get("alpha") is None or meta.get("r_max") is None:
+        return None
+    return Neighborhood(
+        alpha=int(meta["alpha"]),
+        r_max=float(meta["r_max"]),
+        geom=str(meta.get("geom", "ellipsoid")),
+        v_max=float(meta.get("v_max", V_MAX_DEFAULT)),
+    )
+
+
+def check_consistency(ckpt, nb: Neighborhood, strict: bool = True) -> None:
+    """Prueft, ob das Netz mit DIESER Nachbarschaft trainiert wurde.
+
+    Verglichen wird die kanonische Form der ganzen Gruppe, nicht Feld fuer
+    Feld: ein spaeter hinzugefuegtes Feld wird damit automatisch mitgeprueft.
+    Eine handgepflegte Liste haette es uebersehen -- belegt an v_max, das in
+    beiden Metadatenbloecken fehlte (BA_Konfiguration.md §2). Der frueher
+    noetige Float-Vergleich entfaellt; die kanonische Form rundet, 3 und 3.0
+    koennen nicht auseinanderlaufen.
+
+    Dateien von VOR dem 27.07.2026 tragen die alte flache Struktur. Sie
+    werden bewusst NICHT gelesen: eine Rekonstruktion muesste fehlende Felder
+    (geom, v_max) raten, und geratene Identitaet ist genau das, was dieses
+    Schema abschafft. Solche Netze laufen mit Warnung und UNGEPRUEFT.
+    """
+    gruppe = (ckpt.get("meta") or {}).get("neighborhood")
+    if not isinstance(gruppe, dict):
+        print("  WARN: .pt enthaelt keinen Metadatenblock 'neighborhood' "
+              "(vor dem 27.07.2026 erzeugt) -- Konsistenz UNGEPRUEFT.")
         return
-    passt = (trainiert[0] == alpha) and (abs(trainiert[1] - r_max) < 1e-9) \
-        and (meta.get("geom", "ellipsoid") == geom)
-    if passt:
+    if same_neighborhood(Neighborhood(**gruppe), nb):
         return
-    text = (f"Netz wurde mit alpha={trainiert[0]}, r_max={trainiert[1]}, "
-            f"geom={meta.get('geom', 'ellipsoid')} trainiert, Einsatz mit "
-            f"alpha={alpha}, r_max={r_max}, geom={geom}. "
-            "Training/Einsatz inkonsistent -- Datensatz und Netz neu bauen.")
+    text = (f"Netz trainiert mit {canonical(Neighborhood(**gruppe))}, "
+            f"Einsatz mit {canonical(nb)}. Training/Einsatz inkonsistent -- "
+            "Datensatz und Netz neu bauen.")
     if strict:
         raise ValueError(text)
     print(f"  WARN: {text}")
 
 
-def solve_window(split, run_nr, model, mu, sig, feature_mode, *,
-                 alpha, r_max, t0, dt, use_knn=False, k_max=24, geom="ellipsoid",
-                 mode="PD", verbose=True):
+def solve_window(cfg: SolveCfg, model, mu, sig, feature_mode, verbose=True):
     """Ein Zeitfenster eines Runs loesen. Rueckgabe: (labels, events, info).
 
-    events ist ein dict mit t, x, y (float64); info enthaelt Kennzahlen zum
-    Lauf selbst (Kantenzahl, Anteil negativer Kosten, Zeiten).
+    Nimmt die Konfiguration statt zwoelf Einzelargumenten entgegen. Gelesen
+    werden cfg.selection, cfg.window, cfg.neighborhood, cfg.solver, cfg.compute
+    -- geschrieben wird NIE in cfg (BA_Konfiguration.md §5).
     """
-    # Nur um Peak Memory je Fenster besser zu sehen.
+    nb, sv, cp = cfg.neighborhood, cfg.solver, cfg.compute
+    sel, win = cfg.selection, cfg.window
+
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
-    
-    ev = load_events(split, run_nr, t0=t0, dt=dt)
+
+    ev = load_events(sel.split, sel.run_nr, t0=win.t0, dt=win.dt)
     t = ev["t"].astype(np.float64)
     x = ev["x"].astype(np.float64)
     y = ev["y"].astype(np.float64)
@@ -184,16 +220,17 @@ def solve_window(split, run_nr, model, mu, sig, feature_mode, *,
         return None, {"t": t, "x": x, "y": y}, {"n_events": 0}
 
     tic = time.time()
-    i, j = neighborhood_pairs(t, x, y, alpha, r_max, geom=geom,
-                              use_knn=use_knn, k_max=k_max, dedup=use_knn)
+    i, j = neighborhood_pairs(t, x, y, nb.alpha, nb.r_max, geom=nb.geom,
+                              v_max=nb.v_max, use_knn=sv.use_knn,
+                              k_max=sv.k_max, dedup=sv.use_knn)
     t_graph = time.time() - tic
     if verbose:
-        print(f"  {len(i):,} Kanten [{t_graph:.1f}s, {geom}]")
+        print(f"  {len(i):,} Kanten [{t_graph:.1f}s, {nb.geom}]")
     if len(i) == 0:
         return None, {"t": t, "x": x, "y": y}, {"n_events": n, "n_edges": 0}
 
     tic = time.time()
-    costs = edge_costs(t, x, y, i, j, model, mu, sig, feature_mode)
+    costs = edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, cp)
     frac_neg = (costs < 0).float().mean().item()
     t_costs = time.time() - tic
     if verbose:
@@ -201,52 +238,64 @@ def solve_window(split, run_nr, model, mu, sig, feature_mode, *,
               f"[{t_costs:.1f}s]")
 
     tic = time.time()
-    labels = solve_multicut(i, j, costs, num_nodes=n, mode=mode)
+    labels = solve_multicut(i, j, costs, num_nodes=n, cp=cp, mode=sv.mode)
     t_rama = time.time() - tic
     if verbose:
-        print(f"  RAMA ({mode}): {len(np.unique(labels))} Cluster "
+        print(f"  RAMA ({sv.mode}): {len(np.unique(labels))} Cluster "
               f"[{t_rama:.1f}s, Torch-Peak "
               f"{torch.cuda.max_memory_allocated()/2**30:.1f} GB]")
 
     info = {"n_events": n, "n_edges": int(len(i)), "frac_neg": frac_neg,
-            "mode": mode, "geom": geom, "t_graph": t_graph,
-            "t_costs": t_costs, "t_rama": t_rama}
+            "t_graph": t_graph, "t_costs": t_costs, "t_rama": t_rama}
     return labels, {"t": t, "x": x, "y": y}, info
 
 
-def solve_and_evaluate(split, run_nr, model_tag, *, alpha, r_max,
-                       t0=1_700_000, dt=5_000, use_knn=False, k_max=24, geom="ellipsoid", mode="PD",
-                       model_dir=None, label_dir=None, strict=True,
-                       verbose=True):
+def solve_and_evaluate(cfg: SolveCfg, verbose=True) -> dict:
     """Vollstaendige Kette fuer EINEN Run inklusive GT-Abgleich.
 
-    Rueckgabe: dict mit Lauf-Kennzahlen und Cluster-Metriken (leer, wenn
-    keine Bewertung moeglich war).
+    Der Modellpfad wird ABGELEITET (config.model_file aus neighborhood, pairs,
+    training), nicht uebergeben. cfg.io.model_path ist der Notausgang fuer
+    fremde Netze -- bewusst ein sichtbarer Akt.
     """
     from pathlib import Path
 
     from eventpiv.model import load_checkpoint
 
-    mdir = config.model_dir(create=False) if model_dir is None else Path(model_dir)
+    mpath = (Path(cfg.io.model_path) if cfg.io.model_path
+             else config.model_file(cfg.neighborhood, cfg.pairs, cfg.training,
+                                    create=False))
+    if not mpath.exists():
+        raise FileNotFoundError(
+            f"{mpath} fehlt -- erst trainieren, oder io.model_path setzen.")
+
     model, mu, sig, feature_mode, ckpt = load_checkpoint(
-        mdir / f"edge_nn_{model_tag}.pt", device="cuda")
-    check_consistency(ckpt, alpha, r_max, geom=geom, strict=strict)
+        mpath, device=cfg.compute.device)
+    check_consistency(ckpt, cfg.neighborhood, strict=cfg.io.strict)
 
+    # feature_mode steht im Checkpoint UND in der Konfiguration. Bisher wurde
+    # der Checkpoint stillschweigend bevorzugt -- dann behauptet der
+    # abgeleitete Modellpfad etwas anderes, als gerechnet wird.
+    if feature_mode != cfg.training.feature_mode:
+        text = (f"Checkpoint hat feature_mode={feature_mode!r}, Konfiguration "
+                f"{cfg.training.feature_mode!r} -- Pfad passt nicht zum Modell.")
+        if cfg.io.strict:
+            raise ValueError(text)
+        print(f"  WARN: {text}")
+
+    sel, win = cfg.selection, cfg.window
     if verbose:
-        print(f"run{run_nr} ({split}), Fenster [{t0/1000:.0f}ms "
-              f"+{dt/1000:.0f}ms], Netz '{model_tag}', "
-              f"k-NN={'AN' if use_knn else 'AUS'}")
+        print(f"run{sel.run_nr} ({sel.split}), Fenster [{win.t0/1000:.0f}ms "
+              f"+{win.dt/1000:.0f}ms], Netz {mpath.name}, "
+              f"k-NN={'AN' if cfg.solver.use_knn else 'AUS'}")
 
-    labels, ev, info = solve_window(split, run_nr, model, mu, sig,
-                                    feature_mode, alpha=alpha, r_max=r_max,
-                                    t0=t0, dt=dt, use_knn=use_knn,
-                                    k_max=k_max, geom=geom, mode=mode, verbose=verbose)
-    info["run"] = run_nr
+    labels, ev, info = solve_window(cfg, model, mu, sig, feature_mode, verbose)
+    info["run"] = sel.run_nr
     if labels is None:
         return info
 
-    gt_path = (config.label_file(split, run_nr) if label_dir is None
-               else Path(label_dir) / f"run{run_nr}_eventlabels.npz")
+    gt_path = (Path(cfg.io.label_dir) / f"run{sel.run_nr}_eventlabels.npz"
+               if cfg.io.label_dir
+               else config.label_file(sel.split, sel.run_nr))
     if not gt_path.exists():
         if verbose:
             print(f"  keine GT-Datei ({gt_path.name}) -> kein Abgleich")
@@ -254,15 +303,13 @@ def solve_and_evaluate(split, run_nr, model_tag, *, alpha, r_max,
 
     gt = np.load(gt_path)
     sl = align_gt_window(gt["t"], ev["t"])
-    metriken = cluster_metrics(labels, gt["track_id"][sl], gt["status"][sl])
-    info.update(metriken)
+    info.update(cluster_metrics(labels, gt["track_id"][sl], gt["status"][sl]))
 
-    if verbose and metriken:
+    if verbose and "purity_mean" in info:
         print(f"\n  GT-Abgleich (nur saubere Events):")
-        print(f"    Cluster: {metriken['n_clusters']}  vs  "
-              f"GT-Partikel: {metriken['n_gt']}")
-        print(f"    Reinheit  Mittel {metriken['purity_mean']:.3f}, "
-              f"{metriken['purity_lt90']} Cluster < 0.90")
-        print(f"    Fragmentierung Mittel {metriken['frag_mean']:.2f}, "
-              f"max {metriken['frag_max']} (1.0 = perfekt)")
+        print(f"    Cluster: {info['n_clusters']}  vs  GT-Partikel: {info['n_gt']}")
+        print(f"    Reinheit  Mittel {info['purity_mean']:.3f}, "
+              f"{info['purity_lt90']} Cluster < 0.90")
+        print(f"    Fragmentierung Mittel {info['frag_mean']:.2f}, "
+              f"max {info['frag_max']} (1.0 = perfekt)")
     return info
