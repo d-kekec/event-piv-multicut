@@ -9,8 +9,7 @@ Hilfsfunktionen, insbesondere der Fall "kein Run loesbar", der real auftritt
 """
 import math
 
-from eventpiv.pairs import win_dt_for
-from eventpiv.pipeline import summarize
+from eventpiv.report import summarize
 
 
 def info(purity, frag, frag_max=2):
@@ -31,15 +30,3 @@ def test_summarize_ohne_loesbare_runs():
     assert z["frag_max"] is None
 
 
-def test_win_dt_am_referenzpunkt():
-    """Bei den Referenzparametern muss genau das Referenzfenster herauskommen."""
-    assert win_dt_for(10_000, 7.06) == 40_000
-
-
-def test_win_dt_waechst_bei_kleinerer_nachbarschaft():
-    """Kleinere Nachbarschaft -> weniger NEIN je Zeit -> breiteres Fenster."""
-    assert win_dt_for(3_000, 5.0) > win_dt_for(10_000, 7.06)
-
-
-def test_win_dt_deckel():
-    assert win_dt_for(100, 1.0, cap=300_000) == 300_000

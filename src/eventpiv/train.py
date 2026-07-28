@@ -25,11 +25,13 @@ import json
 import numpy as np
 import torch
 import torch.nn as nn
+from pathlib import Path
 
 from eventpiv import config
 from eventpiv.model import (EdgeMLP, SWAP_RAW6, build_features, check_mode,
                             feature_names, is_symmetric, n_features,
-                            save_checkpoint, model_tag)
+                            save_checkpoint)
+from eventpiv.runconfig import TrainCfg, identity_meta
 
 IMBALANCE_MODES = ("sample", "weight")
 
@@ -61,7 +63,19 @@ def split_runs_stratified(label, run_arr, val_frac, rng):
     rng.shuffle(nein)
 
     def nimm(runs):
-        k = max(1, int(round(len(runs) * val_frac)))
+        # max(1, ...): mindestens EIN Run je Klasse muss in die Validierung,
+        # sonst fehlt dort eine Klasse und AUC/TPR werden NaN.
+        # min(len-1, ...): mindestens EIN Run je Klasse muss im TRAINING
+        # bleiben. Ohne diese Schranke landeten bei nur einem Run je Klasse
+        # beide im Holdout -- der Trainingssatz war leer und die Schleife
+        # brach mit ZeroDivisionError ab (gefunden 27.07.2026).
+        if len(runs) < 2:
+            raise ValueError(
+                f"Nur {len(runs)} Run(s) in einer Klasse. Ein run-getrennter "
+                "Holdout braucht mindestens zwei je Klasse -- sonst ist "
+                "entweder das Training oder die Validierung leer. "
+                "clean_runs bzw. overlap_runs erweitern.")
+        k = min(len(runs) - 1, max(1, int(round(len(runs) * val_frac)))) 
         return set(runs[:k].tolist())
 
     val_runs = nimm(ja) | nimm(nein)
@@ -89,22 +103,32 @@ def evaluate(model, X, y, mu, sig, symmetric=True):
     return acc, auc, tpr, tnr
 
 
-def train_edge_nn(data_path=None, *, feature_mode="dr", imbalance="sample",
-                  sample_ratio=3.0, hidden=8, epochs=30, batch=65536,
-                  lr=1e-2, val_frac=0.2, seed=0, out_dir=None, verbose=True):
-    """Traeniert das Kanten-Netz und schreibt edge_nn_<mode>_<imbalance>.pt.
+def train_edge_nn(cfg: TrainCfg, verbose=True):
+    """Trainiert das Kanten-Netz und schreibt model.pt an den abgeleiteten Pfad.
+
+    neighborhood und pairs werden nicht gerechnet -- sie leiten den EINGABE-
+    pfad ab. Die Geometrie bleibt trotzdem eine Eigenschaft des DATENSATZES:
+    sie wird aus dessen Metadaten gelesen und gegen cfg.neighborhood geprueft.
+    Zwei unabhaengige Rechnungen desselben Werts; stimmen sie nicht ueberein,
+    luegt eine von beiden. Frueher baute diese Funktion den Pfad selbst neu --
+    ohne geom, und lud damit still den Ellipsoid-Datensatz (Befund 27.07.2026).
 
     Rueckgabe: (pfad, kennzahlen-dict).
     """
-    check_mode(feature_mode)
-    if imbalance not in IMBALANCE_MODES:
+    nb, ps, tr = cfg.neighborhood, cfg.pairs, cfg.training
+    check_mode(tr.feature_mode)
+    if tr.imbalance not in IMBALANCE_MODES:
         raise ValueError(f"imbalance muss in {IMBALANCE_MODES} liegen")
 
-    torch.manual_seed(seed)
-    rng = np.random.default_rng(seed)
+    torch.manual_seed(tr.seed)
+    rng = np.random.default_rng(tr.seed)
 
-    data_path = (config.pairs_dir(create=False) / "pairs_dataset.npz"
-                 if data_path is None else data_path)
+    data_path = (Path(cfg.io.data_path) if cfg.io.data_path
+                 else config.pairs_file(nb, ps, create=False))
+    if not data_path.exists():
+        raise FileNotFoundError(
+            f"{data_path} fehlt -- erst scripts/build_pair_dataset.py laufen "
+            "lassen (gleiche neighborhood/pairs-Gruppe).")
     d = np.load(data_path, allow_pickle=False)
 
     dt = d["dt"].astype(np.float32)
@@ -113,32 +137,32 @@ def train_edge_nn(data_path=None, *, feature_mode="dr", imbalance="sample",
     label = d["label"].astype(np.float32)
     run_arr = d["run"]
 
-    # alpha/r_max wandern aus dem Datensatz in die .pt -- damit kann solve
-    # spaeter HART pruefen, ob Netz und Einsatzparameter zusammenpassen.
-    # Bisher war das eine Konvention (Orchestrator reicht beides durch).
-    alpha = float(d["alpha"]) if "alpha" in d else None
-    r_max = float(d["r_max"]) if "r_max" in d else None
-    geom = str(d["geom"]) if "geom" in d else "ellipsoid"
+    ds_nb = json.loads(str(d["meta"])).get("neighborhood", {})
+    if ds_nb and ds_nb.get("geom") != nb.geom:
+        raise ValueError(
+            f"Datensatz {data_path.name} wurde mit geom={ds_nb.get('geom')!r} "
+            f"gebaut, Konfiguration sagt {nb.geom!r} -- der Pfad passt nicht "
+            "zum Inhalt.")
 
     if verbose:
         print(f"Datensatz: {data_path}")
         print(f"  {len(label):,} Paare "
               f"(JA {int(label.sum()):,} / NEIN {int((label == 0).sum()):,})")
-        print(f"  alpha={alpha}, r_max={r_max}, geom={geom}")
+        print(f"  alpha={nb.alpha}, r_max={nb.r_max}, geom={nb.geom}")
 
     kwargs = {}
-    if feature_mode == "raw6":
+    if tr.feature_mode == "raw6":
         kwargs = {"ti": d["ti"].astype(np.float32),
                   "xi": d["xi"].astype(np.float32),
                   "yi": d["yi"].astype(np.float32)}
-    feats = build_features(dt, dx, dy, mode=feature_mode, xp=np,
+    feats = build_features(dt, dx, dy, mode=tr.feature_mode, xp=np,
                            **kwargs).astype(np.float32)
-    sym = is_symmetric(feature_mode)
+    sym = is_symmetric(tr.feature_mode)
     if verbose:
-        print(f"Feature-Modus '{feature_mode}': {feature_names(feature_mode)} "
+        print(f"Feature-Modus '{tr.feature_mode}': {feature_names(tr.feature_mode)} "
               f"({'symmetrisch' if sym else 'NICHT symm. -> Mittelung'})")
 
-    val_runs, is_val = split_runs_stratified(label, run_arr, val_frac, rng)
+    val_runs, is_val = split_runs_stratified(label, run_arr, tr.val_frac, rng)
     tr_idx = np.flatnonzero(~is_val)
     val_idx = np.flatnonzero(is_val)
     if verbose:
@@ -151,11 +175,11 @@ def train_edge_nn(data_path=None, *, feature_mode="dr", imbalance="sample",
 
     # --- Imbalance: Sampling ODER Gewichtung, nie beides ---
     pos_weight = None
-    if imbalance == "sample":
+    if tr.imbalance == "sample":
         tr_lab = label[tr_idx]
         ja_i = tr_idx[tr_lab == 1]
         nein_i = tr_idx[tr_lab == 0]
-        n_keep = min(len(ja_i), int(len(nein_i) * sample_ratio))
+        n_keep = min(len(ja_i), int(len(nein_i) * tr.sample_ratio))
         tr_idx = np.concatenate([rng.choice(ja_i, n_keep, replace=False),
                                  nein_i])
         rng.shuffle(tr_idx)
@@ -184,22 +208,22 @@ def train_edge_nn(data_path=None, *, feature_mode="dr", imbalance="sample",
     mu_t = torch.tensor(mu)
     sig_t = torch.tensor(sig)
 
-    model = EdgeMLP(n_features(feature_mode), hidden)
+    model = EdgeMLP(n_features(tr.feature_mode), tr.hidden)
     n_params = sum(p.numel() for p in model.parameters())
     if verbose:
-        print(f"Netz: {n_features(feature_mode)}->{hidden}->1, "
+        print(f"Netz: {n_features(tr.feature_mode)}->{tr.hidden}->1, "
               f"{n_params} Parameter")
 
     loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-    opt = torch.optim.Adam(model.parameters(), lr=lr)
+    opt = torch.optim.Adam(model.parameters(), lr=tr.lr)
 
     n = len(Xtr)
-    for ep in range(1, epochs + 1):
+    for ep in range(1, tr.epochs + 1):
         model.train()
         perm = torch.randperm(n)
         tot = 0.0
-        for b in range(0, n, batch):
-            bi = perm[b:b + batch]
+        for b in range(0, n, tr.batch):
+            bi = perm[b:b + tr.batch]
             opt.zero_grad()
             loss = loss_fn(model(Xtr[bi]), ytr[bi])
             loss.backward()
@@ -217,14 +241,13 @@ def train_edge_nn(data_path=None, *, feature_mode="dr", imbalance="sample",
         print(f"\nFinal: acc {acc:.4f} | AUC {auc:.4f} | "
               f"TPR(JA) {tpr:.3f} | TNR(NEIN) {tnr:.3f}")
 
-    out_dir = config.model_dir() if out_dir is None else out_dir
-    tag = model_tag(feature_mode, imbalance, geom)
+    out_path = (Path(cfg.io.out_path) if cfg.io.out_path
+                else config.model_file(nb, ps, tr))
     path = save_checkpoint(
-        f"{out_dir}/edge_nn_{tag}.pt", model, mu, sig, feature_mode, hidden,
+        out_path, model, mu, sig, tr.feature_mode, tr.hidden,
         **json.loads(config.meta_json(
-            stage="edge_nn", tag=tag, alpha=alpha, r_max=r_max, geom=geom,
-            imbalance=imbalance, sample_ratio=sample_ratio, epochs=epochs,
-            lr=lr, batch=batch, val_frac=val_frac, seed=seed,
+            stage="edge_nn",
+            **identity_meta(neighborhood=nb, pairs=ps, training=tr),
             data_path=str(data_path), **kennzahlen)))
     if verbose:
         print(f"-> {path}")

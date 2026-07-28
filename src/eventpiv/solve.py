@@ -12,10 +12,9 @@ Graphbau, NN-Auswertung, RAMA-Aufruf und GT-Abgleich. Hier getrennt:
   evaluate.cluster_metrics  GT-Abgleich       (eigenes Modul)
   solve_and_evaluate        setzt es zusammen (hier)
 
-Nutzen: evaluate_on_val und search_parameters koennen die Teile einzeln
-importieren, statt das ganze Skript als Subprozess zu starten. (Die
-Subprozess-Isolation gegen VRAM-Abstuerze bleibt moeglich -- sie ist dann
-eine bewusste Entscheidung, kein Zwang aus der Codestruktur.)
+Nutzen: Auswertung und Visualisierung koennen die Teile einzeln importieren.
+Die Prozess-Isolation gegen VRAM-Abstuerze liegt jetzt in den sbatch-Skripten
+(ein Python-Prozess je Lauf), nicht mehr im Python-Code.
 
 POINTER-PFAD-REGELN (BA_RAMA_Verstaendnis.md §3.6, hart):
   i,j int32 | costs float32 | node_labels int32-PUFFER selbst anlegen
@@ -116,7 +115,7 @@ def solve_multicut(i, j, costs_gpu, num_nodes, cp, mode="PD"):
     # RAMA kantenlose Knoten nicht (sanitize_graph entfernt sie), landeten sie
     # sonst still in Cluster 0. -1 heisst "keinem Cluster zugeordnet" und wird
     # von cluster_metrics korrekt herausgefiltert.
-    node_labels = torch.full((num_nodes,), -1, device="cuda",
+    node_labels = torch.full((num_nodes,), -1, device=cp.device,
                              dtype=torch.int32).contiguous()
 
     opts = rama_py.multicut_solver_options(mode)
@@ -137,33 +136,6 @@ def solve_multicut(i, j, costs_gpu, num_nodes, cp, mode="PD"):
     torch.cuda.synchronize()
     return node_labels.cpu().numpy()
 
-
-def neighborhood_from_meta(meta: dict) -> Neighborhood | None:
-    """Neighborhood aus einem Metadatenblock rekonstruieren.
-
-    Liest die NEUE verschachtelte Struktur (meta["neighborhood"]) UND die
-    ALTE flache (alpha/r_max/geom auf oberster Ebene). Rueckwaertskompatibel,
-    weil sonst alle vor dem 27.07.2026 erzeugten .pt ausfallen -- und mit
-    ihnen der einzige verifizierte Anker.
-
-    Fehlende Felder werden mit dem historisch richtigen Wert gefuellt:
-      geom  fehlt -> "ellipsoid". Vor Einfuehrung des Parameters lieferte der
-                     KDTree immer das Ellipsoid (BA_NN_Kantenkosten.md §2).
-      v_max fehlt -> V_MAX_DEFAULT. Der Wert war nie konfigurierbar, also
-                     kann er nichts anderes gewesen sein.
-    Beides ist Rekonstruktion, nicht Messung -- fuer neue Dateien entfaellt
-    sie, weil dort asdict(cfg) alles mitschreibt.
-    """
-    if isinstance(meta.get("neighborhood"), dict):
-        return Neighborhood(**meta["neighborhood"])
-    if meta.get("alpha") is None or meta.get("r_max") is None:
-        return None
-    return Neighborhood(
-        alpha=int(meta["alpha"]),
-        r_max=float(meta["r_max"]),
-        geom=str(meta.get("geom", "ellipsoid")),
-        v_max=float(meta.get("v_max", V_MAX_DEFAULT)),
-    )
 
 
 def check_consistency(ckpt, nb: Neighborhood, strict: bool = True) -> None:

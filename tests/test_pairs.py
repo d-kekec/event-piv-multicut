@@ -8,7 +8,7 @@ from eventpiv.labels import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
 from eventpiv.pairs import collect_pairs
 
 PARAMS = dict(alpha=1_000.0, r_max=5.0, win_offsets=(0,),
-              win_dt=2_000, slab_dt=1_000)
+              win_dt=2_000, slab_dt=1_000, geom="ellipsoid")
 
 
 @pytest.fixture
@@ -32,9 +32,9 @@ def test_geom_wird_durchgereicht(szene):
     """Zylinder ist weiter als Ellipsoid -> mindestens so viele Paare."""
     t, x, y, tid, sta = szene
     e = collect_pairs(t, x, y, tid, sta, want_label=None,
-                      geom="ellipsoid", **PARAMS)
+                      **{**PARAMS, "geom": "ellipsoid"})
     z = collect_pairs(t, x, y, tid, sta, want_label=None,
-                      geom="cylinder", **PARAMS)
+                      **{**PARAMS, "geom": "cylinder"})
     assert len(z["label"]) >= len(e["label"])
 
 def test_label_entspricht_track_id(szene):

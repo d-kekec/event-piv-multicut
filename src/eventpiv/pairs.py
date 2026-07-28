@@ -33,24 +33,19 @@ import numpy as np
 from eventpiv import config
 from eventpiv.graph import neighborhood_pairs
 from eventpiv.labels import STATUS_CLEAN
+from eventpiv.runconfig import PairCfg, identity_meta
 
-# --- Defaults (Herkunft: BA_NN_Kantenkosten.md §2.1 / §4.1) ---
-ALPHA_DEFAULT   = 10_000        # µs
-R_MAX_DEFAULT   = 7.06          # px
-WIN_DT_DEFAULT  = 40_000        # µs je Sammelfenster
-SLAB_DT_DEFAULT = 10_000        # µs Slab-Breite (RAM-Schutz)
-WIN_OFFSETS_DEFAULT = (1_500_000, 3_500_000, 5_500_000)   # µs ab Run-Anfang
-MAX_PER_RUN_DEFAULT = 2_000_000  # Deckel je Klasse und Run
-
-# Run-Listen: bewusst KEINE Modulkonstanten mehr -- sie gehoeren in die
-# Aufrufebene (Skript/Config), nicht ins Rechenmodul. Herkunft der bisherigen
-# Listen: identify_overlap_runs.py, BA_Datensatz_und_Pipeline.md §2.2.
+# --- Defaults liegen in runconfig.PairSampling / .Neighborhood ---
+# Frueher standen sie zusaetzlich hier. Zwei Wahrheiten ueber dieselbe Zahl
+# waren die Ursache des train_edge_nn-Befunds vom 27.07.2026: train.py baute
+# den Datensatzpfad OHNE geom neu und lud damit still den Ellipsoid-Datensatz.
 
 FIELDS = ("dt", "dx", "dy", "ti", "xi", "yi", "label", "run")
 
 
+
 def collect_pairs(t, x, y, track_id, status, *, alpha, r_max,
-                  win_offsets, win_dt, slab_dt, want_label, geom="ellipsoid"):
+                  win_offsets, win_dt, slab_dt, want_label, geom):
     """Sammelt Paare aus EINEM Run. Reine Funktion -- Arrays rein, Arrays raus.
 
     t, x, y      : Eventkoordinaten (float64)
@@ -136,57 +131,61 @@ def cap_arrays(data: dict, n_max, rng) -> dict:
     return {k: v[sel] for k, v in data.items()}
 
 
-def build_pairs_for_run(split, run_nr, want_label, *, alpha, r_max,
-                        win_offsets, win_dt, slab_dt, label_dir=None, geom="ellipsoid"):
-    """Laedt die Label-Datei eines Runs und sammelt daraus Paare."""
-    path = (config.label_file(split, run_nr) if label_dir is None
-            else Path(label_dir) / f"run{run_nr}_eventlabels.npz")
+def build_pairs_for_run(cfg: PairCfg, run_nr, want_label, win_dt):
+    """Laedt die Label-Datei eines Runs und sammelt daraus Paare.
+
+    win_dt explizit, weil die beiden Klassen verschiedene Sammelfenster
+    haben (cfg.pairs.win_dt_yes bzw. .win_dt) -- der Aufrufer entscheidet.
+    """
+    nb, ps = cfg.neighborhood, cfg.pairs
+    path = (Path(cfg.io.label_dir) / f"run{run_nr}_eventlabels.npz"
+            if cfg.io.label_dir else config.label_file(ps.split, run_nr))
     if not path.exists():
         raise FileNotFoundError(
             f"{path} fehlt -- erst scripts/build_event_labels.py "
-            f"--split {split} --runs {run_nr} laufen lassen.")
+            f"selection.split={ps.split} selection.runs=[{run_nr}] laufen lassen.")
     d = np.load(path)
     return collect_pairs(d["t"], d["x"], d["y"], d["track_id"], d["status"],
-                         alpha=alpha, r_max=r_max, win_offsets=win_offsets,
-                         win_dt=win_dt, slab_dt=slab_dt, want_label=want_label, geom=geom)
+                         alpha=nb.alpha, r_max=nb.r_max, geom=nb.geom,
+                         win_offsets=tuple(ps.win_offsets), win_dt=win_dt,
+                         slab_dt=ps.slab_dt, want_label=want_label)
 
 
-def build_pair_dataset(clean_runs, overlap_runs, *, split="train",
-                       alpha=ALPHA_DEFAULT, r_max=R_MAX_DEFAULT,
-                       win_offsets=WIN_OFFSETS_DEFAULT, win_dt_yes = None,
-                       win_dt=WIN_DT_DEFAULT, slab_dt=SLAB_DT_DEFAULT,
-                       max_yes=MAX_PER_RUN_DEFAULT, max_no=MAX_PER_RUN_DEFAULT,
-                       label_dir=None, out_path=None, seed=0, geom="ellipsoid"):
+def build_pair_dataset(cfg: PairCfg, verbose=True):
     """Baut den kompletten Paar-Datensatz und schreibt ihn als .npz.
 
-    clean_runs   : JA-Quelle  (weit getrennte Runs)
-    overlap_runs : NEIN-Quelle (nur echte Kreuzungen liefern NEIN)
+    Der Pfad wird ABGELEITET (config.pairs_file aus neighborhood + pairs);
+    cfg.io.out_path ist der Notausgang. Metadaten kommen aus identity_meta --
+    keine handgepflegte Feldliste mehr, die Felder vergessen kann (v_max
+    fehlte in genau so einer, BA_Konfiguration.md §2).
 
     EIN rng fuer alle Deckel, in fester Reihenfolge (erst clean, dann
     overlap) -> reproduzierbar bei gleichem seed.
     """
-    rng = np.random.default_rng(seed)
+    nb, ps = cfg.neighborhood, cfg.pairs
+    if ps.win_dt is None or ps.win_dt_yes is None:
+        raise ValueError(
+            "win_dt/win_dt_yes nicht aufgeloest. cfg.resolve_derived() laeuft "
+            "normalerweise in scripts/_cli.to_cfg -- bei direktem Aufruf aus "
+            "Code oder Test vorher selbst aufrufen.")
+
+    rng = np.random.default_rng(ps.seed)
     t_start = time.time()
     teile = []
 
     def sammle(runs, want_label, n_max, kind, wdt):
         print(f"{kind}-Paare aus {len(runs)} Run(s) (win_dt={wdt/1000:.0f}ms):")
         for r in runs:
-            d = cap_arrays(
-                build_pairs_for_run(split, r, want_label, alpha=alpha,
-                                    r_max=r_max, win_offsets=win_offsets,
-                                    win_dt=wdt, slab_dt=slab_dt, geom=geom,
-                                    label_dir=label_dir),
-                n_max, rng)
+            d = cap_arrays(build_pairs_for_run(cfg, r, want_label, wdt),
+                           n_max, rng)
             d["run"] = np.full(len(d["label"]), r, np.int16)
             teile.append(d)
             print(f"  run{r:<3d}: {len(d['label']):>10,} {kind}-Paare")
 
-    # win_dt_for ist auf die NEIN-Ausbeute geeicht. Saubere Runs liefern
-    # physikalisch NULL NEIN-Paare -- das breite Fenster kostet dort nur
-    # Zeit und RAM, ohne etwas beizutragen.
-    sammle(clean_runs, 1, max_yes, "JA", win_dt_yes or WIN_DT_DEFAULT)
-    sammle(overlap_runs, 0, max_no, "NEIN", win_dt)
+    # Das breite Fenster ist auf die NEIN-Ausbeute geeicht. Saubere Runs
+    # liefern physikalisch NULL NEIN-Paare -- dort kostet es nur Zeit.
+    sammle(ps.clean_runs, 1, ps.max_yes, "JA", ps.win_dt_yes)
+    sammle(ps.overlap_runs, 0, ps.max_no, "NEIN", ps.win_dt)
 
     # Feldweise zusammenfuegen und die Teile SOFORT freigeben. Sonst liegen
     # am Ende alle Teile UND das Ergebnis gleichzeitig im RAM (Faktor 2).
@@ -195,10 +194,10 @@ def build_pair_dataset(clean_runs, overlap_runs, *, split="train",
         data[k] = np.concatenate([p[k] for p in teile])
         for p in teile:
             del p[k]
-    teile.clear()      # Referenzen loesen, Namen behalten (sammle() haelt ihn als Closure)   
+    teile.clear()
 
     n_yes = int((data["label"] == 1).sum())
-    n_no  = int((data["label"] == 0).sum())
+    n_no = int((data["label"] == 0).sum())
 
     print("=" * 52)
     print(f"Datensatz gesamt: {len(data['label']):,} Paare")
@@ -208,45 +207,12 @@ def build_pair_dataset(clean_runs, overlap_runs, *, split="train",
         print(f"  Verhaeltnis JA:NEIN = {n_yes/n_no:,.1f} : 1")
     print(f"  Zeit: {time.time()-t_start:.0f}s")
 
-    out_path = pairs_path(geom) if out_path is None else Path(out_path)
-        
+    out_path = (Path(cfg.io.out_path) if cfg.io.out_path
+                else config.pairs_file(nb, ps))
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez(out_path, alpha=alpha, r_max=r_max, geom=geom, **data,
-             meta=config.meta_json(stage="pair_dataset", split=split,
-                                   alpha=alpha, r_max=r_max, geom=geom,
-                                   win_dt=win_dt, win_dt_yes=win_dt_yes,
-                                   slab_dt=slab_dt,
-                                   win_offsets=list(win_offsets),
-                                   clean_runs=list(clean_runs),
-                                   overlap_runs=list(overlap_runs),
-                                   max_yes=max_yes, max_no=max_no, seed=seed,
+    np.savez(out_path, **data,
+             meta=config.meta_json(stage="pair_dataset",
+                                   **identity_meta(neighborhood=nb, pairs=ps),
                                    n_yes=n_yes, n_no=n_no))
     print(f"-> {out_path}")
     return out_path, data
-
-def win_dt_for(alpha, r_max, *, ref_alpha=10_000, ref_r_max=7.06,
-               ref_win_dt=40_000, cap=300_000) -> int:
-    """Sammelfenster so waehlen, dass die NEIN-Ausbeute konstant bleibt.
-
-    Die Zahl der NEIN-Paare ist proportional zum Nachbarschaftsvolumen,
-    also ~ r_max^2 * alpha. Verkleinert man die Nachbarschaft, bricht die
-    NEIN-Ausbeute ein -> ueber ein breiteres Sammelfenster kompensieren:
-
-        WIN_DT ~ 1 / (r_max^2 * alpha)
-
-    Geeicht am ELLIPSOID. Zylinder und Hyperboloid haben ein groesseres
-    Volumen (Faktor ~1.5 bzw. leicht darueber), liefern also mehr NEIN-Paare
-    je Zeit -- das Fenster ist dort konservativ, nicht falsch.
-
-    Nur fuers SAMMELN; das Solve-Fenster bleibt klein.
-    """
-    v = int(ref_win_dt * (ref_r_max ** 2 * ref_alpha) / (r_max ** 2 * alpha))
-    return min(v, cap)
-
-def pairs_path(geom="ellipsoid", out_dir=None):
-    """Standardpfad des Paar-Datensatzes -- EINE Namensregel fuer Bauen
-    und Laden. Sonst muss man den Datensatz erst erzeugen, um zu wissen,
-    wie er heisst."""
-    name = ("pairs_dataset.npz" if geom == "ellipsoid"
-            else f"pairs_dataset_{geom}.npz")
-    return (config.pairs_dir() if out_dir is None else Path(out_dir)) / name

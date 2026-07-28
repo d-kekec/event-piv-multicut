@@ -135,12 +135,3 @@ def load_checkpoint(path, device="cpu"):
     sig = torch.as_tensor(ckpt["sig"], dtype=torch.float32, device=device)
     return model, mu, sig, ckpt["feature_mode"], ckpt
 
-def model_tag(feature_mode, imbalance, geom="ellipsoid") -> str:
-    """Dateiname-Tag eines Netzes.
-
-    geom taucht nur auf, wenn es vom Default abweicht -- so bleiben die
-    bestehenden Dateinamen (edge_nn_dr_sample.pt) gueltig und die
-    Geometrie-Ablation ueberschreibt sie NICHT.
-    """
-    tag = f"{feature_mode}_{imbalance}"
-    return tag if geom == "ellipsoid" else f"{tag}_{geom}"

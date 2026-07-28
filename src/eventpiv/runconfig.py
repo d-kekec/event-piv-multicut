@@ -19,20 +19,46 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 
 WIN_DT_YES_DEFAULT = 40_000     # µs, JA-Seite (BA_NN_Kantenkosten.md §4.1)
 
 BOX_W = 11.0                    # px, Boxbreite = Hoehe. KONSTANTE DES DATENSATZES,
                                 # BoundingBox Länge.
 
+_CAST = {"int": int, "float": float, "str": str, "bool": bool}
+
+
+class _Typed:
+    """Feldwerte auf ihren annotierten Typ bringen.
+
+    `r_max: float` ist in Python nur Dokumentation -- Neighborhood(r_max=3)
+    haelt eine 3, Neighborhood(r_max=3.0) eine 3.0, und die kanonische Form
+    liefe auseinander: derselbe Arbeitspunkt bekaeme zwei Verzeichnisse, und
+    check_consistency schluege ohne Grund an. Ueber Hydra faellt das nie auf
+    (OmegaConf castet gegen das Schema) -- bei direkter Konstruktion in
+    Tests, Skripten und Auswertungen schon. Gefunden von tests/test_runconfig.py.
+
+    `from __future__ import annotations` macht f.type zu einem STRING;
+    "int | None" wird am Trenner zerlegt. Listen (list[int]) stehen nicht in
+    _CAST und bleiben unangetastet.
+    """
+
+    def __post_init__(self) -> None:
+        for f in fields(self):
+            v = getattr(self, f.name)
+            if v is None:
+                continue
+            cast = _CAST.get(str(f.type).split("|")[0].strip())
+            if cast is not None and not isinstance(v, cast):
+                setattr(self, f.name, cast(v))
 
 # ============================================================
 # Gruppen
 # ============================================================
 
 @dataclass
-class Neighborhood:
+class Neighborhood(_Typed):
     """DER VERTRAG -- und zugleich die Identitaet des Arbeitspunkts.
 
     v_max wirkt nur bei geom="hyperboloid", gehoert aber hierher: er
@@ -48,7 +74,7 @@ class Neighborhood:
 
 
 @dataclass
-class PairSampling:
+class PairSampling(_Typed):
     """Identitaet des Paar-Datensatzes. `split` ist hier die QUELLE der Paare
     -- nicht zu verwechseln mit Selection.split (was geloest wird)."""
     split: str = "train"
@@ -70,7 +96,7 @@ class PairSampling:
 
 
 @dataclass
-class Training:
+class Training(_Typed):
     feature_mode: str = "dr"
     imbalance: str = "sample"
     sample_ratio: float = 3.0
@@ -86,7 +112,7 @@ class Training:
 
 
 @dataclass
-class Solver:
+class Solver(_Typed):
     """Erzwingt keinen Neubau und wird nie verglichen (…Pipeline_Dateien §5)."""
     mode: str = "P"
     use_knn: bool = False
@@ -97,20 +123,20 @@ class Solver:
 
 
 @dataclass
-class Labeling:
+class Labeling(_Typed):
     r_assign: float = 8.0
     r_ambig: float = 2.0
 
 
 @dataclass
-class Selection:
+class Selection(_Typed):
     split: str = "train"
     run_nr: int | None = None
     runs: list[int] = field(default_factory=list)
 
 
 @dataclass
-class Window:
+class Window(_Typed):
     """Solve-Fenster. NICHT PairSampling.win_dt (Sammelfenster)."""
     t0: int = 1_700_000
     dt: int = 20_000
@@ -120,14 +146,14 @@ class Window:
 
 
 @dataclass
-class Compute:
+class Compute(_Typed):
     """Ressourcen -- NIE Teil einer Artefakt-Identitaet."""
     device: str = "cuda"
     device_index: int = 0
     cost_batch: int = 4_000_000
 
 @dataclass
-class IO:
+class IO(_Typed):
     """Schublade 3 und 4 (BA_Konfiguration.md §1): Ein-/Ausgabe und Notausgaenge.
 
     NIE Teil einer Artefakt-Identitaet -- deshalb eine eigene Gruppe, die
