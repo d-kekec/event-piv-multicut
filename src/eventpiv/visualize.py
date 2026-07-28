@@ -44,6 +44,7 @@ from PIL import Image, ImageDraw, ImageFont
 from eventpiv import config
 from eventpiv.data import load_events
 from eventpiv.labels import STATUS_CLEAN
+from eventpiv.runconfig import AnimClustersCfg, AnimRunCfg, slug
 
 SENSOR_H, SENSOR_W = 720, 1280
 
@@ -205,14 +206,18 @@ def _crop_box(x, y, downscale, shape, rand=12):
 # ============================================================
 # [A] ganzer Run
 # ============================================================
+def animate_run(cfg: AnimRunCfg):
+    """Animiert einen ganzen Run (oder ein Teilstueck), Farbe = Polaritaet."""
+    sel, win, an = cfg.selection, cfg.window, cfg.anim
+    split, run_nr = sel.split, sel.run_nr
 
-def animate_run(split, run_nr, *, t0=None, dt=None, frame_ms=20.0,
-                speedup=1.0, downscale=2, point=1, out_dir=None):
-    """Animiert einen ganzen Run (oder ein Teilstueck), Farbe = Polaritaet.
+    if run_nr is None:
+        raise SystemExit("selection.run_nr fehlt -- z.B. selection.run_nr=3")
 
-    frame_ms : Akkumulationszeit je Frame
-    speedup  : > 1 ueberspringt Frames (kuerzeres GIF, groebere Zeitaufloesung)
-    """
+    t0, dt = win.t0, win.dt
+    frame_ms, speedup = an.frame_ms, an.speedup
+    downscale, point = an.downscale, an.point
+
     ev = load_events(split, run_nr, t0=t0, dt=dt)
     if len(ev) == 0:
         raise ValueError("Leeres Zeitfenster.")
@@ -244,8 +249,8 @@ def animate_run(split, run_nr, *, t0=None, dt=None, frame_ms=20.0,
         if (k + 1) % 50 == 0:
             print(f"  {k+1}/{len(starts)} Frames")
 
-    out_dir = (config.results_dir() / "animations" if out_dir is None
-               else Path(out_dir))
+    out_dir = (config.results_dir() / "animations" if cfg.io.out_path is None
+               else Path(cfg.io.out_path))
     name = f"run{run_nr}_{split}_{frame_ms:.0f}ms_{len(frames)}f.gif"
     return save_gif(frames, out_dir / name, frame_ms)
 
@@ -254,42 +259,45 @@ def animate_run(split, run_nr, *, t0=None, dt=None, frame_ms=20.0,
 # [B] geloestes Fenster: Roh | Cluster | GT
 # ============================================================
 
-def animate_clusters(split, run_nr, model_tag, *, alpha, r_max,
-                     t0=1_700_000, dt=5_000, frame_ms=0.25, trail=True,
-                     downscale=1, point=2, min_size=5, color_by="cluster",
-                     show_gt=True, crop=True, use_knn=False, k_max=24, geom="ellipsoid", mode="PD",
-                     model_dir=None, label_dir=None, strict=True,
-                     out_dir=None):
+def animate_clusters(cfg: AnimClustersCfg):
     """Loest ein Fenster und animiert Rohevents, Cluster und GT nebeneinander.
 
-    trail : True  = Events bleiben stehen, die Trajektorien wachsen auf.
-                    Zeigt am deutlichsten, dass ein Cluster eine
-                    Raum-Zeit-Trajektorie ist.
-            False = nur die Events des aktuellen Frames (wie animate_run).
-
-    Rueckgabe: (gif_pfad, info) -- info enthaelt die Cluster-Metriken.
+    Der Modellpfad wird ABGELEITET wie beim Solve; cfg.io.model_path ist der
+    Notausgang. Rueckgabe: (gif_pfad, info) mit den Cluster-Metriken.
     """
     from eventpiv.evaluate import align_gt_window, cluster_metrics
     from eventpiv.model import load_checkpoint
     from eventpiv.solve import check_consistency, solve_window
 
-    if color_by not in ("cluster", "gt"):
-        raise ValueError("color_by muss 'cluster' oder 'gt' sein")
+    sel, win, an = cfg.selection, cfg.window, cfg.anim
+    split, run_nr = sel.split, sel.run_nr
 
-    mdir = (config.model_dir(create=False) if model_dir is None
-            else Path(model_dir))
+    if run_nr is None:
+        raise SystemExit("selection.run_nr fehlt -- z.B. selection.run_nr=3")
+
+    if an.color_by not in ("cluster", "gt"):
+        raise ValueError("anim.color_by muss 'cluster' oder 'gt' sein")
+
+    if win.t0 is None or win.dt is None:
+        raise SystemExit(
+            "window.t0/window.dt muessen gesetzt sein -- animate_clusters "
+            "LOEST das Fenster. Ganze Runs sind das Ziel (TODO B: k-NN, "
+            "ON-only, Tracklets), sprengen aber derzeit den VRAM.")
+
+    mpath = (Path(cfg.io.model_path) if cfg.io.model_path
+             else config.model_file(cfg.neighborhood, cfg.pairs, cfg.training,
+                                    create=False))
     model, mu, sig, feature_mode, ckpt = load_checkpoint(
-        mdir / f"edge_nn_{model_tag}.pt", device="cuda")
-    check_consistency(ckpt, alpha, r_max, geom=geom, strict=strict)
+        mpath, device=cfg.compute.device)
+    check_consistency(ckpt, cfg.neighborhood, strict=cfg.io.strict)
 
-    print(f"run{run_nr} ({split}), Fenster [{t0/1000:.0f}ms "
-          f"+{dt/1000:.1f}ms], Netz '{model_tag}'")
-    labels, ev, info = solve_window(split, run_nr, model, mu, sig,
-                                    feature_mode, alpha=alpha, r_max=r_max,
-                                    t0=t0, dt=dt, use_knn=use_knn,
-                                    k_max=k_max, geom=geom, mode=mode)
+    print(f"run{run_nr} ({split}), Fenster [{win.t0/1000:.0f}ms "
+          f"+{win.dt/1000:.1f}ms], Netz {mpath.name}")
+    labels, ev, info = solve_window(cfg, model, mu, sig, feature_mode)
     if labels is None:
         raise ValueError("Keine Loesung (leeres Fenster oder keine Kanten).")
+
+    show_gt = an.show_gt
 
     t = ev["t"]
     x = ev["x"].astype(np.int64)
@@ -297,8 +305,8 @@ def animate_clusters(split, run_nr, model_tag, *, alpha, r_max,
 
     # --- GT laden, falls vorhanden ---
     tid = sta = None
-    gt_pfad = (config.label_file(split, run_nr) if label_dir is None
-               else Path(label_dir) / f"run{run_nr}_eventlabels.npz")
+    gt_pfad = (config.label_file(split, run_nr) if cfg.io.label_dir is None
+               else Path(cfg.io.label_dir) / f"run{run_nr}_eventlabels.npz")
     if gt_pfad.exists():
         gt = np.load(gt_pfad)
         sl = align_gt_window(gt["t"], t)
@@ -312,48 +320,49 @@ def animate_clusters(split, run_nr, model_tag, *, alpha, r_max,
         show_gt = False
 
     # --- Farbtabellen (einmal fuer das ganze Fenster -> stabil ueber Frames) ---
-    if color_by == "gt" and tid is not None:
+    if an.color_by == "gt" and tid is not None:
         lab_uniq, lab_colors = majority_gt_colors(labels, tid, sta,
-                                                  min_size=min_size)
+                                                  min_size=an.min_size)
     else:
-        lab_uniq, lab_colors = color_lookup(labels, min_size=min_size)
+        lab_uniq, lab_colors = color_lookup(labels, min_size=an.min_size)
     cluster_farben = lab_colors[np.searchsorted(lab_uniq, labels)]
 
     roh_farben = np.tile(np.array([70, 70, 70], np.uint8), (len(t), 1))
 
     gt_farben = None
-    if show_gt:
+    if show_gt and tid is not None:
         gt_uniq, gt_colors = color_lookup(np.where(sta == STATUS_CLEAN,
                                                    tid, -1), min_size=1)
         gt_farben = gt_colors[np.searchsorted(
             gt_uniq, np.where(sta == STATUS_CLEAN, tid, -1))]
 
     # --- Frames ---
-    shape = (SENSOR_H // downscale, SENSOR_W // downscale)
-    zuschnitt = _crop_box(x, y, downscale, shape) if crop else None
+    shape = (SENSOR_H // an.downscale, SENSOR_W // an.downscale)
+    zuschnitt = _crop_box(x, y, an.downscale, shape) if an.crop else None
 
-    fenster = frame_ms * 1000.0
+    fenster = an.frame_ms * 1000.0
     starts = np.arange(t[0], t[-1] + fenster, fenster)
-    print(f"{len(starts)} Frames à {frame_ms:.2f} ms  "
-          f"(trail={'an' if trail else 'aus'}, Farbe nach "
-          f"{'GT-Mehrheit' if color_by == 'gt' else 'Cluster-ID'})")
+    print(f"{len(starts)} Frames à {an.frame_ms:.2f} ms  "
+          f"(trail={'an' if an.trail else 'aus'}, Farbe nach "
+          f"{'GT-Mehrheit' if an.color_by == 'gt' else 'Cluster-ID'})")
 
     frames = []
     for s in starts:
-        m = (t < s + fenster) if trail else ((t >= s) & (t < s + fenster))
-        gem = dict(shape=shape, downscale=downscale, point=point,
+        m = (t < s + fenster) if an.trail else ((t >= s) & (t < s + fenster))
+        gem = dict(shape=shape, downscale=an.downscale, point=an.point,
                    crop=zuschnitt)
         panels = [render_panel(x, y, roh_farben, m, **gem),
                   render_panel(x, y, cluster_farben, m, **gem)]
-        titel = ["Rohevents", f"RAMA-Cluster (grau: < {min_size} Events)"]
+        titel = ["Rohevents", f"RAMA-Cluster (grau: < {an.min_size} Events)"]
         if show_gt:
             panels.append(render_panel(x, y, gt_farben, m, **gem))
             titel.append("Ground Truth (grau: kein sauberes Label)")
         frames.append(compose(panels, titel, f"{(s - t[0])/1000:.2f} ms"))
 
-    out_dir = (config.results_dir() / "animations" if out_dir is None
-               else Path(out_dir))
-    name = (f"cluster_run{run_nr}_{split}_a{alpha}_r{r_max:g}_"
-            f"{model_tag}_{color_by}.gif")
-    pfad = save_gif(frames, out_dir / name, max(frame_ms * 20, 60))
+   
+    out_dir = (config.results_dir() / "animations" if cfg.io.out_path is None
+               else Path(cfg.io.out_path))
+    name = (f"cluster_{split}_run{run_nr}_{slug(cfg.neighborhood)}_"
+            f"{cfg.training.short()}_{an.color_by}.gif")
+    pfad = save_gif(frames, out_dir / name, max(an.frame_ms * 20, 60))
     return pfad, info

@@ -20,7 +20,10 @@ Subprozessen; jetzt aus fehlenden solves/*.json.
 from __future__ import annotations
 
 import numpy as np
+import json
 
+from eventpiv import config
+from eventpiv.runconfig import Selection
 
 def summarize(name, infos, verbose=True) -> dict:
     """Mittelt ueber die loesbaren Runs einer Gruppe."""
@@ -39,3 +42,52 @@ def summarize(name, infos, verbose=True) -> dict:
         print(f"  Reinheit       {z['purity']:.3f}")
         print(f"  Fragmentierung {z['frag']:.2f}  (max {z['frag_max']})")
     return z
+
+def load_solves(cfg, runs) -> list:
+    """Sammelt die solves/*.json der angegebenen Runs.
+
+    None = kein Ergebnis. Das ist ein ERGEBNIS, kein Fehler: eine fehlende
+    Datei heisst Absturz, VRAM-OOM oder kein GT-Abgleich moeglich. Frueher
+    entstand dieselbe Information aus abgestuerzten Subprozessen
+    (pipeline._solve_isolated); jetzt aus der Abwesenheit einer Datei.
+    """
+    out = []
+    for r in runs:
+        p = config.solve_file(cfg.neighborhood, cfg.pairs, cfg.training,
+                              Selection(split=cfg.report.split, run_nr=r),
+                              cfg.window, cfg.solver, create=False)
+        if not p.exists():
+            out.append(None)
+            continue
+        info = json.loads(p.read_text())
+        out.append(info if info.get("purity_mean") is not None else None)
+    return out
+
+
+def report(cfg) -> dict:
+    """Bewertung eines Netzes ueber CROSSING- und CLEAN-Runs."""
+    rp, win = cfg.report, cfg.window
+    print(f"Bewertung, Split '{rp.split}', Fenster "
+          f"[{win.t0/1000:.0f}ms +{win.dt/1000:.0f}ms], Modus {cfg.solver.mode}")
+    print(config.model_file(cfg.neighborhood, cfg.pairs, cfg.training,
+                            create=False).parent)
+
+    ergebnisse = {}
+    for name, runs in (("CROSSING", rp.crossing), ("CLEAN", rp.clean)):
+        print(f"\n{name}-Runs:")
+        infos = load_solves(cfg, runs)
+        for r, i in zip(runs, infos):
+            if i:
+                print(f"  run{r:<3d}: Rein {i['purity_mean']:.3f}  "
+                      f"Frag {i['frag_mean']:.2f}  "
+                      f"({i['n_clusters']} Cl / {i['n_gt']} GT, "
+                      f"{i['n_edges']:,} Kanten)")
+            else:
+                print(f"  run{r:<3d}: KEIN ERGEBNIS (Absturz / VRAM / kein GT)")
+        ergebnisse[name.lower()] = summarize(name, infos)
+
+    print("\nCROSSING = Schnitt-Test (fordert das Trennen), "
+          "CLEAN = Kontrolle (darf nicht fragmentieren).")
+    print("Metrik-Hierarchie: Fragmentierung > Reinheit >> AUC (§3.8) -- "
+          "AUC steigt bei kleinem r_max truegerisch, waehrend Cluster zerfallen.")
+    return ergebnisse

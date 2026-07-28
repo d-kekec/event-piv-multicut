@@ -53,6 +53,21 @@ class _Typed:
             if cast is not None and not isinstance(v, cast):
                 setattr(self, f.name, cast(v))
 
+class _Derivable:
+    """resolve_derived fuer alle Stufen, die neighborhood UND pairs tragen.
+
+    Wird von scripts/_cli.to_cfg aufgerufen -- genau einmal, an der Grenze
+    Hydra -> Modul. Danach ist die Konfiguration vollstaendig, und
+    canonical()/slug() sind eindeutig. Ohne diesen Aufruf traegt win_dt noch
+    None, und derselbe Datensatz bekaeme zwei verschiedene Identitaeten.
+
+    Kein @dataclass: die Klasse hat keine Felder, sie steuert nur Verhalten
+    bei -- genauso wie _Typed.
+    """
+
+    def resolve_derived(self) -> None:
+        resolve(self.neighborhood, self.pairs)
+
 # ============================================================
 # Gruppen
 # ============================================================
@@ -124,8 +139,12 @@ class Solver(_Typed):
 
 @dataclass
 class Labeling(_Typed):
+    """Stufe [1]. Bewusst OHNE Zeitfenster: Labels gelten IMMER fuer den
+    ganzen Run. Ein Teilfenster bricht spaeter in evaluate.align_gt_window
+    ("Wurde die Label-Datei ueber den GANZEN Run erzeugt?")."""
     r_assign: float = 8.0
     r_ambig: float = 2.0
+    box_w: float = BOX_W
 
 
 @dataclass
@@ -137,9 +156,14 @@ class Selection(_Typed):
 
 @dataclass
 class Window(_Typed):
-    """Solve-Fenster. NICHT PairSampling.win_dt (Sammelfenster)."""
-    t0: int = 1_700_000
-    dt: int = 20_000
+    """Solve- bzw. Anzeigefenster. NICHT PairSampling.win_dt (Sammelfenster).
+
+    None heisst "ab Anfang" bzw. "ganzer Run" -- load_events kennt das
+    ohnehin. Sinnvoll nur bei animate_run; beim Solve waere ein ganzer Run
+    ein VRAM-Selbstmord.
+    """
+    t0: int | None = 1_700_000
+    dt: int | None = 20_000
 
     def short(self) -> str:
         return f"t{self.t0}_dt{self.dt}"
@@ -172,19 +196,69 @@ class IO(_Typed):
     label_dir: str | None = None
     out_path: str | None = None
     data_path: str | None = None    # Notausgang LESEpfad: fremder Paar-Datensatz
+    list_runs: bool = False     # nur auflisten, nichts rechnen (animate_run)
+
+@dataclass
+class Report(_Typed):
+    """Auswertung mehrerer Solve-Laeufe. KEINE Laufauswahl: `crossing` und
+    `clean` sind zwei BEWERTUNGSGRUPPEN, die getrennt gemittelt werden --
+    ein Mittelwert ueber beide koennte schlechte Trennung durch gute
+    Kontrolle kaschieren (BA_NN_Kantenkosten.md §3.8)."""
+    split: str = "val"
+    crossing: list[int] = field(default_factory=lambda: [3, 4, 6, 20])
+    clean: list[int] = field(default_factory=lambda: [7, 9, 12, 13, 21])
+
+@dataclass
+class Overlap(_Typed):
+    """Werkzeug: Runs nach Partikel-Ueberlappung klassifizieren.
+
+    box_w ist dieselbe Datensatzkonstante wie in Labeling -- hier dient sie
+    als Schwelle fuer "nah". cross_thresh und mean_clean_max sind EMPIRISCH
+    an den Ergebnissen kalibriert (BA_Datensatz_und_Pipeline.md §2.2), nicht
+    hergeleitet.
+    """
+    box_w: float = BOX_W
+    cross_thresh: float = 1.4
+    mean_clean_max: float = 0.05
+
+
+@dataclass
+class AnimRun(_Typed):
+    """Darstellung [A]: ganzer Run, Farbe = Polaritaet.
+
+    Fuenfte Schublade (BA_Konfiguration.md §1): Konfiguration, aber sie
+    beruehrt keine Zahl, braucht keine Konsistenz und gehoert in keine
+    Identitaet. Framezahl = dt / frame_ms -- ueber ~100 wird das GIF unhandlich.
+    """
+    frame_ms: float = 20.0
+    speedup: float = 1.0        # > 1 ueberspringt Frames
+    downscale: int = 2
+    point: int = 1
+
+
+@dataclass
+class AnimClusters(_Typed):
+    """Darstellung [B]: Roh | Cluster | GT nebeneinander.
+
+    color_by entscheidet, WAS man sieht (visualize.py):
+      "cluster" eigene Farbe je Cluster  -> FRAGMENTIERUNG sichtbar
+      "gt"      Farbe des Mehrheits-GT   -> REINHEITSFEHLER sichtbar,
+                                            Fragmentierung dagegen NICHT
+    trail=True laesst die Trajektorien aufwachsen (zeigt: ein Cluster ist
+    eine Raum-Zeit-Bahn); False zeigt Momentaufnahmen (Verschmelzungen).
+    """
+    frame_ms: float = 0.25
+    trail: bool = True
+    downscale: int = 1
+    point: int = 2
+    min_size: int = 5           # Cluster darunter werden grau
+    color_by: str = "cluster"
+    show_gt: bool = True
+    crop: bool = True
 
 # ============================================================
 # Stufen-Konfigurationen (Zusammensetzung = Abhaengigkeitskette §5)
 # ============================================================
-
-@dataclass
-class Labeling:
-    """Stufe [1]. Bewusst OHNE Zeitfenster: Labels gelten IMMER fuer den
-    ganzen Run. Ein Teilfenster bricht spaeter in evaluate.align_gt_window
-    ("Wurde die Label-Datei ueber den GANZEN Run erzeugt?")."""
-    r_assign: float = 8.0
-    r_ambig: float = 2.0
-    box_w: float = BOX_W
 
 
 @dataclass
@@ -195,21 +269,15 @@ class LabelCfg:
 
 
 @dataclass
-class PairCfg:
+class PairCfg(_Derivable):
     io: IO = field(default_factory=IO)
     neighborhood: Neighborhood = field(default_factory=Neighborhood)
     pairs:        PairSampling = field(default_factory=PairSampling)
     compute:      Compute      = field(default_factory=Compute)
-    
-    def resolve_derived(self) -> None:
-        """Abgeleitete Defaults einsetzen. Wird von scripts/_cli.to_cfg
-        aufgerufen -- genau einmal, an der Grenze Hydra -> Modul. Danach ist
-        die Konfiguration vollstaendig, und canonical()/slug() sind eindeutig."""
-        resolve(self.neighborhood, self.pairs)
 
 
 @dataclass
-class TrainCfg:
+class TrainCfg(_Derivable):
     """neighborhood und pairs werden NICHT gerechnet -- sie leiten den
     EINGABEpfad ab (config.pairs_file). Die Geometrie bleibt trotzdem eine
     Eigenschaft des Datensatzes: train.py liest sie aus der .npz und prueft
@@ -221,12 +289,9 @@ class TrainCfg:
     training:     Training     = field(default_factory=Training)
     compute:      Compute      = field(default_factory=Compute)
 
-    def resolve_derived(self) -> None:
-        resolve(self.neighborhood, self.pairs)
-
 
 @dataclass
-class SolveCfg:
+class SolveCfg(_Derivable):
     """pairs und training werden nicht gerechnet, sondern gebraucht, um den
     Modellpfad ABZULEITEN statt ihn zu tippen."""
     io: IO = field(default_factory=IO)
@@ -238,11 +303,49 @@ class SolveCfg:
     window:       Window       = field(default_factory=Window)
     compute:      Compute      = field(default_factory=Compute)
 
-    def resolve_derived(self) -> None:
-        """Abgeleitete Defaults einsetzen. Wird von scripts/_cli.to_cfg
-        aufgerufen -- genau einmal, an der Grenze Hydra -> Modul. Danach ist
-        die Konfiguration vollstaendig, und canonical()/slug() sind eindeutig."""
-        resolve(self.neighborhood, self.pairs)
+
+@dataclass
+class ReportCfg(_Derivable):
+    """Liest nur -- rechnet nichts. Braucht neighborhood/pairs/training, um
+    das solves/-Verzeichnis zu FINDEN, und solver/window, weil beide im
+    Dateinamen stehen."""
+    io:           IO           = field(default_factory=IO)
+    neighborhood: Neighborhood = field(default_factory=Neighborhood)
+    pairs:        PairSampling = field(default_factory=PairSampling)
+    training:     Training     = field(default_factory=Training)
+    solver:       Solver       = field(default_factory=Solver)
+    window:       Window       = field(default_factory=Window)
+    report:       Report       = field(default_factory=Report)
+
+
+@dataclass
+class OverlapCfg:
+    io:        IO        = field(default_factory=IO)
+    selection: Selection = field(default_factory=Selection)
+    overlap:   Overlap   = field(default_factory=Overlap)
+
+
+@dataclass
+class AnimRunCfg:
+    io:        IO        = field(default_factory=IO)
+    selection: Selection = field(default_factory=Selection)
+    window:    Window    = field(default_factory=lambda: Window(t0=None, dt=None))
+    anim:      AnimRun   = field(default_factory=AnimRun)
+
+
+@dataclass
+class AnimClustersCfg(_Derivable):
+    """Wie SolveCfg, plus Darstellung: die Animation LOEST das Fenster selbst."""
+    io:           IO           = field(default_factory=IO)
+    neighborhood: Neighborhood = field(default_factory=Neighborhood)
+    pairs:        PairSampling = field(default_factory=PairSampling)
+    training:     Training     = field(default_factory=Training)
+    solver:       Solver       = field(default_factory=Solver)
+    selection:    Selection    = field(default_factory=Selection)
+    window:       Window       = field(default_factory=Window)
+    compute:      Compute      = field(default_factory=Compute)
+    anim:         AnimClusters = field(default_factory=AnimClusters)
+
 
 # ============================================================
 # Abgeleitete Defaults

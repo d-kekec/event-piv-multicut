@@ -33,12 +33,10 @@ from __future__ import annotations
 import numpy as np
 from scipy.spatial import cKDTree
 
-BOX_W_DEFAULT = 11.0
-CROSS_THRESH_DEFAULT = 1.4
-MEAN_CLEAN_MAX = 0.05          # mean11 darunter => keine Kreuzungen
+from eventpiv.runconfig import Overlap, OverlapCfg
 
 
-def overlap_metrics(bbox, *, box_w=BOX_W_DEFAULT) -> dict:
+def overlap_metrics(bbox, *, box_w) -> dict:
     """Kennzahlen fuer EINEN Run. Reine Funktion -- bbox rein, dict raus."""
     raster_t = np.unique(bbox["t"])
     bx = bbox["x"].astype(np.float64) + box_w / 2
@@ -70,38 +68,38 @@ def overlap_metrics(bbox, *, box_w=BOX_W_DEFAULT) -> dict:
             "mean11": paare_kumuliert / max(n_t, 1)}
 
 
-def classify(results: dict, *, box_w=BOX_W_DEFAULT,
-             cross_thresh=CROSS_THRESH_DEFAULT) -> dict:
+def classify(results: dict, ov: Overlap) -> dict:
     """Teilt {run_nr: metriken} in die drei Kategorien auf."""
     return {
         "MAX_OVERLAP": sorted(r for r, i in results.items()
                               if i["frac11"] >= 0.999),
         "MIN_OVERLAP": sorted(r for r, i in results.items()
-                              if i["min_dist"] >= box_w
-                              and i["mean11"] < MEAN_CLEAN_MAX),
+                              if i["min_dist"] >= ov.box_w
+                              and i["mean11"] < ov.mean_clean_max),
         "CROSSING": sorted(r for r, i in results.items()
                            if i["frac11"] >= 0.999
-                           and i["mean11"] >= cross_thresh),
+                           and i["mean11"] >= ov.cross_thresh),
     }
 
 
-def analyze_split(split, runs=None, *, box_w=BOX_W_DEFAULT,
-                  cross_thresh=CROSS_THRESH_DEFAULT, verbose=True):
+def analyze_split(cfg: OverlapCfg, verbose=True):
     """Analysiert alle (oder die angegebenen) Runs eines Splits.
 
+    Leere Run-Liste heisst ALLE Runs des Splits -- wie bei labels.build_labels.
     Rueckgabe: (results, categories). Schreibt nichts, gibt nur aus.
     """
     from eventpiv import config
     from eventpiv.data import load_bbox
 
-    runs = config.available_runs(split) if runs is None else list(runs)
+    split, ov = cfg.selection.split, cfg.overlap
+    runs = list(cfg.selection.runs) or config.available_runs(split)
     if verbose:
         print(f"Split '{split}': {len(runs)} Runs analysieren ...\n")
 
     results = {}
     for r in runs:
         try:
-            info = overlap_metrics(load_bbox(split, r), box_w=box_w)
+            info = overlap_metrics(load_bbox(split, r), box_w=ov.box_w)
         except FileNotFoundError:
             if verbose:
                 print(f"  run{r}: kein _bbox.npy, uebersprungen")
@@ -110,12 +108,12 @@ def analyze_split(split, runs=None, *, box_w=BOX_W_DEFAULT,
         if verbose:
             md = "inf " if np.isinf(info["min_dist"]) else f"{info['min_dist']:4.1f}"
             print(f"  run{r:<3d}: tracks={info['tracks']:3d}  min_dist={md}px  "
-                  f"frac<{box_w:.0f}={info['frac11']:.3f}  "
-                  f"mean<{box_w:.0f}={info['mean11']:.2f}")
+                  f"frac<{ov.box_w:.0f}={info['frac11']:.3f}  "
+                  f"mean<{ov.box_w:.0f}={info['mean11']:.2f}")
 
-    cats = classify(results, box_w=box_w, cross_thresh=cross_thresh)
+    cats = classify(results, ov)
     if verbose:
-        _print_lists(split, cats, cross_thresh)
+        _print_lists(split, cats, ov.cross_thresh)
     return results, cats
 
 

@@ -4,6 +4,12 @@
 import numpy as np
 
 from eventpiv.overlap import classify, overlap_metrics
+from eventpiv.runconfig import Overlap
+
+# Default-Gruppe: box_w=11.0, cross_thresh=1.4, mean_clean_max=0.05.
+# Die Tests pruefen die Kennzahlen, nicht die Schwellenwahl -- deshalb
+# ueberall dieselbe Instanz.
+OV = Overlap()
 
 BBOX_DTYPE = np.dtype([("t", "<i8"), ("x", "<f4"), ("y", "<f4"),
                        ("w", "<f4"), ("h", "<f4"), ("class_id", "<u4"),
@@ -21,7 +27,7 @@ def test_weit_getrennte_boxen():
     """Zwei Tracks, 100 px auseinander -> nie unter 11 px."""
     bbox = make_bbox([(t, 100.0, 100.0, 1) for t in (0, 16667, 33334)] +
                      [(t, 200.0, 100.0, 2) for t in (0, 16667, 33334)])
-    m = overlap_metrics(bbox)
+    m = overlap_metrics(bbox, box_w=OV.box_w)
     assert m["tracks"] == 2 and m["n_raster"] == 3
     assert m["min_dist"] == 100.0
     assert m["frac11"] == 0.0 and m["mean11"] == 0.0
@@ -31,7 +37,7 @@ def test_durchgehende_ueberlappung():
     """Zwei Tracks im Abstand 5 px -> frac11 == 1.0."""
     bbox = make_bbox([(t, 100.0, 100.0, 1) for t in (0, 16667)] +
                      [(t, 105.0, 100.0, 2) for t in (0, 16667)])
-    m = overlap_metrics(bbox)
+    m = overlap_metrics(bbox, box_w=OV.box_w)
     assert m["frac11"] == 1.0
     assert m["min_dist"] == 5.0
     assert m["mean11"] == 1.0            # genau EIN Paar je Zeitpunkt
@@ -41,12 +47,12 @@ def test_mean11_zaehlt_paare_nicht_boxen():
     """Befund 23.07.2026: drei nahe Boxen ergeben 3 PAARE, nicht 3 Boxen."""
     bbox = make_bbox([(0, 100.0, 100.0, 1), (0, 104.0, 100.0, 2),
                       (0, 108.0, 100.0, 3)])
-    assert overlap_metrics(bbox)["mean11"] == 3.0
+    assert overlap_metrics(bbox, box_w=OV.box_w)["mean11"] == 3.0
 
 
 def test_einzelner_track_liefert_keine_abstaende():
     bbox = make_bbox([(t, 100.0, 100.0, 1) for t in (0, 16667)])
-    m = overlap_metrics(bbox)
+    m = overlap_metrics(bbox, box_w=OV.box_w)
     assert np.isinf(m["min_dist"]) and m["frac11"] == 0.0
 
 
@@ -56,7 +62,7 @@ def test_klassifikation():
         2: {"min_dist": 3.0, "frac11": 1.0, "mean11": 0.9},     # Overlap
         3: {"min_dist": 2.0, "frac11": 1.0, "mean11": 2.1},     # Kreuzung
     }
-    cats = classify(ergebnisse)
+    cats = classify(ergebnisse, OV)
     assert cats["MIN_OVERLAP"] == [1]
     assert cats["MAX_OVERLAP"] == [2, 3]
     assert cats["CROSSING"] == [3]
