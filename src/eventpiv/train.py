@@ -31,7 +31,7 @@ from eventpiv import config
 from eventpiv.model import (EdgeMLP, SWAP_RAW6, build_features, check_mode,
                             feature_names, is_symmetric, n_features,
                             save_checkpoint)
-from eventpiv.metrics import roc_auc
+from eventpiv.metrics import pair_report
 from eventpiv.runconfig import TrainCfg, identity_meta
 
 IMBALANCE_MODES = ("sample", "weight")
@@ -71,9 +71,27 @@ def split_runs_stratified(label, run_arr, val_frac, rng):
     return val_runs, np.array([r in val_runs for r in run_arr])
 
 
-def evaluate(model, X, y, mu, sig, symmetric=True):
-    """Rueckgabe: (acc, auc, tpr, tnr). Bei raw6 werden die Logits ueber
-    den Tausch (i,j)->(j,i) gemittelt -- sonst waere c_ij != c_ji."""
+def evaluate(model, X, y, mu, sig, symmetric=True, loss_fn=None) -> dict:
+    """Kennzahlen auf einem Datensatz. Rueckgabe: FLACHES dict.
+
+    Frueher ein 4-Tupel (acc, auc, tpr, tnr). Ein dict, weil die Kennzahlen
+    unveraendert an eine Logging-Senke gereicht werden sollen und ein Tupel
+    bei jeder neuen Groesse alle Aufrufstellen bricht.
+
+    SCHWELLE AM LOGIT, nicht an p: mathematisch dasselbe (sigmoid ist streng
+    monoton), aber in float32 rundet sigmoid(x) fuer winzige negative x auf
+    exakt 0.5 -- die alte Schwelle zaehlte solche Kanten als JA, waehrend
+    RAMA sie am Vorzeichen des Logits als abstossend liest. Gemessen
+    29.07.2026: ueber 20 Laeufe liegt der Unterschied in acc/auc/tpr/tnr
+    unter 1.3e-7, die Uebereinstimmung mit dem Solver ist dafuer exakt.
+
+    loss_fn : optional. Mit derselben Verlustfunktion wie im Training
+        aufgerufen, damit train/loss und holdout/loss vergleichbar sind.
+        VORSICHT bei imbalance="sample": der Trainingssatz ist untersampelt,
+        der Holdout nicht -- die beiden Kurven liegen auf verschieden
+        verteilten Daten. Die Richtung (laeuft der Holdout-Loss weg?) bleibt
+        aussagekraeftig, der absolute Abstand nicht.
+    """
     model.eval()
     with torch.no_grad():
         logit = model(X)
@@ -81,15 +99,13 @@ def evaluate(model, X, y, mu, sig, symmetric=True):
             roh = X * sig + mu                      # zurueck in Rohgroessen
             getauscht = (roh[:, SWAP_RAW6] - mu) / sig
             logit = 0.5 * (logit + model(getauscht))
-        p = torch.sigmoid(logit)
-        pred = (p >= 0.5).float()
-        acc = (pred == y).float().mean().item()
-        auc = roc_auc(y.squeeze().numpy(), p.squeeze().numpy())
-        tpr = (pred[y == 1] == 1).float().mean().item() \
-            if (y == 1).any() else float("nan")
-        tnr = (pred[y == 0] == 0).float().mean().item() \
-            if (y == 0).any() else float("nan")
-    return acc, auc, tpr, tnr
+        out = {"loss": loss_fn(logit, y).item()} if loss_fn is not None else {}
+        # squeeze(1) statt squeeze(): bei genau einem Paar wuerde squeeze()
+        # einen 0-dimensionalen Tensor liefern und die Kennzahlen brechen.
+        y_np = y.squeeze(1).numpy()
+        s_np = logit.squeeze(1).numpy()
+    out.update(pair_report(y_np, s_np))
+    return out
 
 
 def train_edge_nn(cfg: TrainCfg, verbose=True):
@@ -219,16 +235,24 @@ def train_edge_nn(cfg: TrainCfg, verbose=True):
             opt.step()
             tot += loss.item() * len(bi)
         if verbose and (ep % 5 == 0 or ep == 1):
-            acc, auc, tpr, tnr = evaluate(model, Xva, yva, mu_t, sig_t, sym)
-            print(f"  ep {ep:3d}  loss {tot/n:.4f} | val acc {acc:.4f} "
-                  f"AUC {auc:.4f} TPR(JA) {tpr:.3f} TNR(NEIN) {tnr:.3f}")
+            m = evaluate(model, Xva, yva, mu_t, sig_t, sym, loss_fn)
+            print(f"  ep {ep:3d}  loss {tot/n:.4f} | holdout loss {m['loss']:.4f} "
+                  f"acc {m['accuracy']:.4f} AUC {m['auc']:.4f} "
+                  f"TPR(JA) {m['tpr']:.3f} TNR(NEIN) {m['tnr']:.3f}")
 
-    acc, auc, tpr, tnr = evaluate(model, Xva, yva, mu_t, sig_t, sym)
-    kennzahlen = {"acc": acc, "auc": auc, "tpr": tpr, "tnr": tnr,
-                  "n_params": n_params, "val_runs": sorted(val_runs)}
+    hold = evaluate(model, Xva, yva, mu_t, sig_t, sym, loss_fn)
+    kennzahlen = {**hold, "n_params": n_params, "val_runs": sorted(val_runs)}
     if verbose:
-        print(f"\nFinal: acc {acc:.4f} | AUC {auc:.4f} | "
-              f"TPR(JA) {tpr:.3f} | TNR(NEIN) {tnr:.3f}")
+        print(f"\nFinal: loss {hold['loss']:.4f} | acc {hold['accuracy']:.4f} | "
+              f"AUC {hold['auc']:.4f} | TPR(JA) {hold['tpr']:.3f} | "
+              f"TNR(NEIN) {hold['tnr']:.3f}")
+        # Schwelle 0 = das Vorzeichen, das RAMA liest. FP ist der Druck
+        # Richtung Reinheitsfehler, FN der Richtung Fragmentierung.
+        print(f"  Konfusion @ Logit 0:  TP {hold['tp']:,}  FP {hold['fp']:,}  "
+              f"FN {hold['fn']:,}  TN {hold['tn']:,}")
+        print(f"  Praezision {hold['precision']:.3f} | F1 {hold['f1']:.3f} | "
+              f"ausgew. Acc {hold['balanced_accuracy']:.3f} | "
+              f"negativ bewertet {hold['pred_neg_frac']*100:.1f}%")
 
     out_path = (Path(cfg.io.out_path) if cfg.io.out_path
                 else config.model_file(nb, ps, tr))
