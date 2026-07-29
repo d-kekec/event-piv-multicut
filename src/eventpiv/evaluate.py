@@ -46,8 +46,8 @@ def cluster_metrics(labels, track_id, status, t=None) -> dict:
     Bei vielen kleinen Fragmenten liegt die erste hoeher als die zweite. Fuer
     RELATIVE Vergleiche ist beides brauchbar (die Verzerrung trifft alle
     Konfigurationen gleich), fuer die FINALE Zahl ist die eventgewichtete die
-    ehrlichere. purity_mean bleibt als Aliasname bestehen, solange report.py
-    ihn liest -- die Umbenennung ist ein eigener Schritt.
+    ehrlichere. Der frueher hier stehende Alias purity_mean ist am 29.07.2026
+    entfallen; bestehende solves/*.json wurden neu gerechnet.
 
     purity_event_mean laesst sich direkt aus groesste/groessen bilden:
     sum(groesste)/sum(groessen) ist der Anteil der Events, die in ihrem
@@ -96,7 +96,6 @@ def cluster_metrics(labels, track_id, status, t=None) -> dict:
         "n_events": int(len(lab)),
         "n_clusters": int(len(lab_u)),
         "n_gt": int(len(gt_u)),
-        "purity_mean": float(reinheit.mean()),        # Alias, s. Docstring
         "purity_cluster_mean": float(reinheit.mean()),
         "purity_event_mean": float(groesste.sum() / groessen.sum()),
         "purity_lt90": int((reinheit < 0.9).sum()),
@@ -151,10 +150,3 @@ def align_gt_window(gt_t, event_t):
     return sl
 
 
-def format_metrics(info: dict) -> str:
-    """Einzeiler fuer Logs."""
-    if not info:
-        return "keine Bewertung moeglich"
-    return (f"Rein {info['purity_mean']:.3f}  Frag {info['frag_mean']:.2f}  "
-            f"({info['n_clusters']} Cl / {info['n_gt']} GT, "
-            f"{info['purity_lt90']} Cl < 0.90, Frag max {info['frag_max']})")

@@ -168,6 +168,36 @@ def check_consistency(ckpt, nb: Neighborhood, strict: bool = True) -> None:
     print(f"  WARN: {text}")
 
 
+def info_groups(info: dict) -> dict:
+    """Ordnet die flachen Kennzahlen eines Solves in semantische Gruppen.
+
+    Dieselbe Rolle wie train._epochenzeile: das MODUL entscheidet, welche
+    Frage eine Zahl beantwortet; das Skript verflacht nur. info selbst bleibt
+    flach -- es ist das Dateiformat der solves/*.json, und report.py liest es
+    so.
+
+    REGELBASIERT statt handgepflegte Liste: ein spaeter hinzugefuegtes Feld
+    landet automatisch irgendwo, statt still zu verschwinden.
+      gt_*                       -> gt/    Verteilungsstatistik der GT
+      t_*, vram_peak_gb          -> diag/  Ressourcen, nie Ergebnis
+      alles andere               -> solve/ Instanz und Partition
+
+    n_gt landet damit unter solve/, nicht unter gt/ -- absichtlich: es ist
+    eine INSTANZGROESSE wie n_events, n_edges und n_clusters, also Teil der
+    Frage "wie gross ist eine Sequenz". Die gt_-Felder sind dagegen
+    Verteilungen ueber die Partikel.
+    """
+    gruppen: dict[str, dict] = {"solve": {}, "gt": {}, "diag": {}}
+    for k, v in info.items():
+        if k.startswith("gt_"):
+            gruppen["gt"][k[3:]] = v
+        elif k.startswith("t_") or k == "vram_peak_gb":
+            gruppen["diag"][k] = v
+        else:
+            gruppen["solve"][k] = v
+    return gruppen
+
+
 def solve_window(cfg: SolveCfg, model, mu, sig, feature_mode, verbose=True):
     """Ein Zeitfenster eines Runs loesen. Rueckgabe: (labels, events, info).
 

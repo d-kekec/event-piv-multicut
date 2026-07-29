@@ -12,21 +12,25 @@ import math
 from eventpiv.report import summarize
 
 
-def info(purity, frag, frag_max=2):
-    return {"purity_mean": purity, "frag_mean": frag, "frag_max": frag_max}
+def info(purity, frag, frag_max=2, singl=0):
+    """Minimaler Solve-Eintrag, wie load_solves ihn liefert."""
+    return {"purity_cluster_mean": purity, "purity_event_mean": purity,
+            "frag_mean": frag, "frag_max": frag_max, "n_singletons": singl}
 
 
 def test_summarize_mittelt_nur_loesbare():
     z = summarize("X", [info(1.0, 1.5), None, info(0.9, 2.5)], verbose=False)
     assert z["n_ok"] == 2 and z["n_total"] == 3
-    assert z["purity"] == 0.95 and z["frag"] == 2.0
+    assert z["purity_cluster"] == 0.95 and z["purity_event"] == 0.95
+    assert z["frag"] == 2.0
 
 
 def test_summarize_ohne_loesbare_runs():
     """Alle abgestuerzt -- darf nicht crashen, sondern NaN melden."""
     z = summarize("X", [None, None], verbose=False)
     assert z["n_ok"] == 0 and z["n_total"] == 2
-    assert math.isnan(z["purity"]) and math.isnan(z["frag"])
+    assert math.isnan(z["purity_cluster"]) and math.isnan(z["purity_event"])
+    assert math.isnan(z["frag"])
     assert z["frag_max"] is None
 
 
