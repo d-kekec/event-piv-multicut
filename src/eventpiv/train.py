@@ -31,22 +31,11 @@ from eventpiv import config
 from eventpiv.model import (EdgeMLP, SWAP_RAW6, build_features, check_mode,
                             feature_names, is_symmetric, n_features,
                             save_checkpoint)
+from eventpiv.metrics import roc_auc
 from eventpiv.runconfig import TrainCfg, identity_meta
 
 IMBALANCE_MODES = ("sample", "weight")
 
-
-def roc_auc(y_true, y_score) -> float:
-    """AUC ueber die Rangsumme (Mann-Whitney-U). Ohne sklearn-Abhaengigkeit."""
-    pos = y_score[y_true == 1]
-    neg = y_score[y_true == 0]
-    if len(pos) == 0 or len(neg) == 0:
-        return float("nan")
-    order = np.argsort(np.concatenate([pos, neg]))
-    ranks = np.empty_like(order, dtype=np.float64)
-    ranks[order] = np.arange(1, len(order) + 1)
-    return (ranks[:len(pos)].sum() - len(pos) * (len(pos) + 1) / 2) \
-        / (len(pos) * len(neg))
 
 
 def split_runs_stratified(label, run_arr, val_frac, rng):

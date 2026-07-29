@@ -31,7 +31,7 @@ FARBWAHL (wichtig fuer die Interpretation!):
   verlaessliches GT-Label (status != 0).
 
 Nur Pillow, kein ffmpeg -- Ausgabe ist ein GIF. Matplotlib wird bewusst
-nicht verwendet (WSLg-Probleme, s. BA_Umgebung_Setup.md §5.5).
+nicht verwendet (WSLg-Probleme, s. BA_Umgebung_Setup.md §3).
 """
 from __future__ import annotations
 
