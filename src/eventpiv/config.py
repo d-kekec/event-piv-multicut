@@ -118,14 +118,6 @@ def label_file(split: str, run_nr: int) -> Path:
     return label_dir(split, create=False) / f"run{run_nr}_eventlabels.npz"
 
 
-def pairs_dir(create: bool = True) -> Path:
-    return _ensure(OUT_ROOT / "pairs", create)
-
-
-def model_dir(create: bool = True) -> Path:
-    return _ensure(OUT_ROOT / "models", create)
-
-
 def results_dir(create: bool = True) -> Path:
     return _ensure(OUT_ROOT / "results", create)
 
