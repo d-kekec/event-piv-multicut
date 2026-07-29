@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import socket
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -189,12 +190,30 @@ def git_commit() -> str:
 
 
 def build_meta(**extra) -> dict:
-    """Standard-Metadatenblock; zusaetzliche Felder als Keyword-Argumente."""
+    """Standard-Metadatenblock; zusaetzliche Felder als Keyword-Argumente.
+
+    Beantwortet: WOHER kommt diese Datei -- wann, aus welchem Commit, auf
+    welcher Maschine, in welchem Job. NICHT: wie lief der Lauf; Laufzeit und
+    Speicher sind Messungen und gehoeren zu den Kennzahlen der jeweiligen
+    Stufe.
+
+    host und slurm_job_id machen jedes Artefakt seinem Log zuordenbar
+    (logs/<jobname>-<jobid>.out). Sie sind KEINE Identitaet: Ressourcen sind
+    aus den Slugs bewusst ausgeschlossen (BA_Konfiguration.md §7), belegt
+    dadurch, dass derselbe Solve auf rema, sarmatia und tujestpolin exakt
+    dieselben Zahlen liefert. Wer sie in die Identitaet zoege, bekaeme fuer
+    denselben Lauf auf zwei Nodes zwei Artefakte.
+
+    slurm_job_id ist None ausserhalb von SLURM -- das ist die Information,
+    nicht ein fehlender Wert.
+    """
     from eventpiv import __version__
     meta = {
-        "created":     datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "git_commit":  git_commit(),
-        "pkg_version": __version__,
+        "created":      datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "git_commit":   git_commit(),
+        "pkg_version":  __version__,
+        "host":         socket.gethostname(),
+        "slurm_job_id": os.environ.get("SLURM_JOB_ID"),
     }
     meta.update(extra)
     return meta
@@ -216,6 +235,8 @@ def meta_json(**extra) -> str:
 def describe() -> None:
     """Zeigt die aufgeloesten Pfade -- erster Befehl bei Pfadproblemen,
     besonders auf SLURM (Arbeitsverzeichnis dort selten das erwartete)."""
+    print(f"host         : {socket.gethostname()}"
+          f"{'  (SLURM Job ' + os.environ['SLURM_JOB_ID'] + ')' if os.environ.get('SLURM_JOB_ID') else '  (kein SLURM)'}")
     print(f"PROJECT_ROOT : {PROJECT_ROOT}")
     print(f"DATA_ROOT    : {DATA_ROOT}   (${{EVENTPIV_DATA}}, exists={DATA_ROOT.exists()})")
     print(f"OUT_ROOT     : {OUT_ROOT}   (${{EVENTPIV_OUT}}, exists={OUT_ROOT.exists()})")

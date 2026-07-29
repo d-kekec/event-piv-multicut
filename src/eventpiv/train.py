@@ -21,6 +21,7 @@ hochgradig abhaengig.
 from __future__ import annotations
 
 import json
+import resource
 import time
 
 import numpy as np
@@ -175,6 +176,7 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
     daneben in model.metrics.json, nicht im Checkpoint: 30 Epochen x 16
     Felder haben in einer Gewichtsdatei nichts verloren.
     """
+    t_start = time.perf_counter()
     nb, ps, tr = cfg.neighborhood, cfg.pairs, cfg.training
     check_mode(tr.feature_mode)
     if tr.imbalance not in IMBALANCE_MODES:
@@ -335,11 +337,7 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
             opt.step()
             tot += loss.item() * len(bi)
 
-        # Auswertung in JEDER Epoche -- die Kurve IST der Zweck des Loggings.
-        # Kosten auf dem echten Holdout (2,38 Mio. Paare) 0.22s je Epoche
-        # (gemessen 29.07.2026), ueber 30 Epochen rund 7 Sekunden. Aendert
-        # das Ergebnis nicht: evaluate() zieht keine Zufallszahlen, rechnet
-        # unter no_grad, und EdgeMLP hat weder Dropout noch BatchNorm.
+        # Auswertung in JEDER Epoche
         hold = evaluate(model, Xva, yva, mu_t, sig_t, sym, loss_fn)
         zeile = _epochenzeile(ep, tot / n, hold, time.perf_counter() - t_ep)
         historie.append(zeile)
@@ -352,12 +350,29 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
                   f"holdout loss {h['loss']:.4f} acc {h['accuracy']:.4f} "
                   f"AUC {h['auc']:.4f} TPR(JA) {h['tpr']:.3f} "
                   f"TNR(NEIN) {h['tnr']:.3f} [{zeile['diag']['sec_epoch']}s]")
-
     
-    # Die Auswertung der LETZTEN Epoche ist die Schlussauswertung: zwischen
-    # ihr und diesem Punkt aendert sich am Modell nichts mehr. Der frueher
-    # hier stehende zweite evaluate()-Aufruf war eine exakte Wiederholung.
-    kennzahlen = {**hold, "n_params": n_params, "val_runs": sorted(val_runs)}
+    # diag misst den LAUF, nicht die Herkunft der Datei -- die steht in
+    # config.build_meta. Zwei Zeitangaben, weil sie verschiedene Fragen
+    # beantworten: sec_epochs ist Rechnen, sec_total enthaelt zusaetzlich
+    # das Laden von 11,6 Mio. Paaren ueber NFS. Klaffen sie auseinander,
+    # ist nicht das Netz langsam, sondern die Platte.
+    #
+    # ru_maxrss ist unter Linux KILObytes. Selbst messen ist hier Pflicht,
+    # nicht Bequemlichkeit: SLURM buchhaltet Speicher auf diesem Cluster
+    # nicht, sacct liefert eine leere MaxRSS-Spalte (gemessen 29.07.2026,
+    # BA_Umgebung_Setup.md §0.9).
+    diag = {
+        "device": str(Xtr.device),
+        "torch": torch.__version__,
+        "max_rss_mb": round(
+            resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
+        "sec_epochs": round(sum(z["diag"]["sec_epoch"] for z in historie), 2),
+        "sec_total": round(time.perf_counter() - t_start, 2),
+    }
+    # hold traegt die Auswertung der LETZTEN Epoche -- zwischen ihr und
+    # diesem Punkt aendert sich am Modell nichts mehr.
+    kennzahlen = {**hold, "n_params": n_params,
+                  "val_runs": sorted(val_runs), "diag": diag}
     if verbose:
         print(f"\nFinal: loss {hold['loss']:.4f} | acc {hold['accuracy']:.4f} | "
               f"AUC {hold['auc']:.4f} | TPR(JA) {hold['tpr']:.3f} | "
@@ -369,6 +384,10 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
         print(f"  Praezision {hold['precision']:.3f} | F1 {hold['f1']:.3f} | "
               f"ausgew. Acc {hold['balanced_accuracy']:.3f} | "
               f"negativ bewertet {hold['pred_neg_frac']*100:.1f}%")
+        print(f"  Diagnose: {diag['device']}, torch {diag['torch']}, "
+              f"Spitzenspeicher {diag['max_rss_mb']:.0f} MB, "
+              f"{diag['sec_epochs']:.1f}s rechnen / "
+              f"{diag['sec_total']:.1f}s gesamt")
 
     out_path = (Path(cfg.io.out_path) if cfg.io.out_path
                 else config.model_file(nb, ps, tr))
