@@ -13,7 +13,7 @@ from omegaconf import DictConfig
 
 from _cli import to_cfg              # scripts/ liegt beim Start auf sys.path
 from eventpiv import config
-from eventpiv.runconfig import SolveCfg
+from eventpiv.runconfig import SolveCfg, identity_meta
 from eventpiv.solve import solve_and_evaluate
 
 # Schema registrieren: sonst nimmt Hydra falsch geschriebene Overrides
@@ -43,7 +43,16 @@ def main(dcfg: DictConfig) -> None:
            config.solve_file(cfg.neighborhood, cfg.pairs, cfg.training,
                              cfg.selection, cfg.window, cfg.solver))
     from pathlib import Path
-    Path(out).write_text(json.dumps(info, indent=1))
+    # Herkunft mitschreiben (config.py: "jede erzeugte Datei traegt ihre
+    # Herkunft"). meta_json legt created/git_commit/host/slurm_job_id und die
+    # uebergebenen Felder FLACH nebeneinander -- report.py liest weiterhin
+    # info["purity_mean"] auf der obersten Ebene, nichts bricht.
+    Path(out).write_text(config.meta_json(
+        stage="solve",
+        **identity_meta(neighborhood=cfg.neighborhood, pairs=cfg.pairs,
+                        training=cfg.training, solver=cfg.solver,
+                        window=cfg.window, selection=cfg.selection),
+        **info))
     print(f"-> {out}")
 
 
