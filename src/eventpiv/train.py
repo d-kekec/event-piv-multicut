@@ -32,7 +32,7 @@ from eventpiv import config
 from eventpiv.model import (EdgeMLP, SWAP_RAW6, build_features, check_mode,
                             feature_names, is_symmetric, n_features,
                             save_checkpoint)
-from eventpiv.metrics import pair_report
+from eventpiv.metrics import class_balance, pair_report
 from eventpiv.runconfig import TrainCfg, identity_meta
 
 IMBALANCE_MODES = ("sample", "weight")
@@ -149,7 +149,7 @@ def evaluate(model, X, y, mu, sig, symmetric=True, loss_fn=None) -> dict:
     return out
 
 
-def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None):
+def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
     """Trainiert das Kanten-Netz und schreibt model.pt an den abgeleiteten Pfad.
 
     neighborhood und pairs werden nicht gerechnet -- sie leiten den EINGABE-
@@ -163,6 +163,13 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None):
         Der Anschluss fuer W&B (scripts/train_edge_nn.py reicht wandb.log
         durch), ohne dass dieses Modul das Framework kennt -- dieselbe Grenze
         wie bei Hydra. Ein Test haengt stattdessen an eine Liste an.
+
+    on_start : optional Callable, bekommt EINMAL vor der ersten Epoche das
+        Datenblock-dict (Klassenverhaeltnisse, Standardisierung, Holdout).
+        Getrennt von on_epoch, weil diese Werte konstant sind: als Verlauf
+        geloggt waeren es 30 identische Punkte. In W&B gehoeren sie nach
+        config/summary, nicht in die Historie. Und sie stehen fest, BEVOR
+        die erste Epoche laeuft -- bricht der Job ab, sind sie schon da.
 
     Rueckgabe: (pfad, kennzahlen-dict). Die vollstaendige Historie steht
     daneben in model.metrics.json, nicht im Checkpoint: 30 Epochen x 16
@@ -223,13 +230,29 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None):
     val_runs, is_val = split_runs_stratified(label, run_arr, tr.val_frac, rng)
     tr_idx = np.flatnonzero(~is_val)
     val_idx = np.flatnonzero(is_val)
+
+    # Klassenverhaeltnis an VIER Stellen statt der drei angeforderten. Eine
+    # Zahl allein sagt nichts -- erst der Vergleich zeigt, was Split und
+    # Balancing tatsaechlich getan haben. Der Split ist run-getrennt, die
+    # beiden Seiten haben deshalb NICHT automatisch dasselbe Verhaeltnis.
+    daten = {
+        "raw": class_balance(label),
+        "train_split": class_balance(label[tr_idx]),
+        "holdout": class_balance(label[val_idx]),
+        "holdout_runs": sorted(val_runs),
+        "holdout_hinweis": ("run-getrennter Holdout INNERHALB des "
+                            "train-Splits -- NICHT der offizielle val-Split "
+                            "(BA_NN_Kantenkosten.md §3.6)"),
+        "pairs_path": str(data_path),
+        "dataset_neighborhood": ds_nb,
+    }
     if verbose:
-        vlab = label[is_val]
         print(f"Holdout-Runs (aus demselben Split wie der Paar-Datensatz): "
-              f"{sorted(val_runs)}"
-              f"(train {len(tr_idx):,} / val {len(val_idx):,} Paare)")
-        print(f"  Val-Klassen: JA {int((vlab == 1).sum()):,} / "
-              f"NEIN {int((vlab == 0).sum()):,}")
+              f"{daten['holdout_runs']}  (train {daten['train_split']['n']:,} "
+              f"/ holdout {daten['holdout']['n']:,} Paare)")
+        print(f"  Holdout-Klassen: JA {daten['holdout']['n_ja']:,} / "
+              f"NEIN {daten['holdout']['n_nein']:,} "
+              f"({daten['holdout']['ratio_ja_nein']:.2f} : 1)")
 
     # --- Imbalance: Sampling ODER Gewichtung, nie beides ---
     pos_weight = None
@@ -251,10 +274,32 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None):
         pos_weight = torch.tensor([n_neg / max(n_pos, 1)], dtype=torch.float32)
         if verbose:
             print(f"Gewichtung: pos_weight = {pos_weight.item():.5f}")
+    # train_used ist die Menge, die WIRKLICH ins Training geht. Bei
+    # imbalance="weight" ist sie identisch mit train_split -- und dass man
+    # das im Log sieht, ist der Punkt: die Gewichtung sampelt nicht.
+    daten["imbalance"] = tr.imbalance
+    daten["train_used"] = class_balance(label[tr_idx])
+    daten["pos_weight"] = (float(pos_weight.item())
+                           if pos_weight is not None else None)
 
     # Standardisierung NUR aus den Trainingsdaten (sonst Leakage)
     mu = feats[tr_idx].mean(axis=0)
     sig = feats[tr_idx].std(axis=0) + 1e-8
+
+    # Je Feature benannt statt als Array: so wird daraus data/mu/dt und
+    # data/mu/dr statt eines Vektors, den kein Diagramm zeigen kann.
+    # Diagnosewert: mu["dt"] ist der mittlere Zeitabstand des Datensatzes.
+    # Aendert man alpha und mu["dt"] bleibt stehen, wurde der falsche
+    # Datensatz geladen -- zwei Zahlen, die eine ganze Fehlerklasse fangen.
+    namen = feature_names(tr.feature_mode)
+    daten["mu"] = {k: float(v) for k, v in zip(namen, mu)}
+    daten["sig"] = {k: float(v) for k, v in zip(namen, sig)}
+    if verbose:
+        print("Standardisierung: " + ",  ".join(
+            f"{k}: mu={daten['mu'][k]:.4g} sig={daten['sig'][k]:.4g}"
+            for k in namen))
+    if on_start is not None:
+        on_start(daten)
 
     def std(a):
         return (a - mu) / sig
@@ -336,6 +381,7 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None):
     mpath = path.with_suffix(".metrics.json")
     mpath.write_text(json.dumps(
         {"identity": identity_meta(neighborhood=nb, pairs=ps, training=tr),
+         "data": daten,
          "data_path": str(data_path),
          "model_path": str(path),
          "history": historie,
