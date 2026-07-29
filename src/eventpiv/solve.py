@@ -212,13 +212,33 @@ def solve_window(cfg: SolveCfg, model, mu, sig, feature_mode, verbose=True):
     tic = time.time()
     labels = solve_multicut(i, j, costs, num_nodes=n, cp=cp, mode=sv.mode)
     t_rama = time.time() - tic
+
+    # np.unique(labels) zaehlte den -1-Eimer als Cluster mit -- also um
+    # genau EINS zu hoch, sobald es kantenlose Knoten gibt, und die gibt es
+    # zu Tausenden (13.611 von ~18.500 Rauschevents in run32, BA_NN §4.2).
+    # Getrennt gefuehrt, weil beides eine eigene Frage beantwortet:
+    #   n_clusters_rama       wie viele Cluster hat der Solver gebildet
+    #   n_nodes_unassigned    wie viele Knoten hatten gar keine Kante
+    # Die spaeter dazukommende n_clusters aus cluster_metrics ist eine DRITTE
+    # Zahl: nur Cluster mit mindestens einem sauberen Event. Genau diese
+    # Luecke (1142 gegen 56) war bisher unbenannt.
+    zugeordnet = labels >= 0
+    n_clusters_rama = int(len(np.unique(labels[zugeordnet])))
+    n_unassigned = int((~zugeordnet).sum())
+    vram = (torch.cuda.max_memory_allocated() / 2**30
+            if torch.cuda.is_available() else 0.0)
     if verbose:
-        print(f"  RAMA ({sv.mode}): {len(np.unique(labels))} Cluster "
-              f"[{t_rama:.1f}s, Torch-Peak "
-              f"{torch.cuda.max_memory_allocated()/2**30:.1f} GB]")
+        print(f"  RAMA ({sv.mode}): {n_clusters_rama} Cluster, "
+              f"{n_unassigned:,} Knoten ohne Kante "
+              f"[{t_rama:.1f}s, Torch-Peak {vram:.1f} GB]")
 
     info = {"n_events": n, "n_edges": int(len(i)), "frac_neg": frac_neg,
-            "t_graph": t_graph, "t_costs": t_costs, "t_rama": t_rama}
+            "n_clusters_rama": n_clusters_rama,
+            "n_nodes_unassigned": n_unassigned,
+            "dt_ms": win.dt / 1000.0 if win.dt else float("nan"),
+            "events_per_ms": n / (win.dt / 1000.0) if win.dt else float("nan"),
+            "t_graph": t_graph, "t_costs": t_costs, "t_rama": t_rama,
+            "vram_peak_gb": vram}
     return labels, {"t": t, "x": x, "y": y}, info
 
 
@@ -275,13 +295,28 @@ def solve_and_evaluate(cfg: SolveCfg, verbose=True) -> dict:
 
     gt = np.load(gt_path)
     sl = align_gt_window(gt["t"], ev["t"])
-    info.update(cluster_metrics(labels, gt["track_id"][sl], gt["status"][sl]))
+    tic = time.time()
+    info.update(cluster_metrics(labels, gt["track_id"][sl], gt["status"][sl],
+                                t=ev["t"]))
+    info["t_eval"] = time.time() - tic
 
-    if verbose and "purity_mean" in info:
+    if verbose and "purity_cluster_mean" in info:
         print(f"\n  GT-Abgleich (nur saubere Events):")
-        print(f"    Cluster: {info['n_clusters']}  vs  GT-Partikel: {info['n_gt']}")
-        print(f"    Reinheit  Mittel {info['purity_mean']:.3f}, "
-              f"{info['purity_lt90']} Cluster < 0.90")
+        print(f"    Cluster: {info['n_clusters']} bewertet von "
+              f"{info['n_clusters_rama']} (RAMA)  vs  "
+              f"GT-Partikel: {info['n_gt']}")
+        print(f"    Reinheit  clustergewichtet {info['purity_cluster_mean']:.3f}, "
+              f"eventgewichtet {info['purity_event_mean']:.3f}, "
+              f"{info['purity_lt90']} Cluster < 0.90 "
+              f"({info['purity_lt90_frac']*100:.1f}%)")
         print(f"    Fragmentierung Mittel {info['frag_mean']:.2f}, "
               f"max {info['frag_max']} (1.0 = perfekt)")
+        print(f"    Clustergroessen: min {info['cluster_size_min']}, "
+              f"median {info['cluster_size_median']:.0f}, "
+              f"max {info['cluster_size_max']}, "
+              f"{info['n_singletons']} Singletons")
+        print(f"    GT je Partikel: median "
+              f"{info['gt_events_per_particle_median']:.0f} Events, "
+              f"{info.get('gt_visible_ms_median', float('nan')):.2f} ms sichtbar")
+    
     return info

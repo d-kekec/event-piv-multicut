@@ -27,27 +27,49 @@ import numpy as np
 from eventpiv.labels import STATUS_CLEAN
 
 
-def cluster_metrics(labels, track_id, status) -> dict:
+def cluster_metrics(labels, track_id, status, t=None) -> dict:
     """Vergleicht eine Partition gegen die GT. Reine Funktion.
 
     labels    : Cluster-ID je Event (RAMA-Ausgabe; < 0 = keinem Cluster
                 zugeordnet, entsteht bei Knoten ohne Kante)
     track_id  : GT je Event
     status    : labels.STATUS_* je Event
+    t         : optional Zeitstempel in µs. Nur fuer gt_visible_ms_median --
+                ohne sie fehlt genau dieses Feld, alles andere bleibt.
 
-    Rueckgabe: dict mit n_clusters, n_gt, purity_mean, purity_lt90,
-    frag_mean, frag_max, n_events. Leeres dict, wenn nichts zu bewerten ist.
+    Rueckgabe: flaches dict. Leeres dict, wenn nichts zu bewerten ist.
 
-    Vektorisiert ueber einen kombinierten (Cluster, GT)-Schluessel; die
-    naive Schleifenvariante steht als Referenz in tests/test_evaluate.py.
+    ZWEI REINHEITEN, und die Unterscheidung ist keine Spitzfindigkeit:
+      purity_cluster_mean  Mittel UEBER CLUSTER -- ein Cluster aus 3 Events
+                           zaehlt so viel wie einer aus 5000.
+      purity_event_mean    Mittel UEBER EVENTS -- jedes Event zaehlt gleich.
+    Bei vielen kleinen Fragmenten liegt die erste hoeher als die zweite. Fuer
+    RELATIVE Vergleiche ist beides brauchbar (die Verzerrung trifft alle
+    Konfigurationen gleich), fuer die FINALE Zahl ist die eventgewichtete die
+    ehrlichere. purity_mean bleibt als Aliasname bestehen, solange report.py
+    ihn liest -- die Umbenennung ist ein eigener Schritt.
+
+    purity_event_mean laesst sich direkt aus groesste/groessen bilden:
+    sum(groesste)/sum(groessen) ist der Anteil der Events, die in ihrem
+    Cluster zur Mehrheits-GT gehoeren. Keine zweite Rechnung noetig.
+
+    EINSCHRAENKUNG (unveraendert, BA_NN §3.7): bewertet werden nur SAUBERE
+    Events (status == 0). Auch die gt_-Felder gelten damit nur fuer diese
+    Teilmenge -- gt_visible_ms_median unterschaetzt die echte Sichtbarkeit,
+    wenn ein Partikel am Rand mehrdeutige Events hat. Bewusst so, weil eine
+    zweite Maske die Ausrichtung dupliziert haette, und genau dort liegt die
+    Falle (align_gt_window).
     """
     labels = np.asarray(labels)
     clean = np.asarray(status) == STATUS_CLEAN
     lab = labels[clean]
     gt = np.asarray(track_id)[clean]
+    tt = np.asarray(t)[clean] if t is not None else None
 
     gueltig = lab >= 0            # RAMA vergibt -1 fuer kantenlose Knoten
     lab, gt = lab[gueltig], gt[gueltig]
+    if tt is not None:
+        tt = tt[gueltig]
     if len(lab) == 0:
         return {}
 
@@ -68,17 +90,35 @@ def cluster_metrics(labels, track_id, status) -> dict:
 
     # Fragmentierung: Zahl verschiedener Cluster je GT-Partikel
     frag = np.bincount(k_gt, minlength=len(gt_u))
+    gt_groessen = np.bincount(gt_idx, minlength=len(gt_u))
 
-    return {
+    out = {
         "n_events": int(len(lab)),
         "n_clusters": int(len(lab_u)),
         "n_gt": int(len(gt_u)),
-        "purity_mean": float(reinheit.mean()),
+        "purity_mean": float(reinheit.mean()),        # Alias, s. Docstring
+        "purity_cluster_mean": float(reinheit.mean()),
+        "purity_event_mean": float(groesste.sum() / groessen.sum()),
         "purity_lt90": int((reinheit < 0.9).sum()),
+        "purity_lt90_frac": float((reinheit < 0.9).mean()),
+        "cluster_size_min": int(groessen.min()),
+        "cluster_size_median": float(np.median(groessen)),
+        "cluster_size_max": int(groessen.max()),
+        "n_singletons": int((groessen == 1).sum()),
         "frag_mean": float(frag.mean()),
         "frag_max": int(frag.max()),
+        "gt_events_per_particle_median": float(np.median(gt_groessen)),
     }
-
+    if tt is not None:
+        # Sichtbarkeitsspanne je GT-Partikel, vektorisiert ueber
+        # np.maximum.at / np.minimum.at -- eine Schleife ueber die Partikel
+        # waere bei groesseren Fenstern der Engpass.
+        tmax = np.full(len(gt_u), -np.inf)
+        tmin = np.full(len(gt_u), np.inf)
+        np.maximum.at(tmax, gt_idx, tt)
+        np.minimum.at(tmin, gt_idx, tt)
+        out["gt_visible_ms_median"] = float(np.median(tmax - tmin) / 1000.0)
+    return out
 
 def align_gt_window(gt_t, event_t):
     """Findet den Index-Ausschnitt der Label-Datei, der zum Eventfenster passt.
