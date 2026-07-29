@@ -1,21 +1,86 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""CLI-Huelle fuer eventpiv.train -- Hydra + Aufruf."""
+"""CLI-Huelle fuer eventpiv.train -- Hydra, W&B, Aufruf.
+
+Die Framework-Grenze: hier sind Hydra UND W&B bekannt, in src/eventpiv/
+keines von beiden. train.py liefert verschachtelte Kennzahlen an zwei
+Senken; was daraus wird, entscheidet diese Datei.
+"""
+from dataclasses import asdict
+
 import hydra
+import wandb
 from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig
 
 from _cli import to_cfg
-from eventpiv.runconfig import TrainCfg
+from eventpiv.metrics import flatten
+from eventpiv.runconfig import TrainCfg, slug
 from eventpiv.train import train_edge_nn
 
 ConfigStore.instance().store(name="train_schema", node=TrainCfg)
+
+PROJECT = "event-piv-multicut"
+
+
+def senken(run):
+    """(on_start, on_epoch) fuer train_edge_nn.
+
+    FEHLERPOLITIK, bewusst unsymmetrisch: wandb.init darf abbrechen (kein
+    try in main) -- dort ist noch nichts gerechnet, und ein stiller Lauf
+    ohne Log faellt sonst erst hinterher auf. wandb.log darf NICHT
+    abbrechen: dort steckt schon Rechenzeit im Lauf, und ein Netzaussetzer
+    ist kein Grund, ein Modell wegzuwerfen -- metrics.json entsteht ohnehin
+    unabhaengig von W&B.
+    """
+    def on_start(daten):
+        # Messungen, keine Konfiguration -> summary. config bleibt dadurch
+        # exakt asdict(cfg) und zeichengleich mit der Override-Syntax.
+        try:
+            run.summary.update(flatten({"data": daten}))
+        except Exception as e:
+            print(f"  WARN: W&B summary fehlgeschlagen: {e}")
+
+    def on_epoch(zeile):
+        try:
+            run.log(flatten(zeile))
+        except Exception as e:
+            print(f"  WARN: W&B log fehlgeschlagen: {e}")
+
+    return on_start, on_epoch
 
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="train")
 def main(dcfg: DictConfig) -> None:
     cfg: TrainCfg = to_cfg(dcfg)
-    train_edge_nn(cfg)
+
+    # group = Arbeitspunkt, name = Paar-Datensatz + Netz. group allein
+    # reicht nicht: unter einem Arbeitspunkt liegen mehrere Paar-Datensaetze.
+    # slug() setzt resolve_derived voraus -- to_cfg hat das erledigt.
+    run = wandb.init(
+        project=PROJECT,
+        group=slug(cfg.neighborhood),
+        job_type="train",
+        name=f"{slug(cfg.pairs)}+{slug(cfg.training)}",
+        config=asdict(cfg),
+    )
+    run.define_metric("*", step_metric="epoch")   # x-Achse ist die Epoche
+    
+    # Explizit nach stdout: wandb meldet sich ueber stderr, und
+    # slurm/train.sbatch trennt beide Stroeme. Ohne diese Zeile stuenden
+    # Ergebnisse und Lauf-URL in verschiedenen Dateien.
+    print(f"W&B: {run.url}", flush=True)
+
+    on_start, on_epoch = senken(run)
+    try:
+        path, kennzahlen = train_edge_nn(cfg, on_start=on_start,
+                                         on_epoch=on_epoch)
+        # unter final/, damit die Schlusswerte in der Runtabelle nicht mit
+        # den gleichnamigen Verlaufswerten aus holdout/ verwechselt werden.
+        run.summary.update(flatten({"final": kennzahlen}))
+        run.summary["model_path"] = str(path)
+    finally:
+        run.finish()
 
 
 if __name__ == "__main__":

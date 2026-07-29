@@ -54,7 +54,8 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["confusion", "rates", "roc_auc", "class_balance", "pair_report"]
+__all__ = ["confusion", "rates", "roc_auc", "class_balance", "pair_report",
+           "flatten"]
 
 
 def _div(a, b) -> float:
@@ -74,6 +75,33 @@ def _as_labels(y) -> np.ndarray:
         raise ValueError("y_true darf nur 0 und 1 enthalten, gefunden: "
                          f"{np.unique(y)[:5]}")
     return y
+
+
+def flatten(d: dict, sep: str = "/", prefix: str = "") -> dict:
+    """Verschachteltes dict -> flach, Ebenen durch sep getrennt.
+
+    Reine Strukturumformung: benennt nichts um, entscheidet nichts. Die
+    Namen entstehen aus der Verschachtelung des Aufrufers -- es gibt damit
+    genau EINE Stelle, an der Kennzahlen heissen, wie sie heissen, und diese
+    Funktion ist nicht sie.
+
+    Gebraucht an der Logging-Grenze: W&B verflacht verschachtelte dicts zwar
+    selbst, aber mit einem PUNKT (holdout.cm.tp), waehrend die
+    Panel-Gruppierung der Oberflaeche sich nach dem SCHRAEGSTRICH richtet.
+    Gemessen 29.07.2026 mit wandb 0.28.1 an einem Offline-Lauf, Schluessel
+    direkt aus dem Protokoll gelesen. Ohne die Umformung gaebe es keine
+    Gruppen, sondern eine flache Wand aus Kacheln.
+
+    Steht hier und nicht im Skript, damit sie testbar ist.
+    """
+    out: dict = {}
+    for k, v in d.items():
+        name = f"{prefix}{k}"
+        if isinstance(v, dict):
+            out.update(flatten(v, sep, f"{name}{sep}"))
+        else:
+            out[name] = v
+    return out
 
 
 def confusion(y_true, y_score, threshold: float = 0.0) -> dict[str, int]:

@@ -14,9 +14,36 @@ import math
 import numpy as np
 import pytest
 
-from eventpiv.metrics import (class_balance, confusion, pair_report, rates,
-                              roc_auc)
+from eventpiv.metrics import (class_balance, confusion, flatten, pair_report,
+                              rates, roc_auc)
 
+
+# ------------------------------------------------------------------ flatten
+
+def test_flatten_von_hand():
+    assert flatten({"epoch": 1, "holdout": {"auc": 0.9, "cm": {"tp": 3}}}) == {
+        "epoch": 1, "holdout/auc": 0.9, "holdout/cm/tp": 3}
+
+
+def test_flatten_laesst_flaches_dict_unveraendert():
+    d = {"a": 1, "b": 2.0, "c": None}
+    assert flatten(d) == d
+
+
+def test_flatten_leerer_zweig_erzeugt_keinen_schluessel():
+    """Dokumentiert das Verhalten: {"a": {}} liefert nichts, nicht "a"."""
+    assert flatten({"a": {}, "b": 1}) == {"b": 1}
+
+
+def test_flatten_trenner_waehlbar():
+    """W&B nimmt den Punkt, wir wollen den Schraegstrich -- beides moeglich."""
+    assert flatten({"a": {"b": 1}}, sep=".") == {"a.b": 1}
+
+
+def test_flatten_listen_bleiben_werte():
+    """Nur dicts werden aufgeloest. val_runs ist ein Wert, kein Zweig."""
+    assert flatten({"data": {"val_runs": [30, 43]}}) == {
+        "data/val_runs": [30, 43]}
 
 # ---------------------------------------------------------------- confusion
 
