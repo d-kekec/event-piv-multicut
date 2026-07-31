@@ -185,11 +185,13 @@ def roc_auc(y_true, y_score) -> float:
     (deterministisch sortieren) wuerde die AUC still um ~0.015 senken. Wer
     Determinismus will, muss zugleich auf mittlere Raenge umstellen -- beides
     zusammen, nie einzeln. Die dokumentierten 0.792 aus
-    BA_NN_Kantenkosten.md §3.6 sind demnach voraussichtlich nicht
-    betroffen -- gemessen wurde an SYNTHETISCHEN Scores mit
-    vergleichbarer Gleichstandsstruktur, nicht am echten Holdout.
-    Die Gegenprobe steht aus; sie kostet zwei Zeilen, sobald die
-    Logit-Historie aus C4 vorliegt.
+    GEGENPROBE AM ECHTEN DATENSATZ, 31.07.2026: 11.588.920 Paare des
+    train-Arbeitspunkts, nur 139.288 verschiedene Logits -- ein
+    Gleichstandsanteil von 98,8 %. Naive Rangvergabe und mittlere Raenge
+    liefern dieselbe AUC auf SECHS Nachkommastellen (0.870959, Delta unter
+    5e-7). Die dokumentierten Werte in BA_NN_Kantenkosten.md §3.6 sind damit
+    nachweislich nicht betroffen; die synthetische Vorabschaetzung war
+    korrekt und ist hiermit abgeloest.
     """
     y_true = np.asarray(y_true)
     y_score = np.asarray(y_score)

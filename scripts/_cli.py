@@ -8,6 +8,7 @@ to_object wirft sie danach still weg. '+alpha=20000' -- flach statt gruppiert --
 wuerde damit weder auffallen noch wirken. Gemessen 27.07.2026.
 """
 from dataclasses import asdict
+from typing import Any, cast
 
 from omegaconf import DictConfig, OmegaConf
 
@@ -20,10 +21,22 @@ def _flat(d: dict, prefix: str = "") -> set[str]:
     return out
 
 
-def to_cfg(cfg: DictConfig):
-    """DictConfig -> Dataclass, mit hartem Abbruch bei unbekannten Schluesseln."""
-    obj = OmegaConf.to_object(cfg)
-    fremd = _flat(OmegaConf.to_container(cfg, resolve=True)) - _flat(asdict(obj))
+def to_cfg(cfg: DictConfig) -> Any:
+    """DictConfig -> Dataclass, mit hartem Abbruch bei unbekannten Schluesseln.
+
+    Rueckgabetyp Any, und das ist keine Nachlaessigkeit: welche Dataclass
+    herauskommt, entscheidet das im ConfigStore registrierte Schema, also der
+    Aufrufer. Statisch ist das nicht bestimmbar. Any laesst die Zusicherung an
+    der Aufrufstelle stehen ("cfg: TrainCfg = to_cfg(...)"), wo bekannt ist,
+    welches Schema registriert wurde.
+    """
+    obj: Any = OmegaConf.to_object(cfg)
+    # cast statt Any: to_container gibt statisch eine Union zurueck, weil ein
+    # Config auch eine Liste oder ein Skalar sein koennte. Hydra uebergibt hier
+    # immer einen DictConfig -- die Zusicherung kommt vom Framework, nicht vom
+    # Typsystem, und cast schreibt genau das hin.
+    roh = cast(dict, OmegaConf.to_container(cfg, resolve=True))
+    fremd = _flat(roh) - _flat(asdict(obj))
     if fremd:
         raise SystemExit(
             f"Unbekannte Konfigurationsschluessel: {sorted(fremd)}\n"

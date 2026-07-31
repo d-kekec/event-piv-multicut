@@ -9,7 +9,7 @@ test_graph.py. Zusaetzlich Faelle mit von Hand ausgerechnetem Ergebnis.
 import numpy as np
 import pytest
 
-from eventpiv.evaluate import align_gt_window, cluster_metrics
+from eventpiv.evaluate import align_gt_window, cluster_metrics, edge_gt_stats
 from eventpiv.labels import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
 
 
@@ -197,3 +197,43 @@ def test_sichtbarkeitsspanne_von_hand():
     m = cluster_metrics(lab, gt, st, t=t)
     assert m["gt_visible_ms_median"] == pytest.approx(6.0)
     assert "gt_visible_ms_median" not in cluster_metrics(lab, gt, st)
+
+def test_edge_gt_stats_von_hand():
+    """Vier Events auf einer Geraden, drei Kanten. Von Hand:
+
+      Event  0    1    2    3
+      GT     1    1    2    2
+      status sauber sauber sauber MEHRDEUTIG
+
+      Kante 0-1: gleiches Partikel, beide sauber  -> JA
+      Kante 1-2: verschieden,       beide sauber  -> NEIN
+      Kante 2-3: ein Endpunkt mehrdeutig          -> nicht bewertbar
+
+      edge_ja_frac = 1/2 ; bewertbar 2/3
+      dt = 1000 je Kante -> Mittel 1000
+      dx = 3, dy = 4 je Kante -> dr = 5 -> Mittel 5
+    """
+    t = np.array([0.0, 1000.0, 2000.0, 3000.0])
+    x = np.array([0.0, 3.0, 6.0, 9.0])
+    y = np.array([0.0, 4.0, 8.0, 12.0])
+    i = np.array([0, 1, 2])
+    j = np.array([1, 2, 3])
+    gt = np.array([1, 1, 2, 2])
+    st = np.array([STATUS_CLEAN, STATUS_CLEAN, STATUS_CLEAN, STATUS_AMBIG],
+                  dtype=np.uint8)
+    m = edge_gt_stats(i, j, t, x, y, gt, st)
+    assert m["edge_ja_frac"] == pytest.approx(0.5)
+    assert m["edge_n_bewertbar"] == 2
+    assert m["edge_bewertbar_frac"] == pytest.approx(2 / 3)
+    assert m["dt_mean"] == pytest.approx(1000.0)
+    assert m["dr_mean"] == pytest.approx(5.0)
+
+
+def test_edge_gt_stats_ohne_bewertbare_kante():
+    """Kein Label ohne zwei saubere Endpunkte -- dt/dr bleiben trotzdem."""
+    t = np.array([0.0, 1000.0])
+    m = edge_gt_stats(np.array([0]), np.array([1]), t, np.zeros(2),
+                      np.zeros(2), np.array([1, 1]),
+                      np.array([STATUS_NOISE, STATUS_CLEAN], np.uint8))
+    assert "edge_ja_frac" not in m
+    assert m["edge_n_bewertbar"] == 0 and "dt_mean" in m

@@ -33,7 +33,7 @@ import torch
 
 from eventpiv import config
 from eventpiv.data import load_events
-from eventpiv.evaluate import align_gt_window, cluster_metrics
+from eventpiv.evaluate import align_gt_window, cluster_metrics, edge_gt_stats
 from eventpiv.graph import edge_deltas, neighborhood_pairs
 from eventpiv.model import SWAP_RAW6, build_features, is_symmetric
 from eventpiv.runconfig import Neighborhood, SolveCfg, canonical, same_neighborhood
@@ -191,15 +191,23 @@ def info_groups(info: dict) -> dict:
     for k, v in info.items():
         if k.startswith("gt_"):
             gruppen["gt"][k[3:]] = v
-        elif k.startswith("t_") or k == "vram_peak_gb":
+        elif k.startswith("t_") or k in ("vram_peak_gb", "gpu_name"):
             gruppen["diag"][k] = v
         else:
             gruppen["solve"][k] = v
     return gruppen
 
 
-def solve_window(cfg: SolveCfg, model, mu, sig, feature_mode, verbose=True):
+def solve_window(cfg: SolveCfg, model, mu, sig, feature_mode, verbose=True,
+                 on_edges=None):
     """Ein Zeitfenster eines Runs loesen. Rueckgabe: (labels, events, info).
+
+    on_edges : optional Callable(i, j, t, x, y) -> dict. Die Kanten existieren
+        nur hier, die GT kennt solve_window bewusst NICHT -- die Funktion
+        laeuft auch fuer Runs ohne Label-Datei. Die Senke bekommt beides
+        zusammen und gibt Kennzahlen zurueck; nichts Grosses verlaesst die
+        Funktion, und kein Aufrufer bricht. Dieselbe Loesung wie on_epoch im
+        Training.
 
     Nimmt die Konfiguration statt zwoelf Einzelargumenten entgegen. Gelesen
     werden cfg.selection, cfg.window, cfg.neighborhood, cfg.solver, cfg.compute
@@ -243,6 +251,21 @@ def solve_window(cfg: SolveCfg, model, mu, sig, feature_mode, verbose=True):
     labels = solve_multicut(i, j, costs, num_nodes=n, cp=cp, mode=sv.mode)
     t_rama = time.time() - tic
 
+    # Aufgerufen NACH dem RAMA-Lauf: die Statistik legt CPU-Arrays in
+    # Kantengroesse an, und die sollen nicht waehrend des Solves im Speicher
+    # liegen. i und j existieren hier noch, sie werden oben gebraucht.
+    kanten = {}
+    if on_edges is not None:
+        tic = time.time()
+        kanten = on_edges(i, j, t, x, y) or {}
+        kanten["t_edges"] = time.time() - tic
+        if verbose and "edge_ja_frac" in kanten:
+            print(f"  Kanten gegen GT: {kanten['edge_ja_frac']*100:.2f}% "
+                  f"gleiches Partikel "
+                  f"({kanten['edge_bewertbar_frac']*100:.1f}% bewertbar), "
+                  f"dt {kanten['dt_mean']/1000:.2f}ms, "
+                  f"dr {kanten['dr_mean']:.2f}px")
+            
     # np.unique(labels) zaehlte den -1-Eimer als Cluster mit -- also um
     # genau EINS zu hoch, sobald es kantenlose Knoten gibt, und die gibt es
     # zu Tausenden (13.611 von ~18.500 Rauschevents in run32, BA_NN §4.2).
@@ -257,6 +280,8 @@ def solve_window(cfg: SolveCfg, model, mu, sig, feature_mode, verbose=True):
     n_unassigned = int((~zugeordnet).sum())
     vram = (torch.cuda.max_memory_allocated() / 2**30
             if torch.cuda.is_available() else 0.0)
+    gpu_name = (torch.cuda.get_device_name(cp.device_index)
+            if torch.cuda.is_available() else "cpu")
     if verbose:
         print(f"  RAMA ({sv.mode}): {n_clusters_rama} Cluster, "
               f"{n_unassigned:,} Knoten ohne Kante "
@@ -268,7 +293,7 @@ def solve_window(cfg: SolveCfg, model, mu, sig, feature_mode, verbose=True):
             "dt_ms": win.dt / 1000.0 if win.dt else float("nan"),
             "events_per_ms": n / (win.dt / 1000.0) if win.dt else float("nan"),
             "t_graph": t_graph, "t_costs": t_costs, "t_rama": t_rama,
-            "vram_peak_gb": vram}
+            "vram_peak_gb": vram, "gpu_name": gpu_name, **kanten}
     return labels, {"t": t, "x": x, "y": y}, info
 
 
@@ -310,14 +335,29 @@ def solve_and_evaluate(cfg: SolveCfg, verbose=True) -> dict:
               f"+{win.dt/1000:.0f}ms], Netz {mpath.name}, "
               f"k-NN={'AN' if cfg.solver.use_knn else 'AUS'}")
 
-    labels, ev, info = solve_window(cfg, model, mu, sig, feature_mode, verbose)
-    info["run"] = sel.run_nr
-    if labels is None:
-        return info
-
     gt_path = (Path(cfg.io.label_dir) / f"run{sel.run_nr}_eventlabels.npz"
                if cfg.io.label_dir
                else config.label_file(sel.split, sel.run_nr))
+
+    def kantensenke(i, j, t, x, y):
+        """Richtet die GT auf das Fenster aus und misst die Kanten.
+
+        Laedt die Label-Datei ein ZWEITES Mal. Der Preis dafuer, dass die
+        vollen GT-Arrays (bei 30 Mio. Events rund 400 MB) nicht waehrend des
+        Graphbaus im Speicher liegen -- und der ist die RAM-kritische Phase.
+        """
+        g = np.load(gt_path)
+        sl = align_gt_window(g["t"], t)
+        return edge_gt_stats(i, j, t, x, y,
+                             g["track_id"][sl], g["status"][sl])
+
+    labels, ev, info = solve_window(
+        cfg, model, mu, sig, feature_mode, verbose,
+        on_edges=kantensenke if gt_path.exists() else None)
+    info["run"] = sel.run_nr
+
+    if labels is None:
+        return info
     if not gt_path.exists():
         if verbose:
             print(f"  keine GT-Datei ({gt_path.name}) -> kein Abgleich")

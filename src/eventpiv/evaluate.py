@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from eventpiv.graph import edge_deltas
 from eventpiv.labels import STATUS_CLEAN
 
 
@@ -150,3 +151,47 @@ def align_gt_window(gt_t, event_t):
     return sl
 
 
+def edge_gt_stats(i, j, t, x, y, track_id, status) -> dict:
+    """Statistik ueber die KANTEN eines Fensters, gegen die GT.
+
+    Gegenstueck zu cluster_metrics: dort wird die AUSGABE des Solvers
+    bewertet, hier seine EINGABE. edge_ja_frac ist der Anteil der Kanten,
+    die zwei Events desselben Partikels verbinden -- die Klassenverteilung,
+    die das Netz im Einsatz tatsaechlich vorfindet.
+
+    Wozu: pred_neg_frac auf dem Holdout (22,2 %) und frac_neg im Einsatz
+    (12,4-13,8 %) weichen ab, und bisher liess sich nicht trennen, ob das an
+    der Klassenverteilung liegt oder an den Merkmalen. edge_ja_frac macht die
+    erste Haelfte messbar.
+
+    NUR Kanten mit ZWEI sauberen Endpunkten sind bewertbar -- dieselbe
+    Bedingung wie beim Sammeln des Paar-Datensatzes (pairs.collect_pairs),
+    damit die Zahlen ueberhaupt vergleichbar sind. edge_bewertbar_frac sagt,
+    auf welchem Anteil der Kanten die Aussage ruht.
+
+    dt_mean und dr_mean laufen dagegen ueber ALLE Kanten -- das ist, was das
+    Netz im Einsatz sieht. Mit data/mu aus dem Training nur naeherungsweise
+    vergleichbar (dort ausschliesslich sauber-sauber-Paare); bei hohem
+    edge_bewertbar_frac ist der Unterschied klein.
+
+    Zwischenbedarf: vier Arrays der Kantenzahl in float64, bei 12,5 Mio.
+    Kanten rund 400 MB. Wird NACH dem RAMA-Aufruf gerechnet, liegt also nicht
+    in der Speicherspitze (die entsteht im KDTree).
+    """
+    i, j = np.asarray(i), np.asarray(j)
+    if len(i) == 0:
+        return {}
+    dt, dx, dy = edge_deltas(t, x, y, i, j)
+    out = {"dt_mean": float(dt.mean()),
+           "dr_mean": float(np.sqrt(dx * dx + dy * dy).mean())}
+
+    clean = np.asarray(status) == STATUS_CLEAN
+    beide = clean[i] & clean[j]
+    n_bew = int(beide.sum())
+    out["edge_n_bewertbar"] = n_bew
+    out["edge_bewertbar_frac"] = float(n_bew / len(i))
+    if n_bew:
+        tid = np.asarray(track_id)
+        out["edge_ja_frac"] = float(
+            (tid[i[beide]] == tid[j[beide]]).mean())
+    return out
