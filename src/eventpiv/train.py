@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-train.py -- BAUSTEIN [3]: Training des Kantenkosten-Netzes.
+train.py -- BAUSTEIN [3]: Training und Bewertung des Kantenkosten-Netzes.
 
 p = sigmoid(logit), BCE gegen das Paar-Label "gleiches Partikel?".
 Metrik ist AUC: rangbasiert, schwellenunabhaengig und bei starker Imbalance
@@ -30,33 +30,103 @@ import torch.nn as nn
 from pathlib import Path
 
 from eventpiv import config
-from eventpiv.model import (EdgeMLP, SWAP_RAW6, build_features, check_mode,
-                            feature_names, is_symmetric, n_features,
-                            save_checkpoint)
 from eventpiv.metrics import class_balance, pair_report
+from eventpiv.model import (EdgeMLP, SWAP_RAW6, build_features, check_mode,
+                            feature_names, is_symmetric, load_checkpoint,
+                            n_features, save_checkpoint)
 from eventpiv.runconfig import TrainCfg, identity_meta
 
 IMBALANCE_MODES = ("sample", "weight")
 
+def check_dataset_geom(meta: dict, nb, name: str = "") -> None:
+    """Prueft, ob der Datensatz mit DIESER Geometrie gebaut wurde.
 
-def _epochenzeile(ep: int, train_loss: float, hold: dict, sec: float) -> dict:
+    Zwei unabhaengige Rechnungen desselben Werts: der abgeleitete Pfad
+    behauptet eine Geometrie, die Metadaten der Datei nennen die
+    tatsaechliche. Frueher baute train.py den Pfad ohne geom neu und lud
+    damit still den Ellipsoid-Datensatz (Befund 27.07.2026).
+
+    Aeltere Dateien ohne Metadatenblock laufen UNGEPRUEFT durch -- dieselbe
+    Entscheidung wie in solve.check_consistency.
+    """
+    ds_nb = (meta or {}).get("neighborhood") or {}
+    if ds_nb and ds_nb.get("geom") != nb.geom:
+        raise ValueError(
+            f"Datensatz {name} wurde mit geom={ds_nb.get('geom')!r} gebaut, "
+            f"Konfiguration sagt {nb.geom!r} -- der Pfad passt nicht zum "
+            "Inhalt.")
+
+
+def load_features(path, feature_mode: str):
+    """Laedt einen Paar-Datensatz und baut daraus die Feature-Matrix.
+
+    EINE Stelle, an der aus pairs.npz Merkmale werden. Vorher stand die Kette
+    (laden, casten, build_features) inline in train_edge_nn; ein zweiter
+    Verbraucher haette sie dupliziert -- genau die Doppelung, gegen die
+    model.build_features gebaut wurde.
+
+    Liegt in train.py und nicht in pairs.py, obwohl der Name dorthin zeigt:
+    pairs.py darf nicht von model.py abhaengen. Stufe [2] speichert rohe
+    dt/dx/dy und baut nie Merkmale -- ein Import von model zoege torch in
+    eine Stufe, die es nicht braucht.
+
+    Rueckgabe: (feats float32 (n, n_in), label float32, run, meta dict)
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{path} fehlt -- erst scripts/build_pair_dataset.py laufen "
+            "lassen (gleiche neighborhood/pairs-Gruppe).")
+    d = np.load(path, allow_pickle=False)
+
+    kwargs = {}
+    if feature_mode == "raw6":
+        kwargs = {"ti": d["ti"].astype(np.float32),
+                  "xi": d["xi"].astype(np.float32),
+                  "yi": d["yi"].astype(np.float32)}
+    feats = build_features(d["dt"].astype(np.float32),
+                           d["dx"].astype(np.float32),
+                           d["dy"].astype(np.float32),
+                           mode=feature_mode, xp=np,
+                           **kwargs).astype(np.float32)
+    return (feats, d["label"].astype(np.float32), d["run"],
+            json.loads(str(d["meta"])))
+
+def _mit_cm(m: dict) -> dict:
+    """Trennt die Konfusionsmatrix in einen eigenen Zweig.
+
+    Aus dem flachen pair_report wird {..., "cm": {tp, fp, fn, tn}}. Der
+    Grund ist Darstellung im Panel, aber die Trennung ist auch inhaltlich
+    richtig: Zaehlungen und Raten sind verschiedene Groessen.
+    """
+    cm = {k: m[k] for k in ("tp", "fp", "fn", "tn")}
+    return {**{k: v for k, v in m.items() if k not in cm}, "cm": cm}
+
+
+def _epochenzeile(ep: int, loss_running: float, trn: dict, hold: dict,
+                  sec: float) -> dict:
     """Baut die Logzeile einer Epoche. VERSCHACHTELT, nicht flach.
 
-    Die oberste Ebene sagt, WELCHE MENGE gemessen wurde -- "loss" heisst auf
-    train etwas anderes als auf holdout, und "tp" waere ohne diese Ebene
-    mehrdeutig, sobald es eine Trainings-Konfusionsmatrix gibt. Das ist eine
-    semantische Trennung, keine Darstellungsfrage.
+    Die oberste Ebene sagt, WELCHE MENGE gemessen wurde -- ohne sie waere
+    "tp" mehrdeutig, sobald es Trainings- UND Holdout-Matrix gibt. Genau das
+    ist seit E1 der Fall.
 
-    Dass W&B verschachtelte dicts mit "/" verflacht (holdout/cm/tp), ist ein
-    willkommener Nebeneffekt -- nicht der Grund fuer die Form.
+    ZWEI VERLUSTE auf der Trainingsseite, und der Unterschied ist kein Detail:
+      train/loss_running  laufender Mittel ueber die Minibatches -- gerechnet
+                          bei WECHSELNDEN Gewichten, also nicht mit
+                          holdout/loss vergleichbar.
+      train/loss          bei den Gewichten am Epochenende, also derselbe
+                          Massstab wie holdout/loss.
+    Erst der zweite macht den Vergleich ehrlich. Der erste bleibt, weil er
+    nichts kostet und den Verlauf INNERHALB einer Epoche mittelt.
+
+    Dass W&B verschachtelte dicts mit "/" verflacht, ist ein willkommener
+    Nebeneffekt -- nicht der Grund fuer die Form.
     """
-    cm = {k: hold[k] for k in ("tp", "fp", "fn", "tn")}
-    rest = {k: v for k, v in hold.items() if k not in cm}
     return {"epoch": ep,
-            "train": {"loss": train_loss},
-            "holdout": {**rest, "cm": cm},
+            "train": {"loss_running": loss_running, **_mit_cm(trn)},
+            "holdout": _mit_cm(hold),
             "diag": {"sec_epoch": round(sec, 3)}}
-
 
 def _json_default(o):
     """numpy-Skalare JSON-tauglich machen.
@@ -191,42 +261,17 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
 
     data_path = (Path(cfg.io.data_path) if cfg.io.data_path
                  else config.pairs_file(nb, ps, create=False))
-
-    if not data_path.exists():
-        raise FileNotFoundError(
-            f"{data_path} fehlt -- erst scripts/build_pair_dataset.py laufen "
-            "lassen (gleiche neighborhood/pairs-Gruppe).")
-    d = np.load(data_path, allow_pickle=False)
-
-    dt = d["dt"].astype(np.float32)
-    dx = d["dx"].astype(np.float32)
-    dy = d["dy"].astype(np.float32)
-    label = d["label"].astype(np.float32)
-    run_arr = d["run"]
-
-    ds_nb = json.loads(str(d["meta"])).get("neighborhood", {})
-    if ds_nb and ds_nb.get("geom") != nb.geom:
-        raise ValueError(
-            f"Datensatz {data_path.name} wurde mit geom={ds_nb.get('geom')!r} "
-            f"gebaut, Konfiguration sagt {nb.geom!r} -- der Pfad passt nicht "
-            "zum Inhalt.")
+    feats, label, run_arr, ds_meta = load_features(data_path, tr.feature_mode)
+    check_dataset_geom(ds_meta, nb, data_path.name)
+    sym = is_symmetric(tr.feature_mode)
 
     if verbose:
         print(f"Datensatz: {data_path}")
         print(f"  {len(label):,} Paare "
               f"(JA {int(label.sum()):,} / NEIN {int((label == 0).sum()):,})")
         print(f"  alpha={nb.alpha}, r_max={nb.r_max}, geom={nb.geom}")
-
-    kwargs = {}
-    if tr.feature_mode == "raw6":
-        kwargs = {"ti": d["ti"].astype(np.float32),
-                  "xi": d["xi"].astype(np.float32),
-                  "yi": d["yi"].astype(np.float32)}
-    feats = build_features(dt, dx, dy, mode=tr.feature_mode, xp=np,
-                           **kwargs).astype(np.float32)
-    sym = is_symmetric(tr.feature_mode)
-    if verbose:
-        print(f"Feature-Modus '{tr.feature_mode}': {feature_names(tr.feature_mode)} "
+        print(f"Feature-Modus '{tr.feature_mode}': "
+              f"{feature_names(tr.feature_mode)} "
               f"({'symmetrisch' if sym else 'NICHT symm. -> Mittelung'})")
 
     val_runs, is_val = split_runs_stratified(label, run_arr, tr.val_frac, rng)
@@ -246,7 +291,7 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
                             "train-Splits -- NICHT der offizielle val-Split "
                             "(BA_NN_Kantenkosten.md §3.6)"),
         "pairs_path": str(data_path),
-        "dataset_neighborhood": ds_nb,
+        "dataset_neighborhood": ds_meta.get("neighborhood", {})
     }
     if verbose:
         print(f"Holdout-Runs (aus demselben Split wie der Paar-Datensatz): "
@@ -337,19 +382,27 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
             opt.step()
             tot += loss.item() * len(bi)
 
-        # Auswertung in JEDER Epoche
+        # Auswertung auf BEIDEN Mengen, je Epoche. Der Trainingssatz kostet
+        # etwa doppelt so viel wie der Holdout (4,83 gegen 2,38 Mio. Paare);
+        # der Lauf waechst dadurch von rund 14 auf rund 27 Sekunden. Das ist
+        # der Preis dafuer, Ueberanpassung in JEDER Kennzahl zu sehen statt
+        # nur im Verlust -- und dafuer, dass die vom Betreuer angeforderte
+        # Konfusionsmatrix fuer beide Mengen existiert.
         hold = evaluate(model, Xva, yva, mu_t, sig_t, sym, loss_fn)
-        zeile = _epochenzeile(ep, tot / n, hold, time.perf_counter() - t_ep)
+        trn = evaluate(model, Xtr, ytr, mu_t, sig_t, sym, loss_fn)
+        zeile = _epochenzeile(ep, tot / n, trn, hold,
+                              time.perf_counter() - t_ep)
         historie.append(zeile)
         if on_epoch is not None:
             on_epoch(zeile)
 
         if verbose and (ep % 5 == 0 or ep == 1):
-            h = zeile["holdout"]
-            print(f"  ep {ep:3d}  loss {zeile['train']['loss']:.4f} | "
-                  f"holdout loss {h['loss']:.4f} acc {h['accuracy']:.4f} "
-                  f"AUC {h['auc']:.4f} TPR(JA) {h['tpr']:.3f} "
-                  f"TNR(NEIN) {h['tnr']:.3f} [{zeile['diag']['sec_epoch']}s]")
+            h, tr_ = zeile["holdout"], zeile["train"]
+            print(f"  ep {ep:3d}  loss {tr_['loss_running']:.4f} | "
+                  f"train  loss {tr_['loss']:.4f} AUC {tr_['auc']:.4f} | "
+                  f"holdout loss {h['loss']:.4f} AUC {h['auc']:.4f} "
+                  f"TPR {h['tpr']:.3f} TNR {h['tnr']:.3f} "
+                  f"[{zeile['diag']['sec_epoch']}s]")
     
     # diag misst den LAUF, nicht die Herkunft der Datei -- die steht in
     # config.build_meta. Zwei Zeitangaben, weil sie verschiedene Fragen
@@ -369,10 +422,13 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
         "sec_epochs": round(sum(z["diag"]["sec_epoch"] for z in historie), 2),
         "sec_total": round(time.perf_counter() - t_start, 2),
     }
-    # hold traegt die Auswertung der LETZTEN Epoche -- zwischen ihr und
-    # diesem Punkt aendert sich am Modell nichts mehr.
-    kennzahlen = {**hold, "n_params": n_params,
-                  "val_runs": sorted(val_runs), "diag": diag}
+    # Verschachtelt wie die Epochenzeile -- daraus wird final/train/cm/tp und
+    # final/holdout/auc, also dieselben Namen wie im Verlauf. Vorher lag die
+    # Matrix im Verlauf unter holdout/cm/, in der Zusammenfassung aber flach
+    # unter final/tp; das war eine unnoetige Stolperstelle.
+    kennzahlen = {"train": _mit_cm(trn), "holdout": _mit_cm(hold),
+                  "n_params": n_params, "val_runs": sorted(val_runs),
+                  "diag": diag}
     if verbose:
         print(f"\nFinal: loss {hold['loss']:.4f} | acc {hold['accuracy']:.4f} | "
               f"AUC {hold['auc']:.4f} | TPR(JA) {hold['tpr']:.3f} | "
@@ -410,3 +466,64 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
         print(f"-> {path}")
         print(f"-> {mpath}  ({len(historie)} Epochen)")
     return path, kennzahlen
+
+def evaluate_pairs_on_dataset(cfg: TrainCfg, verbose=True) -> dict:
+    """Haelt ein FERTIG trainiertes Netz gegen einen Paar-Datensatz.
+
+    Kein Training, kein Split -- bewertet wird der GANZE Datensatz. Wozu:
+    der Holdout in train_edge_nn liegt INNERHALB des train-Splits. Ein
+    Datensatz aus val-Runs ist die erste unabhaengige Messung auf
+    Paar-Ebene, und genau die hat der Betreuer angefragt.
+
+    Der FREMDE Datensatz kommt ueber cfg.io.data_path herein: Netz aus
+    train_c5_o10, Daten aus dem val-Zweig. Beide Pfade sind sonst abgeleitet.
+
+    Das Praefix kommt aus den METADATEN des Datensatzes, nicht aus cfg --
+    die Datei sagt selbst, aus welchem Split sie stammt. Ein val-Datensatz
+    meldet val/..., ein test-Datensatz test/..., ohne dass der Aufrufer es
+    richtig setzen muss.
+
+    IN EINEM STUECK gerechnet, nicht stapelweise: bei hidden=8 ist die
+    versteckte Schicht 11,6 Mio. x 8 float32, also rund 370 MB. Bei
+    deutlich groesserem hidden waere das der Punkt, an dem solve.edge_costs
+    stapelt -- dann hier ebenso.
+    """
+    nb, ps, tr = cfg.neighborhood, cfg.pairs, cfg.training
+    check_mode(tr.feature_mode)
+
+    mpath = (Path(cfg.io.model_path) if cfg.io.model_path
+             else config.model_file(nb, ps, tr, create=False))
+    if not mpath.exists():
+        raise FileNotFoundError(f"{mpath} fehlt -- erst trainieren.")
+    model, mu_t, sig_t, feature_mode, _ = load_checkpoint(mpath, device="cpu")
+    if feature_mode != tr.feature_mode:
+        raise ValueError(
+            f"Checkpoint hat feature_mode={feature_mode!r}, Konfiguration "
+            f"{tr.feature_mode!r} -- Pfad passt nicht zum Modell.")
+
+    data_path = (Path(cfg.io.data_path) if cfg.io.data_path
+                 else config.pairs_file(nb, ps, create=False))
+    feats, label, _, ds_meta = load_features(data_path, feature_mode)
+    check_dataset_geom(ds_meta, nb, data_path.name)
+    split = ((ds_meta.get("pairs") or {}).get("split") or ps.split)
+
+    X = (torch.tensor(feats) - mu_t) / sig_t
+    y = torch.tensor(label).unsqueeze(1)
+    m = evaluate(model, X, y, mu_t, sig_t, is_symmetric(feature_mode))
+
+    kennzahlen = {"split": split, "metrics": _mit_cm(m),
+                  "data": {**class_balance(label),
+                           "path": str(data_path),
+                           "model_path": str(mpath)}}
+    if verbose:
+        b = kennzahlen["data"]
+        print(f"Netz     : {mpath}")
+        print(f"Datensatz: {data_path}")
+        print(f"  Split '{split}': {b['n']:,} Paare "
+              f"(JA {b['n_ja']:,} / NEIN {b['n_nein']:,}, "
+              f"{b['ratio_ja_nein']:.2f} : 1)")
+        print(f"\n{split}: acc {m['accuracy']:.4f} | AUC {m['auc']:.4f} | "
+              f"TPR(JA) {m['tpr']:.3f} | TNR(NEIN) {m['tnr']:.3f}")
+        print(f"  Konfusion @ Logit 0:  TP {m['tp']:,}  FP {m['fp']:,}  "
+              f"FN {m['fn']:,}  TN {m['tn']:,}")
+    return kennzahlen

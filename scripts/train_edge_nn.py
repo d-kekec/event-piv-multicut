@@ -13,7 +13,7 @@ import wandb
 from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig
 
-from _cli import to_cfg
+from _cli import to_cfg, konfusionstabelle
 from eventpiv.metrics import flatten
 from eventpiv.runconfig import TrainCfg, slug
 from eventpiv.train import train_edge_nn
@@ -79,6 +79,16 @@ def main(dcfg: DictConfig) -> None:
         # den gleichnamigen Verlaufswerten aus holdout/ verwechselt werden.
         run.summary.update(flatten({"final": kennzahlen}))
         run.summary["model_path"] = str(path)
+        #Die Tabellen gehen ueber log statt ueber summary: nur der Log-Eintrag traegt
+        # den Descriptor, aus dem die Oberflaeche ein Panel baut (geprueft 31.07.2026). 
+        # In summary abgelegt wird die Datei zwar geschrieben, aber nie angezeigt (geprueft 31.07.2026).
+        # EINMAL am Ende mit der letzten Epoche als Schritt -- eine
+        # Momentaufnahme je Lauf, kein Verlauf.
+        run.log({"epoch": cfg.training.epochs,
+                 "train/confusion":
+                     konfusionstabelle(kennzahlen["train"]["cm"]),
+                 "holdout/confusion":
+                     konfusionstabelle(kennzahlen["holdout"]["cm"])})
     finally:
         run.finish()
 

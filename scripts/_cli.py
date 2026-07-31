@@ -37,3 +37,20 @@ def to_cfg(cfg: DictConfig):
         obj.resolve_derived()
         
     return obj
+
+def konfusionstabelle(cm: dict):
+    """Die 2x2-Matrix als W&B-Tabelle.
+
+    Aus den VIER ZAHLEN gebaut, nicht ueber wandb.plot.confusion_matrix --
+    das verlangt die Vorhersage je Datenpunkt und waere bei Millionen Paaren
+    absurd.
+
+    Geloggt wird sie ueber run.log, nicht ueber run.summary: nur der
+    Log-Eintrag traegt den Deskriptor (_type, ncols, nrows, artifact_path),
+    aus dem die Oberflaeche ein Panel baut (geprueft 31.07.2026).
+    """
+    import wandb
+    t = wandb.Table(columns=["", "Predicted JA", "Predicted NEIN"])
+    t.add_data("GT JA", cm["tp"], cm["fn"])
+    t.add_data("GT NEIN", cm["fp"], cm["tn"])
+    return t
