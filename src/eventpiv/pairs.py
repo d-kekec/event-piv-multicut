@@ -25,6 +25,7 @@ Paar der Slab des FRUEHEREN Events zugeordnet -> kein Doppelzaehlen).
 """
 from __future__ import annotations
 
+import resource          # Unix-only; SLURM buchhaltet Speicher hier nicht
 import time
 from pathlib import Path
 
@@ -151,8 +152,14 @@ def build_pairs_for_run(cfg: PairCfg, run_nr, want_label, win_dt):
                          slab_dt=ps.slab_dt, want_label=want_label)
 
 
-def build_pair_dataset(cfg: PairCfg, verbose=True):
+def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
     """Baut den kompletten Paar-Datensatz und schreibt ihn als .npz.
+
+    on_summary : optional Callable, bekommt EINMAL am Ende die Kennzahlen
+        samt Ausbeute je Run. Nur eine Senke, nicht zwei wie im Training:
+        die Ausbeuten sind eine TABELLE, keine Reihe -- sie haben keine
+        Ordnung in der Zeit, nur je Run. Und der laufende Fortschritt steht
+        ohnehin schon im Log, das W&B als Konsolenausgabe mitschneidet.
 
     Der Pfad wird ABGELEITET (config.pairs_file aus neighborhood + pairs);
     cfg.io.out_path ist der Notausgang. Metadaten kommen aus identity_meta --
@@ -172,16 +179,32 @@ def build_pair_dataset(cfg: PairCfg, verbose=True):
     rng = np.random.default_rng(ps.seed)
     t_start = time.time()
     teile = []
+    je_run = []
 
     def sammle(runs, want_label, n_max, kind, wdt):
         print(f"{kind}-Paare aus {len(runs)} Run(s) (win_dt={wdt/1000:.0f}ms):")
         for r in runs:
-            d = cap_arrays(build_pairs_for_run(cfg, r, want_label, wdt),
-                           n_max, rng)
-            d["run"] = np.full(len(d["label"]), r, np.int16)
+            tic = time.time()
+            roh = build_pairs_for_run(cfg, r, want_label, wdt)
+            n_roh = int(len(roh["label"]))
+            d = cap_arrays(roh, n_max, rng)
+            n_behalten = int(len(d["label"]))
+            d["run"] = np.full(n_behalten, r, np.int16)
             teile.append(d)
-            print(f"  run{r:<3d}: {len(d['label']):>10,} {kind}-Paare")
-
+            # ROH und BEHALTEN getrennt: cap_arrays schneidet still ab, und
+            # ein Run am Deckel sieht im Ergebnis genauso aus wie einer, der
+            # zufaellig so viel liefert. Erst die Differenz sagt, ob das
+            # Klassenverhaeltnis eine Eigenschaft der DATEN oder eine Folge
+            # von max_yes/max_no ist.
+            je_run.append({"run": int(r), "kind": kind, "n_roh": n_roh,
+                           "n_behalten": n_behalten,
+                           "gedeckelt": bool(n_max is not None
+                                             and n_roh > n_max),
+                           "sec": round(time.time() - tic, 2)})
+            deckel = "  (gedeckelt)" if je_run[-1]["gedeckelt"] else ""
+            print(f"  run{r:<3d}: {n_behalten:>10,} {kind}-Paare "
+                  f"von {n_roh:,} roh{deckel}")
+            
     # Das breite Fenster ist auf die NEIN-Ausbeute geeicht. Saubere Runs
     # liefern physikalisch NULL NEIN-Paare -- dort kostet es nur Zeit.
     sammle(ps.clean_runs, 1, ps.max_yes, "JA", ps.win_dt_yes)
@@ -199,12 +222,20 @@ def build_pair_dataset(cfg: PairCfg, verbose=True):
     n_yes = int((data["label"] == 1).sum())
     n_no = int((data["label"] == 0).sum())
 
+    leer = [z["run"] for z in je_run if z["n_behalten"] == 0]
+    gedeckelt = [z["run"] for z in je_run if z["gedeckelt"]]
+
     print("=" * 52)
     print(f"Datensatz gesamt: {len(data['label']):,} Paare")
     print(f"  JA  : {n_yes:,}")
     print(f"  NEIN: {n_no:,}")
     if n_no:
         print(f"  Verhaeltnis JA:NEIN = {n_yes/n_no:,.1f} : 1")
+    if gedeckelt:
+        print(f"  GEDECKELT: {len(gedeckelt)} Run(s) {gedeckelt} -- das "
+              f"Verhaeltnis folgt hier aus max_yes/max_no, nicht aus den Daten")
+    if leer:
+        print(f"  OHNE AUSBEUTE: {len(leer)} Run(s) {leer}")
     print(f"  Zeit: {time.time()-t_start:.0f}s")
 
     out_path = (Path(cfg.io.out_path) if cfg.io.out_path
@@ -214,5 +245,22 @@ def build_pair_dataset(cfg: PairCfg, verbose=True):
              meta=config.meta_json(stage="pair_dataset",
                                    **identity_meta(neighborhood=nb, pairs=ps),
                                    n_yes=n_yes, n_no=n_no))
+    kennzahlen = {
+        "n_total": int(len(data["label"])), "n_ja": n_yes, "n_nein": n_no,
+        "ratio_ja_nein": (n_yes / n_no) if n_no else float("nan"),
+        "n_runs": len(je_run),
+        "n_runs_leer": len(leer),
+        "n_runs_gedeckelt": len(gedeckelt),
+        "win_dt": ps.win_dt, "win_dt_yes": ps.win_dt_yes,
+        "out_path": str(out_path),
+        "diag": {
+            "sec_total": round(time.time() - t_start, 1),
+            "max_rss_mb": round(
+                resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
+        },
+        "per_run": je_run,
+    }
+    if on_summary is not None:
+        on_summary(kennzahlen)
     print(f"-> {out_path}")
     return out_path, data
