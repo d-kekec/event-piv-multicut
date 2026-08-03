@@ -237,3 +237,36 @@ def test_edge_gt_stats_ohne_bewertbare_kante():
                       np.array([STATUS_NOISE, STATUS_CLEAN], np.uint8))
     assert "edge_ja_frac" not in m
     assert m["edge_n_bewertbar"] == 0 and "dt_mean" in m
+
+def test_align_weist_gefilterten_stream_zurueck():
+    """Die Absicherung fuer ON-only -- und sie traegt.
+
+    Ein gefilterter Eventstrom (nur ON) ist eine Teilfolge der Label-Datei.
+    Nach k gefilterten Events steht die echte GT-Position bei etwa 2k, der
+    zusammenhaengende Ausschnitt aber bei start+k -- die Zeitstempel laufen
+    sofort auseinander. Der Abgleich schlaegt also fehl, statt still einen
+    falschen Ausschnitt zu liefern.
+
+    KONSEQUENZ fuer ON-only: erst auf dem UNGEFILTERTEN Strom ausrichten,
+    dann dieselbe Maske auf beide Seiten. Vergisst man es, bricht der Lauf
+    ab -- die Meldung zeigt allerdings auf die falsche Ursache.
+    """
+    gt_t = np.arange(0, 1000, 10)
+    nur_on = gt_t[::2]
+    with pytest.raises(ValueError):
+        align_gt_window(gt_t, nur_on)
+
+
+def test_align_grenzfall_lauter_gleicher_zeitstempel():
+    """Die EINE Luecke, dokumentiert statt behoben.
+
+    Tragen alle Events eines Ausschnitts denselben Zeitstempel, stimmt eine
+    Teilfolge in den Zeitstempeln zwangslaeufig ueberein -- der Abgleich
+    liefert dann Position 0..n-1 statt der tatsaechlichen Indizes. Real
+    tritt das nicht auf: der Ausschnitt muesste ueber seine volle Laenge
+    zeitstempelkonstant sein, bei ~4 Events je µs also hoechstens eine
+    Handvoll Events lang.
+    """
+    gt_t = np.full(8, 10)
+    sl = align_gt_window(gt_t, gt_t[::2])
+    assert sl == slice(0, 4)          # trifft Events 0-3 statt 0,2,4,6
