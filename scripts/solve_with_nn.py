@@ -39,7 +39,7 @@ def main(dcfg: DictConfig) -> None:
 
     out = (cfg.io.json_out or
            config.solve_file(cfg.neighborhood, cfg.pairs, cfg.training,
-                             cfg.selection, cfg.window, cfg.solver))
+                             cfg.selection, cfg.window, cfg.solver, create=True))
 
     # name = der Dateiname des Ergebnisses, also genau das, was diesen Solve
     # von anderen desselben Netzes unterscheidet (Split, Run, Fenster, Modus).

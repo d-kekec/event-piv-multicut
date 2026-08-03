@@ -446,7 +446,7 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
               f"{diag['sec_total']:.1f}s gesamt")
 
     out_path = (Path(cfg.io.out_path) if cfg.io.out_path
-                else config.model_file(nb, ps, tr))
+                else config.model_file(nb, ps, tr, create=True))
     path = save_checkpoint(
         out_path, model, mu, sig, tr.feature_mode, tr.hidden,
         **json.loads(config.meta_json(

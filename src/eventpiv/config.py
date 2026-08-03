@@ -109,7 +109,7 @@ def _ensure(path: Path, create: bool) -> Path:
     return path
 
 
-def label_dir(split: str, create: bool = True) -> Path:
+def label_dir(split: str, create: bool = False) -> Path:
     """Event-Labels, split-getrennt (Run-Nummern kollidieren!)."""
     return _ensure(OUT_ROOT / "labels" / _check_split(split), create)
 
@@ -118,7 +118,7 @@ def label_file(split: str, run_nr: int) -> Path:
     return label_dir(split, create=False) / f"run{run_nr}_eventlabels.npz"
 
 
-def results_dir(create: bool = True) -> Path:
+def results_dir(create: bool = False) -> Path:
     return _ensure(OUT_ROOT / "results", create)
 
 # ============================================================
@@ -134,22 +134,26 @@ def results_dir(create: bool = True) -> Path:
 
 
 
-
-def wp_dir(nb, create: bool = True) -> Path:
+# create=False ist Default: diese Funktionen BERECHNEN einen Pfad, sie legen
+# nichts an. Sonst erzeugte schon das Fragen nach einem Pfad den ganzen Ast,
+# und ein Lauf mit falschen Overrides fand ein leeres, selbst erzeugtes
+# Verzeichnis vor -- ein Konfigurationsfehler, der wie eine Messung aussieht.
+# Nur Schreibstellen setzen create=True.
+def wp_dir(nb, create: bool = False) -> Path:
     """Arbeitspunkt = Nachbarschaft. Wurzel aller abgeleiteten Artefakte."""
     return _ensure(OUT_ROOT / "wp" / slug(nb), create)
 
 
-def pairs_file(nb, ps, create: bool = True) -> Path:
+def pairs_file(nb, ps, create: bool = False) -> Path:
     return _ensure(wp_dir(nb, create) / "pairs" / slug(ps), create) / "pairs.npz"
 
 
-def model_file(nb, ps, tr, create: bool = True) -> Path:
+def model_file(nb, ps, tr, create: bool = False) -> Path:
     d = _ensure(wp_dir(nb, create) / "pairs" / slug(ps) / slug(tr), create)
     return d / "model.pt"
 
 
-def solve_file(nb, ps, tr, sel, win, sv, create: bool = True) -> Path:
+def solve_file(nb, ps, tr, sel, win, sv, create: bool = False) -> Path:
     """Ergebnis EINES Solves. Dateiname aus Laufauswahl, Fenster und Solver --
     die drei Dinge, die NICHT zur Identitaet des Netzes gehoeren."""
     d = _ensure(wp_dir(nb, create) / "pairs" / slug(ps) / slug(tr) / "solves",
