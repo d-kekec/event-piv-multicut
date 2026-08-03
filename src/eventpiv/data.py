@@ -31,7 +31,7 @@ def load_events(split: str, run_nr: int, t0=None, dt=None) -> np.ndarray:
 
     Ganzer Run = alles im RAM. Fuer Experimente t0/dt setzen.
     """
-    dat_path, _ = config.run_files(split, run_nr)
+    dat_path, _ = config.run_files(split, run_nr, need_bbox=False)
     loader = PSEELoader(str(dat_path))
     if t0 is not None:
         loader.seek_time(t0)

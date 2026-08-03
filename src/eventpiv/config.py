@@ -78,13 +78,20 @@ def split_dir(split: str) -> Path:
     return DATA_ROOT / _check_split(split)
 
 
-def run_files(split: str, run_nr: int, must_exist: bool = True) -> tuple[Path, Path]:
-    """Gibt (events.dat, bbox.npy) fuer einen Run zurueck."""
+def run_files(split: str, run_nr: int, must_exist: bool = True,
+              need_bbox: bool = True) -> tuple[Path, Path]:
+    """Gibt (events.dat, bbox.npy) fuer einen Run zurueck.
+
+    need_bbox=False fuer Aufrufer, die nur Events brauchen. Echte Messdaten
+    haben keine Bounding Boxes -- der Solve braucht sie auch nicht, nur die
+    Label-Erzeugung und die Bewertung. Ohne diesen Schalter liesse sich ein
+    Run ohne bbox gar nicht erst oeffnen.
+    """
     base = split_dir(split) / f"run{run_nr}"
     dat  = base.with_suffix(".dat")
     bbox = base.parent / f"run{run_nr}_bbox.npy"
     if must_exist:
-        for p in (dat, bbox):
+        for p in ((dat, bbox) if need_bbox else (dat,)):
             if not p.exists():
                 raise FileNotFoundError(
                     f"{p} fehlt. DATA_ROOT={DATA_ROOT} -- stimmt $EVENTPIV_DATA?"
