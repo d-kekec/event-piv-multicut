@@ -36,7 +36,7 @@ from eventpiv.data import load_events
 from eventpiv.evaluate import align_gt_window, cluster_metrics, edge_gt_stats
 from eventpiv.graph import edge_deltas, neighborhood_pairs
 from eventpiv.model import SWAP_RAW6, build_features, is_symmetric
-from eventpiv.runconfig import Neighborhood, SolveCfg, canonical, same_neighborhood
+from eventpiv.runconfig import Neighborhood, SolveCfg, identity_meta
 
 
 def edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, cp):
@@ -158,11 +158,16 @@ def check_consistency(ckpt, nb: Neighborhood, strict: bool = True) -> None:
         print("  WARN: .pt enthaelt keinen Metadatenblock 'neighborhood' "
               "(vor dem 27.07.2026 erzeugt) -- Konsistenz UNGEPRUEFT.")
         return
-    if same_neighborhood(Neighborhood(**gruppe), nb):
+    jetzt = identity_meta(neighborhood=nb)["neighborhood"]
+    if gruppe == jetzt:
         return
-    text = (f"Netz trainiert mit {canonical(Neighborhood(**gruppe))}, "
-            f"Einsatz mit {canonical(nb)}. Training/Einsatz inkonsistent -- "
-            "Datensatz und Netz neu bauen.")
+    # NICHT ueber Neighborhood(**gruppe): fehlt im gespeicherten Block ein
+    # Feld, fuellt der Konstruktor still den heutigen Default ein -- ein Netz
+    # aus der Zeit vor `geom` verglichen sich damit als passend zu einer
+    # cylinder-Konfiguration. Verglichen wird deshalb die normierte Form
+    # gegen die normierte Form, so wie sie beim Schreiben entstand.
+    text = (f"Netz trainiert mit {gruppe}, Einsatz mit {jetzt}. "
+            "Training/Einsatz inkonsistent -- Datensatz und Netz neu bauen.")
     if strict:
         raise ValueError(text)
     print(f"  WARN: {text}")
