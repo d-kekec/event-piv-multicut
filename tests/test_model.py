@@ -101,3 +101,37 @@ def test_netz_gibt_logit_je_zeile(deltas):
     out = EdgeMLP(2, 8)(f)
     assert out.shape == (len(dt), 1)
     assert sum(p.numel() for p in EdgeMLP(2, 8).parameters()) == 33
+
+
+def test_checkpoint_rundreise(tmp_path, deltas):
+    """save -> load muss Netz UND Standardisierung unveraendert zurueckgeben.
+
+    mu/sig sind der stille Fehlerfall: geht die Standardisierung verloren
+    oder wird sie vertauscht, sieht das Netz im Einsatz andere Zahlen als
+    im Training -- ohne Absturz, nur mit schlechteren Kanten.
+    """
+    from eventpiv.model import load_checkpoint, save_checkpoint
+
+    dt, dx, dy, *_ = deltas
+    f = torch.tensor(build_features(dt, dx, dy, mode="dr"))
+    mu = np.array([5000.0, 2.0], dtype=np.float32)
+    sig = np.array([3000.0, 1.5], dtype=np.float32)
+
+    modell = EdgeMLP(2, 8)
+    modell.eval()
+    with torch.no_grad():
+        vorher = modell((f - torch.tensor(mu)) / torch.tensor(sig))
+
+    pfad = save_checkpoint(tmp_path / "tief" / "model.pt", modell,
+                           mu, sig, "dr", 8, quelle="test")
+    assert pfad.exists()          # legt das Verzeichnis selbst an
+
+    geladen, mu_l, sig_l, mode_l, ckpt = load_checkpoint(pfad)
+    assert mode_l == "dr" and ckpt["n_in"] == 2 and ckpt["hidden"] == 8
+    assert ckpt["meta"]["quelle"] == "test"
+    np.testing.assert_array_equal(mu_l.numpy(), mu)
+    np.testing.assert_array_equal(sig_l.numpy(), sig)
+
+    with torch.no_grad():
+        nachher = geladen((f - mu_l) / sig_l)
+    torch.testing.assert_close(vorher, nachher)
