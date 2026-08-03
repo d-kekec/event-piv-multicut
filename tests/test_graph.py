@@ -12,18 +12,6 @@ import pytest
 
 from eventpiv.graph import edge_deltas, neighborhood_pairs, NEIGHBORHOOD_GEOMS, V_MAX_DEFAULT
 
-def brute_force(t, x, y, alpha, r_max):
-    """O(n^2)-Referenz. Bildet die KUGEL-Bedingung ab, die der Code
-    tatsaechlich verwendet (s. graph.py-Docstring), NICHT die Quader-
-    Bedingung aus BA_NN_Kantenkosten.md §2."""
-    s = r_max / alpha
-    out = []
-    for a in range(len(t)):
-        for b in range(a + 1, len(t)):
-            d2 = ((x[a]-x[b])**2 + (y[a]-y[b])**2 + (s*(t[a]-t[b]))**2)
-            if d2 <= r_max**2:
-                out.append((a, b) if t[a] <= t[b] else (b, a))
-    return sorted(out)
 
 def brute_force_geom(t, x, y, alpha, r_max, geom, v_max=V_MAX_DEFAULT):
     """O(n^2)-Referenz fuer alle drei Formen -- unabhaengig vom KDTree."""
@@ -71,21 +59,6 @@ def wolke():
     x = rng.uniform(90, 115, 40)
     y = rng.uniform(90, 115, 40)
     return t, x, y
-
-
-def test_gegen_brute_force(wolke):
-    """Der wichtigste Test: KDTree-Ergebnis == offensichtlich korrekte Referenz."""
-    t, x, y = wolke
-    i, j = neighborhood_pairs(t, x, y, alpha=10_000, r_max=7.0)
-    assert als_menge(i, j) == brute_force(t, x, y, 10_000, 7.0)
-
-
-def test_gegen_brute_force_mehrere_parameter(wolke):
-    t, x, y = wolke
-    for alpha, r_max in [(3_000, 5.0), (5_000, 6.0), (10_000, 7.06)]:
-        i, j = neighborhood_pairs(t, x, y, alpha=alpha, r_max=r_max)
-        assert als_menge(i, j) == brute_force(t, x, y, alpha, r_max), \
-            f"Abweichung bei alpha={alpha}, r_max={r_max}"
 
 
 def test_kontrakt_i_ist_frueheres_event(wolke):
@@ -154,8 +127,7 @@ def test_knn_behaelt_die_naechsten_nachbarn(wolke):
         nachbarn = [b if a == v else a for a, b in voll if v in (a, b)]
         nachbarn.sort(key=lambda u: d(v, u))
         for u in nachbarn[:k]:              # die k naechsten MUESSEN bleiben
-            assert tuple(sorted((v, u), key=lambda z: (t[z], z))) in knn \
-                   or (min(v, u), max(v, u)) in ungerichtet(knn)
+            assert (min(v, u), max(v, u)) in ungerichtet(knn)
 
 
 def test_monotonie_in_r_max(wolke):
