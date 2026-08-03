@@ -35,7 +35,7 @@ from eventpiv.runconfig import slug
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _env_path(var_name: str, default: Path | None) -> Path:
+def _env_path(var_name: str) -> Path:
     """Pfad aus Umgebungsvariable. '~' wird aufgeloest.
 
     Kein Fallback aufs Home: der liefert plausibel aussehende, aber falsche
@@ -43,17 +43,15 @@ def _env_path(var_name: str, default: Path | None) -> Path:
     schreibt an die falsche Stelle.
     """
     value = os.environ.get(var_name)
-    if value:
-        return Path(value).expanduser().resolve()
-    if default is None:
+    if not value:
         raise RuntimeError(
             f"${var_name} ist nicht gesetzt -- in ~/.bashrc eintragen: "
             f"export {var_name}=...")
-    return Path(default).expanduser().resolve()
+    return Path(value).expanduser().resolve()
 
 # Eingabe/Ausgabe von Dateien wird hier angesteuert.
-DATA_ROOT = _env_path("EVENTPIV_DATA", None)   # muss zeigen auf den Ordner MIT train/val/test
-OUT_ROOT  = _env_path("EVENTPIV_OUT",  None)   # Ausgabewurzel
+DATA_ROOT = _env_path("EVENTPIV_DATA")   # Ordner MIT train/val/test
+OUT_ROOT  = _env_path("EVENTPIV_OUT")    # Ausgabewurzel
 
 
 VALID_SPLITS = ("train", "val", "test")
