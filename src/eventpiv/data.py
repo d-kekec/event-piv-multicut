@@ -36,9 +36,7 @@ def load_events(split: str, run_nr: int, t0=None, dt=None) -> np.ndarray:
     if t0 is not None:
         loader.seek_time(t0)
     if dt is None:
-        # event_count() ist der DATEIGESAMTWERT, nicht der Rest ab t0.
-        # load_n_events klammert intern auf das tatsaechlich Verbleibende --
-        # das Ergebnis stimmt, aber der Puffer wird auf Dateigroesse
-        # angelegt. Fuer "ab t0 bis Ende" mit grossem t0 daher teuer.
+        # event_count() ist der DATEIGESAMTWERT. load_n_events klammert
+        # intern korrekt, legt den Puffer aber auf Dateigroesse an -- mit
+        # grossem t0 also teuer, nie falsch.
         return loader.load_n_events(loader.event_count())
-    return loader.load_delta_t(dt)

@@ -10,13 +10,13 @@ markiert dabei drei Qualitaetsklassen:
     status = 1  MEHRDEUTIG  fast gleich weit zu zwei Boxen        -> verwerfen
     status = 2  RAUSCH      keiner Box nah genug                  -> raushalten
 
-Grundlage: validierter GT-Abgleich (BA_Datensatz_und_Pipeline.md §2.2):
-  Event -> zeitlich naechster 60-Hz-Rasterpunkt -> raeumlich naechstes
-  Boxzentrum. ERWEITERT um die relative (2.-naechste) Pruefung, weil
-  min_dist>=11px auf RUN-Ebene einzelne Grenz-Events INNERHALB eines Runs
-  nicht ausschliesst (Eventwolken verschmelzen erst ~19px, BA_NN §3.5).
+Verfahren: Event -> zeitlich naechster 60-Hz-Rasterpunkt -> raeumlich
+naechstes Boxzentrum. Die zweite Bedingung (Abstand zum ZWEITnaechsten) ist
+noetig, weil ein Run als Ganzes sauber sein kann und trotzdem einzelne
+Grenz-Events enthaelt.
 
-Ausgabe haengt NICHT von alpha/r_max/WIN_DT ab -> einmal pro Run/Split bauen.
+Ausgabe haengt NICHT von alpha/r_max/win_dt ab -> einmal je Run und Split
+bauen.
 
 Aufteilung in dieser Datei:
   assign_track_ids()      reiner Rechenkern (Arrays rein, Arrays raus)
@@ -43,12 +43,11 @@ STATUS_CLEAN = 0
 STATUS_AMBIG = 1
 STATUS_NOISE = 2
 
-# --- Defaults: EINE Quelle, runconfig.Labeling. Die Modulkonstanten bleiben
-# als Namen bestehen (tests/test_labels.py benutzt sie), beziehen ihren Wert
-# aber von dort -- sonst gaebe es zwei Wahrheiten ueber dieselbe Zahl.
+# --- Defaults: EINE Quelle, runconfig.Labeling. Die Namen bleiben hier
+# bestehen, ihren Wert beziehen sie von dort.
 _LB_DEFAULT      = Labeling()
-BOX_W_DEFAULT    = _LB_DEFAULT.box_w      # px, Boxbreite = Hoehe (Datensatz-Konstante)
-R_ASSIGN_DEFAULT = _LB_DEFAULT.r_assign   # px, max. Abstand Event <-> naechstes Zentrum
+BOX_W_DEFAULT    = _LB_DEFAULT.box_w      # px, Kantenlaenge der GT-Box
+R_ASSIGN_DEFAULT = _LB_DEFAULT.r_assign   # px, max. Abstand zum naechsten Zentrum
 R_AMBIG_DEFAULT  = _LB_DEFAULT.r_ambig    # px, (d2-d1) darunter -> mehrdeutig
 
 
@@ -59,16 +58,23 @@ def assign_track_ids(t, x, y, bbox,
     """Ordnet jedem Event (t,x,y) eine track_id + Status zu.
 
     Reine Funktion: keine Pfade, keine Globals, kein I/O -> ohne Datensatz
-    testbar (tests/test_labels.py).
+    testbar.
 
-    Vorgehen:
+    Der KDTree enthaelt BOXZENTREN, rund 50 Punkte -- nie Events. Jedes
+    Event wird gegen die Partikel abgefragt, nie gegen andere Events;
+    d1/d2 sind die Abstaende zum naechsten und zweitnaechsten PARTIKEL.
+
       1) Jedes Event dem zeitlich naechsten 60-Hz-Rasterpunkt zuordnen.
-      2) Pro Rasterpunkt KDTree ueber die Boxzentren zu DIESEM Zeitpunkt,
-         Events gegen die 2 naechsten Zentren abfragen.
+      2) Pro Rasterpunkt ein KDTree ueber die Zentren zu DIESEM Zeitpunkt,
+         Abfrage nach den zwei naechsten.
       3) Status aus (d1, d2):
            d1 > r_assign        -> RAUSCH (2),      track_id = -1
            (d2 - d1) < r_ambig  -> MEHRDEUTIG (1),  track_id = -1
            sonst                -> SAUBER (0),      track_id des naechsten
+
+    Die BOXFORM geht nie ein: box_w dient allein dazu, die Ecke oben links
+    in das Zentrum umzurechnen. Danach ist ein Partikel ein Punkt, und
+    r_assign ist ein Radius um diesen Punkt.
 
     Rueckgabe: (track_id int32, status uint8), beide der Laenge len(t).
     """
@@ -89,10 +95,9 @@ def assign_track_ids(t, x, y, bbox,
     # Jedem Event den INDEX des zeitlich naechsten Rasterpunkts zuordnen:
     # searchsorted gibt die Einfuegeposition, wir vergleichen linken/rechten Nachbarn.
     if len(raster_t) == 1:
-        # Sonderfall: alle Events gehoeren zum einzigen Rasterpunkt.
-        # Muss explizit behandelt werden -- die searchsorted-Logik unten
-        # setzt mindestens zwei Rasterpunkte voraus (sonst greift der clip
-        # ins Leere und ALLE Events fielen still auf RAUSCH zurueck).
+        # Die searchsorted-Logik unten setzt mindestens zwei Rasterpunkte
+        # voraus; sonst greift der clip ins Leere und ALLE Events fielen
+        # still auf RAUSCH zurueck.
         nearest_idx = np.zeros(len(t), dtype=np.intp)
     else:
         pos = np.searchsorted(raster_t, t)
@@ -105,7 +110,10 @@ def assign_track_ids(t, x, y, bbox,
     bx = bbox["x"].astype(np.float64) + center_offset
     by = bbox["y"].astype(np.float64) + center_offset
 
-    # --- Events nach Rasterpunkt gruppieren (ein Durchgang je Rasterpunkt) ---
+    # --- Events nach Rasterpunkt buendeln, ohne Python-Schleife ueber
+    # Events: argsort plus zwei searchsorted-Laeufe geben die Gruppengrenzen.
+    # `sl` enthaelt GLOBALE Eventindizes, die Masken darunter (is_clean etc.)
+    # sind gruppenlokal -- daher die Doppelindizierung sl[is_clean].
     order = np.argsort(nearest_idx, kind="stable")
     grp = nearest_idx[order]
     grp_start = np.searchsorted(grp, np.arange(len(raster_t)), side="left")
@@ -167,10 +175,9 @@ class LabelingMismatch(RuntimeError):
 def _labeling_passt(path, lb) -> bool:
     """Wurde die vorhandene Datei mit GENAU diesen Labeling-Parametern gebaut?
 
-    Label-Dateien tragen bewusst keinen Slug -- sie haengen von nichts ab
-    ausser Labeling. Der Preis: das Dateisystem kann nicht ausdruecken, mit
-    welchen Parametern eine Datei entstand. Die Antwort steht statt dessen im
-    meta-Block der .npz und wird hier gelesen.
+    Label-Dateien tragen bewusst keinen Slug. Der Preis: das Dateisystem
+    kann nicht ausdruecken, mit welchen Parametern eine Datei entstand --
+    die Antwort steht im meta-Block der .npz und wird hier gelesen.
 
     Fehlt oder bricht der Block, gilt die Datei als unbrauchbar: eine Datei
     ohne nachweisbare Herkunft ist kein Grund, das Rechnen zu ueberspringen.
@@ -186,11 +193,10 @@ def _labeling_passt(path, lb) -> bool:
 def build_labels_for_run(cfg: LabelCfg, run_nr, verbose=True):
     """Laedt einen Run, labelt ihn, schreibt <run>_eventlabels.npz.
 
-    KEIN Zeitfenster mehr: Labels gelten immer fuer den GANZEN Run. Ein
-    Teilfenster brach spaeter in evaluate.align_gt_window ab -- die
-    Fehlermeldung dort ist der Beleg, dass der Fall schon vorgekommen ist.
-    Ausgabe haengt weiterhin NICHT von alpha/r_max/geom ab, deshalb liegen
-    Labels ausserhalb von wp/ (BA_Konfiguration.md §4).
+    KEIN Zeitfenster: Labels gelten immer fuer den GANZEN Run. Ein
+    Teilfenster bricht spaeter in evaluate.align_gt_window ab.
+    Die Ausgabe haengt von keinem Nachbarschaftsparameter ab, deshalb liegen
+    Labels ausserhalb von wp/.
 
     Rueckgabe: (Pfad, stats-dict); stats=None, wenn uebersprungen.
     """
@@ -210,7 +216,7 @@ def build_labels_for_run(cfg: LabelCfg, run_nr, verbose=True):
             f"{out_path.name} wurde mit ANDEREN Labeling-Parametern gebaut. "
             f"Jetzt verlangt: r_assign={lb.r_assign}, r_ambig={lb.r_ambig}, "
             f"box_w={lb.box_w}. Ohne io.overwrite=true wuerde still die alte "
-            "Datei weiterverwendet -- jedes Folgeartefakt haenge dann an "
+            "Datei weiterverwendet, und jedes Folgeartefakt hinge an "
             "Parametern, die nie angewendet wurden.")
 
     bbox = load_bbox(split, run_nr)
@@ -234,8 +240,7 @@ def build_labels_for_run(cfg: LabelCfg, run_nr, verbose=True):
 
     if len(track_id) and track_id.max() >= 2**15:
         # Kein assert: python -O entfernt asserts, und der int16-Cast unten
-        # liefe dann still ueber. Datenintegritaet gehoert nicht in eine
-        # Zusicherung, die abschaltbar ist.
+        # liefe dann still ueber.
         raise ValueError(
             f"track_id {track_id.max()} sprengt int16 -- Speicherformat "
             "in labels.py anpassen.")
@@ -262,9 +267,9 @@ def build_labels_for_run(cfg: LabelCfg, run_nr, verbose=True):
 def build_labels(cfg: LabelCfg, verbose=True) -> list[int]:
     """Alle Runs aus cfg.selection. Rueckgabe: fehlgeschlagene Run-Nummern.
 
-    LEERE Run-Liste bedeutet ALLE Runs des Splits -- das ersetzt das
-    fruehere --all_split. Keine Einschraenkung anzugeben heisst, keine zu
-    wollen; ein zweites Flag daneben waere eine Zustandsverdopplung.
+    LEERE Run-Liste bedeutet ALLE Runs des Splits: keine Einschraenkung
+    anzugeben heisst, keine zu wollen. Ein zweites Flag daneben waere eine
+    Zustandsverdopplung.
     """
     split = cfg.selection.split
     runs = list(cfg.selection.runs) or config.available_runs(split)
@@ -281,9 +286,8 @@ def build_labels(cfg: LabelCfg, verbose=True) -> list[int]:
             print(f"  !! run{r} uebersprungen: {type(e).__name__}: {e}")
             failed.append(r)
     if len(failed) == len(runs) and runs:
-        # Alle Runs auf dieselbe Weise gescheitert ist kein Datenbefund.
-        # Ohne diese Grenze sieht ein Tippfehler im Code aus wie 100 kaputte
-        # Runs -- die Schleife faengt jede Exception und macht weiter.
+        # Die Schleife faengt jede Exception und macht weiter -- ohne diese
+        # Grenze saehe ein Tippfehler im Code aus wie 100 kaputte Runs.
         raise RuntimeError(
             f"ALLE {len(runs)} Run(s) fehlgeschlagen -- das ist kein "
             "Datenproblem. Meldungen oben lesen (Pfad, Konfiguration, Code).")
