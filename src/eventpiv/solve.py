@@ -30,6 +30,7 @@ import time
 
 import numpy as np
 import torch
+from pathlib import Path
 
 from eventpiv import config
 from eventpiv.data import load_events
@@ -309,7 +310,6 @@ def solve_and_evaluate(cfg: SolveCfg, verbose=True) -> dict:
     training), nicht uebergeben. cfg.io.model_path ist der Notausgang fuer
     fremde Netze -- bewusst ein sichtbarer Akt.
     """
-    from pathlib import Path
 
     from eventpiv.model import load_checkpoint
 
@@ -351,10 +351,10 @@ def solve_and_evaluate(cfg: SolveCfg, verbose=True) -> dict:
         vollen GT-Arrays (bei 30 Mio. Events rund 400 MB) nicht waehrend des
         Graphbaus im Speicher liegen -- und der ist die RAM-kritische Phase.
         """
-        g = np.load(gt_path)
-        sl = align_gt_window(g["t"], t)
-        return edge_gt_stats(i, j, t, x, y,
-                             g["track_id"][sl], g["status"][sl])
+        with np.load(gt_path) as g:
+            sl = align_gt_window(g["t"], t)
+            return edge_gt_stats(i, j, t, x, y,
+                                 g["track_id"][sl], g["status"][sl])
 
     labels, ev, info = solve_window(
         cfg, model, mu, sig, feature_mode, verbose,
@@ -368,12 +368,12 @@ def solve_and_evaluate(cfg: SolveCfg, verbose=True) -> dict:
             print(f"  keine GT-Datei ({gt_path.name}) -> kein Abgleich")
         return info
 
-    gt = np.load(gt_path)
-    sl = align_gt_window(gt["t"], ev["t"])
-    tic = time.time()
-    info.update(cluster_metrics(labels, gt["track_id"][sl], gt["status"][sl],
-                                t=ev["t"]))
-    info["t_eval"] = time.time() - tic
+    with np.load(gt_path) as gt:
+        sl = align_gt_window(gt["t"], ev["t"])
+        tic = time.time()
+        info.update(cluster_metrics(labels, gt["track_id"][sl],
+                                    gt["status"][sl], t=ev["t"]))
+        info["t_eval"] = time.time() - tic
 
     if verbose and "purity_cluster_mean" in info:
         print(f"\n  GT-Abgleich (nur saubere Events):")
