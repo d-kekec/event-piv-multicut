@@ -23,10 +23,13 @@ Aufteilung in dieser Datei:
   build_labels_for_run()  laedt, rechnet, schreibt EINEN Run
   build_labels()          Schleife ueber mehrere Runs, Fehlerbehandlung
 """
+
 from __future__ import annotations
 
 import gc
+import json
 import time
+from pathlib import Path
 
 import numpy as np
 from scipy.spatial import cKDTree
@@ -34,8 +37,6 @@ from scipy.spatial import cKDTree
 from eventpiv import config
 from eventpiv.data import load_bbox, load_events
 from eventpiv.runconfig import LabelCfg, Labeling, identity_meta
-
-from pathlib import Path
 
 # --- Statuscodes (statt magischer Zahlen im Code) ---
 STATUS_CLEAN = 0
@@ -155,6 +156,24 @@ def label_stats(status) -> dict:
     }
 
 
+def _labeling_passt(path, lb) -> bool:
+    """Wurde die vorhandene Datei mit GENAU diesen Labeling-Parametern gebaut?
+
+    Label-Dateien tragen bewusst keinen Slug -- sie haengen von nichts ab
+    ausser Labeling. Der Preis: das Dateisystem kann nicht ausdruecken, mit
+    welchen Parametern eine Datei entstand. Die Antwort steht statt dessen im
+    meta-Block der .npz und wird hier gelesen.
+
+    Fehlt oder bricht der Block, gilt die Datei als unbrauchbar: eine Datei
+    ohne nachweisbare Herkunft ist kein Grund, das Rechnen zu ueberspringen.
+    """
+    try:
+        meta = json.loads(str(np.load(path)["meta"]))
+    except Exception:
+        return False
+    return meta.get("labeling") == identity_meta(labeling=lb)["labeling"]
+
+
 def build_labels_for_run(cfg: LabelCfg, run_nr, verbose=True):
     """Laedt einen Run, labelt ihn, schreibt <run>_eventlabels.npz.
 
@@ -174,9 +193,16 @@ def build_labels_for_run(cfg: LabelCfg, run_nr, verbose=True):
     out_path = out_dir / f"run{run_nr}_eventlabels.npz"
 
     if out_path.exists() and not cfg.io.overwrite:
-        if verbose:
-            print(f"  run{run_nr}: existiert schon -> uebersprungen")
-        return out_path, None
+        if _labeling_passt(out_path, lb):
+            if verbose:
+                print(f"  run{run_nr}: existiert schon -> uebersprungen")
+            return out_path, None
+        raise ValueError(
+            f"{out_path.name} wurde mit ANDEREN Labeling-Parametern gebaut. "
+            f"Jetzt verlangt: r_assign={lb.r_assign}, r_ambig={lb.r_ambig}, "
+            f"box_w={lb.box_w}. Ohne io.overwrite=true wuerde still die alte "
+            "Datei weiterverwendet -- jedes Folgeartefakt haenge dann an "
+            "Parametern, die nie angewendet wurden.")
 
     bbox = load_bbox(split, run_nr)
     ev = load_events(split, run_nr)
