@@ -11,17 +11,19 @@ Erzeugt Trainingspaare aus gelabelten Runs. Jedes Paar:
   - beide Events SAUBER (status == 0), sonst kein verlaessliches Label
   - Label 1 = gleiche track_id (JA), 0 = verschieden (NEIN)
 
-STRATEGIE gegen Imbalance schon beim Sammeln (BA_NN_Kantenkosten.md §4.1):
+STRATEGIE gegen Imbalance schon beim Sammeln:
   JA   aus SAUBEREN, weit getrennten Runs (dort sind ~alle Paare JA)
-  NEIN aus OVERLAP-Runs -- die EINZIGE Quelle; saubere Runs liefern
-       physikalisch null NEIN-Paare.
+  NEIN aus OVERLAP-Runs -- die EINZIGE Quelle; weit getrennte Partikel
+       erzeugen zwischen sich ueberhaupt keine Paare, also PHYSIKALISCH
+       null NEIN.
 Gespeichert wird ROH (beide Klassen, ungewichtet) plus die Rohgroessen
 (dt, dx, dy, ti, xi, yi). Das Balancing passiert erst im Training, damit der
 Datensatz neutral bleibt und beide Strategien ohne Neuerzeugung testbar sind.
 
-RAM: volle Nachbarschaft ohne k-NN materialisiert zig Mio Paare auf einmal
--> slab-weise verarbeiten (SLAB_DT-Scheiben, rechter Rand um alpha erweitert,
-Paar der Slab des FRUEHEREN Events zugeordnet -> kein Doppelzaehlen).
+RAM: die volle Nachbarschaft ohne k-NN materialisiert zig Millionen Paare
+auf einmal -> slab-weise verarbeiten (Scheiben der Breite slab_dt, rechter
+Rand um alpha erweitert, Paar der Slab des FRUEHEREN Events zugeordnet ->
+kein Doppelzaehlen).
 """
 from __future__ import annotations
 
@@ -38,8 +40,8 @@ from eventpiv.runconfig import PairCfg, identity_meta
 
 # --- Defaults liegen in runconfig.PairSampling / .Neighborhood ---
 # Frueher standen sie zusaetzlich hier. Zwei Wahrheiten ueber dieselbe Zahl
-# waren die Ursache des train_edge_nn-Befunds vom 27.07.2026: train.py baute
-# den Datensatzpfad OHNE geom neu und lud damit still den Ellipsoid-Datensatz.
+# fuehrten dazu, dass train.py den Datensatzpfad ohne geom neu baute und
+# still den falschen Datensatz lud.
 
 FIELDS = ("dt", "dx", "dy", "ti", "xi", "yi", "label", "run")
 
@@ -61,10 +63,10 @@ def collect_pairs(t, x, y, track_id, status, *, alpha, r_max,
     y = np.asarray(y, dtype=np.float64)
 
     if len(t) > 1 and not (np.diff(t) >= 0).all():
-        # Vorbedingung, bisher unausgesprochen: t_run0 = t[0] und die
-        # Slab-Kanten ab tw[0] setzen aufsteigende Zeit voraus.
-        # neighborhood_pairs braucht sie NICHT -- deshalb faellt es sonst
-        # nirgends auf. O(n) neben einem KDTree, also gratis.
+        # t[0] und die Slab-Kanten ab tw[0] verankern Fenster und Raster --
+        # bei unsortiertem t fielen alle Events davor in gar keine Slab.
+        # neighborhood_pairs braucht die Sortierung NICHT, deshalb faellt es
+        # sonst nirgends auf.
         raise ValueError("collect_pairs erwartet aufsteigend sortierte t")
 
     offs = sorted(win_offsets)
@@ -89,8 +91,8 @@ def collect_pairs(t, x, y, track_id, status, *, alpha, r_max,
         tw, xw, yw = t[win], x[win], y[win]
         tidw, staw = track_id[win], status[win]
 
-        # Slab-Kanten ab dem ERSTEN Event des Fensters (nicht ab w0) --
-        # Verhalten der Vorgaengerversion, bewusst beibehalten.
+        # Slab-Raster ab dem ERSTEN Event des Fensters, nicht ab w0: sonst
+        # laege die erste Slab teilweise vor allen Daten.
         edges = np.arange(tw[0], tw[0] + win_dt + slab_dt, slab_dt)
         for a in edges:
             if not ((tw >= a) & (tw < a + slab_dt)).any():
@@ -173,13 +175,11 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
     on_summary : optional Callable, bekommt EINMAL am Ende die Kennzahlen
         samt Ausbeute je Run. Nur eine Senke, nicht zwei wie im Training:
         die Ausbeuten sind eine TABELLE, keine Reihe -- sie haben keine
-        Ordnung in der Zeit, nur je Run. Und der laufende Fortschritt steht
-        ohnehin schon im Log, das W&B als Konsolenausgabe mitschneidet.
+        Ordnung in der Zeit, nur je Run.
 
-    Der Pfad wird ABGELEITET (config.pairs_file aus neighborhood + pairs);
-    cfg.io.out_path ist der Notausgang. Metadaten kommen aus identity_meta --
-    keine handgepflegte Feldliste mehr, die Felder vergessen kann (v_max
-    fehlte in genau so einer, BA_Konfiguration.md §2).
+    Der Pfad wird ABGELEITET, cfg.io.out_path ist der Notausgang. Metadaten
+    kommen aus identity_meta statt aus einer handgepflegten Feldliste, die
+    schon einmal ein Feld vergessen hat.
 
     EIN rng fuer alle Deckel, in fester Reihenfolge (erst clean, dann
     overlap) -> reproduzierbar bei gleichem seed.
@@ -206,11 +206,9 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
             n_behalten = int(len(d["label"]))
             d["run"] = np.full(n_behalten, r, np.int16)
             teile.append(d)
-            # ROH und BEHALTEN getrennt: cap_arrays schneidet still ab, und
-            # ein Run am Deckel sieht im Ergebnis genauso aus wie einer, der
-            # zufaellig so viel liefert. Erst die Differenz sagt, ob das
-            # Klassenverhaeltnis eine Eigenschaft der DATEN oder eine Folge
-            # von max_yes/max_no ist.
+            # ROH und BEHALTEN getrennt: cap_arrays schneidet still ab. Erst
+            # die Differenz sagt, ob das Klassenverhaeltnis eine Eigenschaft
+            # der DATEN ist oder eine Folge von max_yes/max_no.
             je_run.append({"run": int(r), "kind": kind, "n_roh": n_roh,
                            "n_behalten": n_behalten,
                            "gedeckelt": bool(n_max is not None

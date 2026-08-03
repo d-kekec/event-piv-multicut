@@ -3,18 +3,15 @@
 """
 graph.py -- die (alpha, r_max)-Nachbarschaft. EINE Definition fuer alle Nutzer.
 
-Zentraler Zweck der Zusammenlegung: build_pair_dataset (Training) und
-solve_with_nn (Einsatz) MUESSEN dieselbe Kantenmenge erzeugen -- sonst sieht
-das Netz im Einsatz eine andere Nachbarschaft als im Training. Bisher war das
-eine Konvention (der Orchestrator reichte alpha/r_max an beide durch); jetzt
-ist es strukturell erzwungen, weil beide diese Funktion aufrufen.
+Zentraler Zweck: Paarbau [2] und Solve [4] MUESSEN dieselbe Kantenmenge
+erzeugen -- sonst sieht das Netz im Einsatz eine andere Nachbarschaft als im
+Training, und keine Kennzahl waere etwas wert. Frueher war das eine
+Konvention, jetzt ist es strukturell erzwungen: beide rufen diese Funktion.
 
-GEOMETRIE (Befund 22.07.2026, BA_NN_Kantenkosten.md §2):
-Der KDTree arbeitet auf (x, y, t*s) mit s = r_max/alpha. Mit Suchradius
-r_max liefert er von sich aus ein ELLIPSOID, nicht den in der Doku
-beschriebenen Zylinder -- und das Ellipsoid ist strenger (es impliziert
-beide Zylinderbedingungen). Alle Ergebnisse bis 23.07.2026 entstanden damit.
-Ueber den Parameter `geom` sind jetzt drei Formen waehlbar, s. dort.
+GEOMETRIE: Der KDTree arbeitet auf (x, y, t*s) mit s = r_max/alpha. Mit
+Suchradius r_max liefert er von sich aus ein ELLIPSOID -- lange fuer einen
+Zylinder gehalten, obwohl das Ellipsoid strenger ist und beide
+Zylinderbedingungen impliziert. Ueber `geom` sind drei Formen waehlbar.
 
 KONTRAKT der Rueckgabe (auf den sich alle Aufrufer verlassen):
   - i, j sind Index-Arrays gleicher Laenge
@@ -29,13 +26,13 @@ import numpy as np
 from scipy.spatial import cKDTree
 from eventpiv.runconfig import NEIGHBORHOOD_GEOMS, Neighborhood, Solver
 
-# EINE Quelle fuer diese Zahlen: runconfig. Die Modulkonstanten bleiben als
-# Namen bestehen (Tests und Standardargumente benutzen sie), beziehen ihren
-# Wert aber von dort -- zwei Wahrheiten ueber dieselbe Zahl waren die Ursache
-# des train_edge_nn-Befunds vom 27.07.2026.
+# EINE Quelle fuer diese Zahlen: runconfig. Die Namen bleiben hier bestehen
+# (Tests und Standardargumente benutzen sie), ihren Wert beziehen sie von
+# dort -- zwei Wahrheiten ueber dieselbe Zahl haben schon einmal still den
+# falschen Datensatz geladen.
 _NB_DEFAULT   = Neighborhood()
-V_MAX_DEFAULT = _NB_DEFAULT.v_max     # px/µs (= 0.102 px/ms, p99.9 gepoolt)
-K_MAX_DEFAULT = Solver().k_max        # k-NN-Kappung, s. BA_NN_Kantenkosten.md §2.2
+V_MAX_DEFAULT = _NB_DEFAULT.v_max     # px/µs, p99.9 der Partikelgeschwindigkeit
+K_MAX_DEFAULT = Solver().k_max        # k-NN-Kappung
 
 
 def time_scale(alpha: float, r_max: float) -> float:
@@ -53,39 +50,38 @@ def neighborhood_pairs(t, x, y, alpha, r_max, *,
     t, x, y : 1D-Arrays gleicher Laenge (float64 empfohlen -- KDTree)
     alpha   : µs, zeitliche Reichweite
     r_max   : px, raeumliche Reichweite
-    use_knn : Kappung auf die k_max naechsten Nachbarn (MODELLIERUNGS-
-              ENTSCHEIDUNG, nicht nur Optimierung -- BA_NN §2.2)
-    k_max   : nur bei use_knn
-              Bei geom != "ellipsoid" wird mit dem groesseren Kugelradius
-              gesucht und danach gefiltert -- es koennen daher weniger als
-              k_max Nachbarn uebrig bleiben.
+    use_knn : Kappung auf die k_max naechsten Nachbarn. MODELLIERUNGS-
+              ENTSCHEIDUNG, nicht nur Optimierung: an einer Kreuzung sind
+              die raeumlich naechsten Nachbarn gerade die Events des ANDEREN
+              Partikels -- die trennenden Kanten fielen weg.
+    k_max   : nur bei use_knn. Bei geom != "ellipsoid" wird mit dem
+              groesseren Kugelradius gesucht und danach gefiltert, es
+              koennen also weniger als k_max Nachbarn uebrig bleiben.
     dedup   : doppelte ungerichtete Kanten entfernen. Bei use_knn NOETIG
-              (die k-NN-Abfrage liefert i->j und j->i getrennt), bei
-              query_pairs ein No-op (liefert bereits i<j eindeutig).
-              ACHTUNG: sortiert die Kantenreihenfolge um.
-    geom: welche Raum-Zeit-Form die Nachbarschaft hat.
+              (die Abfrage liefert i->j und j->i getrennt), bei query_pairs
+              ein No-op. ACHTUNG: sortiert die Kantenreihenfolge um.
+    geom: die Raum-Zeit-Form der Nachbarschaft.
       "ellipsoid"   (Δx²+Δy²)/r_max² + Δt²/α² ≤ 1
                     Was der KDTree-Trick von sich aus liefert. Der erlaubte
                     Radius SCHRUMPFT mit wachsendem Δt und ist bei Δt = α
                     null -- physikalisch die falsche Richtung.
-      "cylinder"    |Δt| ≤ α  UND  Δr ≤ r_max
-                    Die in BA_NN_Kantenkosten.md §2 dokumentierte Form.
+      "cylinder"    |Δt| ≤ α  UND  Δr ≤ r_max          (Arbeitspunkt)
       "hyperboloid" |Δt| ≤ α  UND  Δr ≤ √(r_max² + (v_max·Δt)²)
-                    Folgt der Herleitung §2.1: die Taille ist die
-                    Wolkenausdehnung, die Aufweitung die Partikeldrift.
-                    Geht asymptotisch in den Kegel ueber, ohne dessen Knick.
+                    Die Taille ist die Wolkenausdehnung, die Aufweitung die
+                    Partikeldrift. Bei kleinem alpha praktisch der Zylinder.
 
-    Es gilt  ellipsoid ⊆ cylinder ⊆ hyperboloid  (in tests/test_graph.py
-    geprueft). Der KDTree kann nur Kugeln -- fuer cylinder/hyperboloid wird
-    daher mit einer UMSCHLIESSENDEN Kugel gesucht und exakt nachgefiltert.
-    Preis: ~1.9x mehr Kandidaten beim Zylinder. Bei sehr grossen Fenstern
-    ist das der RAM-Peak, nicht die Endkantenzahl.
+    Es gilt ellipsoid ⊆ cylinder ⊆ hyperboloid. 
+    Urform ist jedesmal Ellipsoid, denn der KDTree kann nur Kugeln,
+    fuer die beiden anderen wird deshalb mit einer UMSCHLIESSENDEN (groesseren!) Kugel
+    gesucht und exakt nachgefiltert. Eine zu grosse Kugel ist nur langsam,
+    eine zu KLEINE verliert still Kanten -- deshalb der Brute-Force-Vergleich
+    in tests/test_graph.py.
 
     Rueckgabe: (i, j) int64-Arrays, i = frueheres Event.
     """
     if geom not in NEIGHBORHOOD_GEOMS:
-        # Doppelt mit Neighborhood.__post_init__ -- absichtlich: die Funktion
-        # ist rein und auch ohne Konfiguration aufrufbar.
+        # Doppelt mit Neighborhood.__post_init__ -- absichtlich: die
+        # Funktion ist rein und auch ohne Konfiguration aufrufbar.
         raise ValueError(f"geom muss in {NEIGHBORHOOD_GEOMS} liegen")
 
     t = np.asarray(t, dtype=np.float64)
@@ -138,10 +134,10 @@ def neighborhood_pairs(t, x, y, alpha, r_max, *,
     if len(i) == 0:
         return empty
 
-    # Tupelzuweisung: die RECHTE SEITE wird vollstaendig ausgewertet, bevor
-    # zugewiesen wird. Auf zwei Zeilen aufgeteilt saehe das zweite np.where
-    # das bereits vertauschte i -- und die Haelfte aller dt kehrte still das
-    # Vorzeichen um. Der Vertrag t[i] <= t[j] traegt das gesamte Merkmalsdesign
+    # NICHT auf zwei Zeilen aufteilen: die rechte Seite einer Tupelzuweisung
+    # wird vollstaendig ausgewertet, bevor zugewiesen wird. Getrennt saehe
+    # das zweite np.where das bereits vertauschte i, und die Haelfte aller dt
+    # kehrte still das Vorzeichen um.
     swap = t[i] > t[j]
     i, j = np.where(swap, j, i), np.where(swap, i, j)
 
@@ -158,8 +154,7 @@ def neighborhood_pairs(t, x, y, alpha, r_max, *,
 def edge_deltas(t, x, y, i, j):
     """Rohe Relativgroessen je Kante: (dt, dx, dy) mit dt >= 0.
 
-    Einzige Stelle, an der aus Indexpaaren Features werden -- Training und
-    Einsatz benutzen dieselbe. Die konkreten Feature-Modi (dr / absxy / raw6)
-    bauen darauf auf (model.py bzw. train.py).
+    Einzige Stelle, an der aus Indexpaaren Rohgroessen werden. Die
+    Feature-Modi bauen darauf auf (model.build_features).
     """
     return (t[j] - t[i]), (x[j] - x[i]), (y[j] - y[i])
