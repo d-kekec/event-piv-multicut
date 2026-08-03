@@ -37,7 +37,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-FEATURE_MODES = ("dr", "absxy", "raw6")
+from eventpiv.runconfig import FEATURE_MODES
 
 _FEATURE_NAMES = {
     "dr":    ("dt", "dr"),
