@@ -52,3 +52,16 @@ def test_resolve_leitet_ab():
     nb = Neighborhood(alpha=10_000, r_max=7.06)
     ps = resolve(nb, PairSampling())
     assert ps.win_dt == 40_000 and ps.win_dt_yes == 40_000
+
+
+def test_unbekannte_auswahlwerte_fallen_zur_konfigurationszeit_auf():
+    """Frueher fiel das erst tief im Lauf auf -- da stand der Slug schon und
+    ein Verzeichnis hiess danach."""
+    from eventpiv.runconfig import Training
+
+    with pytest.raises(ValueError, match="geom"):
+        Neighborhood(geom="wuerfel")
+    with pytest.raises(ValueError, match="feature_mode"):
+        Training(feature_mode="quatsch")
+    with pytest.raises(ValueError, match="imbalance"):
+        Training(imbalance="egal")
