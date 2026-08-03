@@ -36,7 +36,6 @@ from eventpiv.model import (EdgeMLP, SWAP_RAW6, build_features, check_mode,
                             n_features, save_checkpoint)
 from eventpiv.runconfig import TrainCfg, identity_meta
 
-IMBALANCE_MODES = ("sample", "weight")
 
 def check_dataset_neighborhood(meta: dict, nb, name: str = "") -> None:
     """Prueft, ob der Datensatz mit DIESER Nachbarschaft gebaut wurde.
@@ -259,8 +258,6 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
     t_start = time.perf_counter()
     nb, ps, tr = cfg.neighborhood, cfg.pairs, cfg.training
     check_mode(tr.feature_mode)
-    if tr.imbalance not in IMBALANCE_MODES:
-        raise ValueError(f"imbalance muss in {IMBALANCE_MODES} liegen")
     
     if tr.epochs < 1:
         raise ValueError("training.epochs muss mindestens 1 sein -- sonst "

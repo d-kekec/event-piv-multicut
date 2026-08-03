@@ -115,7 +115,6 @@ class Neighborhood(_Typed):
                 f"neighborhood.geom={self.geom!r} unbekannt. "
                 f"Erlaubt: {NEIGHBORHOOD_GEOMS}")
 
-
 @dataclass
 class PairSampling(_Typed):
     """Identitaet des Paar-Datensatzes. `split` ist hier die QUELLE der Paare
@@ -161,6 +160,19 @@ class Training(_Typed):
 
     def short(self) -> str:
         return f"{self.feature_mode}_{self.imbalance}"
+    
+    def __post_init__(self) -> None:
+        super().__post_init__()          # Typcast aus _Typed zuerst
+        # Wie bei Neighborhood.geom: bis train_edge_nn es merkt, steht der
+        # Slug (dr_sample-055f61) schon und ein Verzeichnis heisst danach.
+        if self.feature_mode not in FEATURE_MODES:
+            raise ValueError(
+                f"training.feature_mode={self.feature_mode!r} unbekannt. "
+                f"Erlaubt: {FEATURE_MODES}")
+        if self.imbalance not in IMBALANCE_MODES:
+            raise ValueError(
+                f"training.imbalance={self.imbalance!r} unbekannt. "
+                f"Erlaubt: {IMBALANCE_MODES}")
 
 
 @dataclass
