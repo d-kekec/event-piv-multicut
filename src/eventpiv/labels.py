@@ -115,9 +115,9 @@ def assign_track_ids(t, x, y, bbox,
         sl = order[grp_start[ri]:grp_end[ri]]
         if len(sl) == 0:
             continue
+        # raster_t stammt aus np.unique(bbox["t"]) -- zu jedem Rasterpunkt
+        # gibt es per Konstruktion Boxen.
         mask_box = bbox["t"] == raster_t[ri]
-        if not mask_box.any():
-            continue
 
         centers = np.column_stack([bx[mask_box], by[mask_box]])
         tids    = bbox["track_id"][mask_box].astype(np.int32)
