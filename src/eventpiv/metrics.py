@@ -193,8 +193,11 @@ def roc_auc(y_true, y_score) -> float:
     nachweislich nicht betroffen; die synthetische Vorabschaetzung war
     korrekt und ist hiermit abgeloest.
     """
-    y_true = np.asarray(y_true)
-    y_score = np.asarray(y_score)
+    y_true = _as_labels(y_true)
+    y_score = np.asarray(y_score).ravel()
+    if y_true.shape != y_score.shape:
+        raise ValueError(f"Laengen verschieden: y_true {y_true.shape}, "
+                         f"y_score {y_score.shape}")
     pos = y_score[y_true == 1]
     neg = y_score[y_true == 0]
     if len(pos) == 0 or len(neg) == 0:
