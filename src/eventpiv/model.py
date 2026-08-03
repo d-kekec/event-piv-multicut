@@ -3,31 +3,31 @@
 """
 model.py -- Mini-MLP fuer die Kantenkosten + die FEATURE-DEFINITION.
 
-Architektur (BA_NN_Kantenkosten.md §3): winziges MLP n_in->hidden->1, Tanh,
-Ausgabe ist ein LOGIT ohne Sigmoid. Zusammen mit BCEWithLogits lernt der
-Logit die Log-Odds log(p/(1-p)); die Nullstelle liegt damit automatisch bei
-p = 0.5 -- genau die Kalibrierung, die RAMA braucht
-(BA_RAMA_Verstaendnis.md §1.4). Deshalb wird der Logit DIREKT als
-Kantenkosten verwendet, ohne Nachskalierung.
+Winziges MLP n_in->hidden->1, Tanh, Ausgabe ist ein LOGIT ohne Sigmoid.
+Zusammen mit BCEWithLogits lernt der Logit die Log-Odds log(p/(1-p)); die
+Nullstelle liegt damit automatisch bei p = 0.5 -- genau die Kalibrierung,
+die RAMA braucht. Deshalb geht der Logit DIREKT als Kantenkosten weiter,
+ohne Nachskalierung. Daran haengt auch, warum die Schwelle 0 und keine
+andere der Arbeitspunkt ist (metrics.py).
 
-WARUM DIE FEATURES HIER LIEGEN:
-Bisher existierte die Feature-Vorschrift zweimal -- in train_edge_nn als
-NumPy-Code, in solve_with_nn als Torch-Code auf der GPU. Zwei Implementierungen
+WARUM DIE FEATURES HIER LIEGEN: die Vorschrift existierte zweimal -- als
+NumPy-Code im Training, als Torch-Code auf der GPU. Zwei Implementierungen
 derselben Formel, verbunden nur durch Sorgfalt. build_features() ist
 backend-agnostisch (xp=np oder xp=torch), also gibt es jetzt genau eine.
 Dasselbe Argument wie bei graph.neighborhood_pairs.
 
-FEATURE-MODI (Ablation BA_NN_Kantenkosten.md §3.6):
-  "dr"    (dt, dr)            AUC 0.792 -- gewaehlt, symmetrisch
-  "absxy" (dt, |dx|, |dy|)    AUC 0.788 -- gleichauf, symmetrisch
-  "raw6"  (ti,xi,yi,tj,xj,yj) AUC 0.29-0.39 -- VERWORFEN: memoriert
-          Trainingspositionen (TNR ~0.02), bricht auf ungesehenen Runs ein.
-          Vorschlag des Profs, empirisch widerlegt. Code bleibt fuer die
-          Ablation erhalten, ist aber kein Arbeitspunkt.
+FEATURE-MODI, gemessen:
+  "dr"    (dt, dr)            AUC 0.792 -- Arbeitspunkt
+  "absxy" (dt, |dx|, |dy|)    AUC 0.788 -- gleichauf
+  "raw6"  (ti,xi,yi,tj,xj,yj) AUC 0.29-0.39 -- WIDERLEGT: memoriert
+          Trainingspositionen (TNR ~0.02) und bricht auf ungesehenen Runs
+          ein. Bleibt fuer die Ablation, ist kein Arbeitspunkt.
 
-SYMMETRIE c_ij == c_ji: bei dr/absxy durch die Features garantiert
-(|dx|,|dy|,dr invariant unter i<->j; dt >= 0 durch den graph.py-Kontrakt).
-raw6 ist NICHT symmetrisch -> Logits werden ueber den Tausch gemittelt.
+SYMMETRIE c_ij == c_ji ist bei dr und absxy eine Eigenschaft der MERKMALE:
+|dx|, |dy| und dr sind invariant unter i<->j, dt >= 0 garantiert der
+graph.py-Kontrakt. Nur raw6 ist unsymmetrisch und braucht die Mittelung
+ueber den Tausch -- die einzige Stelle, an der Symmetrie ein Laufzeitthema
+ist.
 """
 from __future__ import annotations
 
@@ -75,8 +75,8 @@ def build_features(dt, dx, dy, *, mode, ti=None, xi=None, yi=None, xp=np):
     dt, dx, dy : 1D-Arrays/Tensoren, dt >= 0 (graph.py-Kontrakt)
     ti, xi, yi : Absolutkoordinaten des FRUEHEREN Events, nur fuer raw6
     xp         : Backend -- numpy (Training) oder torch (Einsatz auf GPU).
-                 Beide bieten abs/sqrt/stack mit gleicher Signatur; die
-                 Achse wird POSITIONAL uebergeben (np: axis, torch: dim).
+                 Beide bieten abs/sqrt/stack gleich an; die Achse muss
+                 POSITIONAL uebergeben werden (np: axis, torch: dim).
 
     Rueckgabe: Matrix im dtype der Eingaben (Caller castet auf float32).
     """
@@ -123,8 +123,8 @@ def save_checkpoint(path, model, mu, sig, feature_mode, hidden, **meta):
 def load_checkpoint(path, device="cpu"):
     """Laedt ein Netz. Rueckgabe: (model, mu, sig, feature_mode, ckpt).
 
-    mu/sig kommen als Tensoren auf 'device' zurueck -- direkt einsetzbar.
-    weights_only=False: die .pt ist unsere EIGENE Datei und enthaelt
+    mu/sig kommen als Tensoren auf 'device' zurueck, direkt einsetzbar.
+    weights_only=False: die .pt ist unsere eigene Datei und enthaelt
     numpy-Arrays (mu/sig), die der sichere Default ab PyTorch 2.6 blockiert.
     """
     ckpt = torch.load(Path(path), map_location=device, weights_only=False)

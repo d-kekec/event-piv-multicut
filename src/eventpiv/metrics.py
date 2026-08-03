@@ -3,9 +3,8 @@
 """
 metrics.py -- Kennzahlen der PAAR-Ebene (Stufe [3]).
 
-Reines NumPy: keine Torch-, keine Hydra-Abhaengigkeit. Die Funktionen sind
-damit ohne Datensatz und ohne Framework testbar (BA_NN_Pipeline_Dateien.md
-§2.4); der Aufrufer wandelt Tensoren vorher in Arrays um.
+Reines NumPy: keine Torch-, keine Hydra-Abhaengigkeit. Damit ohne Datensatz
+und ohne Framework testbar; der Aufrufer wandelt Tensoren vorher in Arrays um.
 
 Bewusst NUR die Paar-Ebene. Reinheit und Fragmentierung sind Cluster-Ebene
 und bleiben in evaluate.py -- zwei Zustaendigkeiten, zwei Module.
@@ -13,9 +12,9 @@ und bleiben in evaluate.py -- zwei Zustaendigkeiten, zwei Module.
 WARUM DIE SCHWELLE 0 UND KEINE ANDERE
 -------------------------------------
 Das Netz gibt einen LOGIT aus, und dieser Logit geht in solve.py UNVERAENDERT
-als Kantenkosten an RAMA (model.py-Docstring, BA_RAMA_Verstaendnis.md §1.4).
-RAMA liest das Vorzeichen: positiv = anziehend, negativ = abstossend. Die
-Schwelle 0 ist deshalb nicht ein Arbeitspunkt unter vielen, sondern GENAU
+als Kantenkosten an RAMA. RAMA liest das Vorzeichen: positiv = anziehend,
+negativ = abstossend. 
+Die Schwelle 0 ist deshalb nicht ein Arbeitspunkt unter vielen, sondern GENAU
 der, den der Solver sieht. Wegen p = sigmoid(logit) ist "logit >= 0"
 gleichbedeutend mit "p >= 0.5"; wir schwellen direkt am Logit, weil das den
 Bezug zu RAMA sichtbar macht und eine Transformation spart.
@@ -27,28 +26,25 @@ Damit hat jede Zelle der Matrix eine Bedeutung in der Pipeline:
     FP  verschiedene,      Kosten positiv  -> Druck Richtung REINHEITSFEHLER
     FN  gleiches Partikel, Kosten negativ  -> Druck Richtung FRAGMENTIERUNG
 
-FP und FN sind also die Paar-Ebenen-Vorboten der beiden Cluster-Metriken.
-Das erklaert die Zahlen aus BA_NN_Kantenkosten.md §3.6: imbalance="weight"
-(TPR 0.57 / TNR 0.89) erzeugt viele FN und fragmentiert stark; "sample"
-(0.75 / 0.65) ist ausgewogen.
+FP und FN sind also die Paar-Ebenen-Vorboten der beiden Cluster-Kennzahlen.
+Gemessen: imbalance="weight" (TPR 0.57 / TNR 0.89) erzeugt viele FN und
+fragmentiert stark; "sample" (0.75 / 0.65) ist ausgewogen.
 
 ABGRENZUNG zu frac_neg (Solve): pred_neg_frac unten ist der Anteil negativ
-bewerteter Paare auf dem Holdout, frac_neg derselbe Anteil auf den echten
-Kanten eines Solve-Fensters. Verwandt, aber NICHT dasselbe: der Paar-
-Datensatz ist keine Stichprobe der Einsatzverteilung (JA aus sauberen Runs,
-NEIN aus Overlap-Runs, je gedeckelt -> 6.3:1 ist ein Artefakt der
-Sammelstrategie, BA_NN_Kantenkosten.md §4.1). Ein Vergleich der beiden ist
-eine Plausibilitaetspruefung, keine Identitaet; eine grosse Abweichung ist
-ein Befund, kein Fehler.
+bewerteter Paare auf dem HOLDOUT, frac_neg derselbe Anteil auf den echten
+Kanten eines Solve-Fensters. Verwandt, aber nicht dasselbe -- der
+Paar-Datensatz ist keine Stichprobe der Einsatzverteilung, weil die beiden
+Klassen aus verschiedenen Runs stammen und gedeckelt werden. Ein Vergleich
+ist eine Plausibilitaetspruefung; eine grosse Abweichung ist ein Befund,
+kein Fehler.
 
 NaN STATT AUSNAHME
 ------------------
 Fehlt eine Klasse ganz, sind Precision/TPR/TNR/AUC nicht definiert. Diese
-Funktionen liefern dann float("nan") und werfen NICHT. Grund: ein
-Trainingslauf soll nicht daran scheitern, dass eine Kennzahl in einer Epoche
-undefiniert ist -- NaN ist im Log sichtbar, ein Abbruch kostet den Lauf.
-Die Stelle, an der eine fehlende Klasse WIRKLICH ein Fehler ist, ist der
-Holdout-Split; dort wacht train.split_runs_stratified.
+Funktionen liefern dann float("nan") und werfen NICHT: ein Trainingslauf
+soll nicht daran scheitern, dass eine Kennzahl in einer Epoche undefiniert
+ist. Wo eine fehlende Klasse WIRKLICH ein Fehler ist -- beim Holdout-Split --
+wacht train.split_runs_stratified.
 """
 from __future__ import annotations
 
@@ -81,16 +77,13 @@ def flatten(d: dict, sep: str = "/", prefix: str = "") -> dict:
     """Verschachteltes dict -> flach, Ebenen durch sep getrennt.
 
     Reine Strukturumformung: benennt nichts um, entscheidet nichts. Die
-    Namen entstehen aus der Verschachtelung des Aufrufers -- es gibt damit
-    genau EINE Stelle, an der Kennzahlen heissen, wie sie heissen, und diese
-    Funktion ist nicht sie.
+    Namen entstehen aus der Verschachtelung des Aufrufers.
 
     Gebraucht an der Logging-Grenze: W&B verflacht verschachtelte dicts zwar
     selbst, aber mit einem PUNKT (holdout.cm.tp), waehrend die
-    Panel-Gruppierung der Oberflaeche sich nach dem SCHRAEGSTRICH richtet.
-    Gemessen 29.07.2026 mit wandb 0.28.1 an einem Offline-Lauf, Schluessel
-    direkt aus dem Protokoll gelesen. Ohne die Umformung gaebe es keine
-    Gruppen, sondern eine flache Wand aus Kacheln.
+    Panel-Gruppierung sich nach dem SCHRAEGSTRICH richtet. Ohne die
+    Umformung gaebe es keine Gruppen, sondern eine flache Wand aus Kacheln.
+    GEMESSEN an wandb 0.28.1.
 
     Steht hier und nicht im Skript, damit sie testbar ist.
     """
@@ -108,8 +101,7 @@ def confusion(y_true, y_score, threshold: float = 0.0) -> dict[str, int]:
     """Konfusionsmatrix am OPERATIONSPUNKT des Solvers (Schwelle 0).
 
     y_score sind LOGITS (nicht sigmoid-transformiert). ">=" statt ">":
-    ein Logit von exakt 0 gilt als JA -- konsistent mit dem bisherigen
-    "p >= 0.5" in train.evaluate.
+    ein Logit von exakt 0 gilt als JA.
 
     Rueckgabe: {"tp", "fp", "fn", "tn"} als int (nicht np.int64, damit
     json.dumps sie ohne Sonderbehandlung schreibt).
@@ -131,12 +123,10 @@ def rates(cm: dict[str, int]) -> dict[str, float]:
     """Abgeleitete Kennzahlen aus einer Konfusionsmatrix.
 
     tpr und tnr heissen bewusst so und nicht recall/specificity: unter
-    diesen Namen stehen sie in BA_NN_Kantenkosten.md §3.6, und Kontinuitaet
-    zur Doku ist hier mehr wert als der Lehrbuchname.
+    diesen Namen laufen sie durch Doku und W&B-Felder.
 
-    balanced_accuracy = (tpr+tnr)/2 ist die Kennzahl, die bei Imbalance
-    aussagekraeftig bleibt -- accuracy allein waere bei 6.3:1 schon durch
-    "immer JA" bei 0.86.
+    balanced_accuracy = (tpr+tnr)/2 bleibt bei Imbalance aussagekraeftig --
+    accuracy allein erreicht bei 6.3:1 schon durch "immer JA" den Wert 0.86.
 
     pred_neg_frac ist der Anteil negativ bewerteter Paare; Abgrenzung zu
     frac_neg siehe Modul-Docstring.
@@ -157,41 +147,23 @@ def rates(cm: dict[str, int]) -> dict[str, float]:
 def roc_auc(y_true, y_score) -> float:
     """AUC ueber die Rangsumme (Mann-Whitney-U). Ohne sklearn-Abhaengigkeit.
 
-    WORTGLEICH aus train.py uebernommen (Commit C1, 29.07.2026) -- die
-    Verschiebung darf das Ergebnis nicht veraendern.
+    GLEICHSTAENDE -- INVARIANTE: kind= hier NICHT setzen.
 
-    GLEICHSTAENDE -- Befund 29.07.2026, gemessen statt vermutet
-    -----------------------------------------------------------
-    Die Funktion vergibt je einen EIGENEN Rang, auch bei gleichen Scores;
-    die Mann-Whitney-Definition verlangt dort den MITTLEREN Rang. Das ist
-    hier keine Randfrage: (dt, dr) ist quantisiert (dt ganzzahlig in µs,
-    dr aus ganzzahligen dx, dy bei r_max=3), viele Paare teilen sich also
-    exakt denselben Logit.
+    Die Funktion vergibt jedem Wert einen EIGENEN Rang, auch bei gleichem
+    Score; die Definition verlangt dort den MITTLEREN Rang. Das ist keine
+    Randfrage: (dt, dr) ist quantisiert, und am Arbeitspunkt teilen sich
+    98,8 % der Paare ihren Logit mit anderen.
 
-    Am Extrembeispiel ist der Fehler drastisch -- ein JA und ein NEIN mit
-    demselben Score liefern 0.0 statt korrekt 0.5. Auf realistischer Groesse
-    ist er es NICHT: bei 200 000 Paaren mit 98 % Gleichstandsanteil liegt die
-    Abweichung unter 1e-4. Grund: np.argsort benutzt per Default quicksort
-    und ist damit INSTABIL, die Gleichstaende werden also durchmischt und
-    mitteln sich weg.
+    Trotzdem stimmen naive und mittlere Raenge auf sechs Nachkommastellen
+    ueberein (gemessen an 11,6 Mio. Paaren: 0.870959, Delta unter 5e-7) --
+    weil np.argsort per Default INSTABIL sortiert und die Gleichstaende sich
+    wegmitteln. Die Funktion ist also richtig, aber sie haengt an einem
+    Implementierungsdetail von NumPy, nicht an der Definition.
 
-    DIE FUNKTION IST ALSO RICHTIG -- AUS DEM FALSCHEN GRUND. Sie haengt an
-    einem Implementierungsdetail von NumPy, nicht an der Definition.
-    Gemessene Folge: dieselben Daten mit kind="stable" ergeben 0.698 statt
-    0.713, weil die JA-Seite in der Verkettung vorne steht und bei stabiler
-    Sortierung systematisch die niedrigeren Raenge bekaeme.
-
-    KONSEQUENZ: kind= hier NICHT setzen. Die naheliegende "Verbesserung"
-    (deterministisch sortieren) wuerde die AUC still um ~0.015 senken. Wer
-    Determinismus will, muss zugleich auf mittlere Raenge umstellen -- beides
-    zusammen, nie einzeln. Die dokumentierten 0.792 aus
-    GEGENPROBE AM ECHTEN DATENSATZ, 31.07.2026: 11.588.920 Paare des
-    train-Arbeitspunkts, nur 139.288 verschiedene Logits -- ein
-    Gleichstandsanteil von 98,8 %. Naive Rangvergabe und mittlere Raenge
-    liefern dieselbe AUC auf SECHS Nachkommastellen (0.870959, Delta unter
-    5e-7). Die dokumentierten Werte in BA_NN_Kantenkosten.md §3.6 sind damit
-    nachweislich nicht betroffen; die synthetische Vorabschaetzung war
-    korrekt und ist hiermit abgeloest.
+    Deshalb die Invariante: die naheliegende "Verbesserung" kind="stable"
+    senkt die AUC um ~0.015, weil die JA-Seite in der Verkettung vorne steht
+    und systematisch die niedrigeren Raenge bekaeme. Determinismus ist nur
+    ZUSAMMEN mit mittleren Raengen zu haben, nie einzeln.
     """
     y_true = _as_labels(y_true)
     y_score = np.asarray(y_score).ravel()
@@ -212,10 +184,10 @@ def roc_auc(y_true, y_score) -> float:
 def class_balance(label) -> dict[str, float]:
     """Klassenverhaeltnis EINER Menge von Paar-Labels.
 
-    Wird an drei Stellen aufgerufen (vom Prof angefordert): auf dem rohen
-    Datensatz, nach dem Holdout-Split (getrennt fuer beide Seiten) und nach
-    dem Untersampeln. Erst die drei Zahlen NEBENEINANDER zeigen, was das
-    Balancing tatsaechlich getan hat -- eine allein sagt nichts.
+    Wird mehrfach je Lauf aufgerufen: auf dem rohen Datensatz, nach dem
+    Holdout-Split (getrennt fuer beide Seiten) und nach dem Untersampeln.
+    Erst die Zahlen NEBENEINANDER zeigen, was Split und Balancing
+    tatsaechlich getan haben -- eine allein sagt nichts.
 
     ratio_ja_nein ist JA/NEIN, also die "6.3" in "6.3 : 1".
     """
