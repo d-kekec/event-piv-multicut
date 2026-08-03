@@ -156,6 +156,14 @@ def label_stats(status) -> dict:
     }
 
 
+class LabelingMismatch(RuntimeError):
+    """Vorhandene Datei stammt aus anderen Labeling-Parametern.
+
+    Kein Run-Problem: es betrifft alle Runs gleich und wird deshalb in
+    build_labels NICHT je Run gefangen, sondern bricht den Lauf ab.
+    """
+
+
 def _labeling_passt(path, lb) -> bool:
     """Wurde die vorhandene Datei mit GENAU diesen Labeling-Parametern gebaut?
 
@@ -197,7 +205,7 @@ def build_labels_for_run(cfg: LabelCfg, run_nr, verbose=True):
             if verbose:
                 print(f"  run{run_nr}: existiert schon -> uebersprungen")
             return out_path, None
-        raise ValueError(
+        raise LabelingMismatch(
             f"{out_path.name} wurde mit ANDEREN Labeling-Parametern gebaut. "
             f"Jetzt verlangt: r_assign={lb.r_assign}, r_ambig={lb.r_ambig}, "
             f"box_w={lb.box_w}. Ohne io.overwrite=true wuerde still die alte "
@@ -223,9 +231,13 @@ def build_labels_for_run(cfg: LabelCfg, run_nr, verbose=True):
         print(f"  track_ids (sauber): "
               f"{len(np.unique(track_id[status == STATUS_CLEAN]))}")
 
-    if len(track_id):
-        assert track_id.max() < 2**15, \
-            f"track_id {track_id.max()} sprengt int16 -- Speicherformat anpassen!"
+    if len(track_id) and track_id.max() >= 2**15:
+        # Kein assert: python -O entfernt asserts, und der int16-Cast unten
+        # liefe dann still ueber. Datenintegritaet gehoert nicht in eine
+        # Zusicherung, die abschaltbar ist.
+        raise ValueError(
+            f"track_id {track_id.max()} sprengt int16 -- Speicherformat "
+            "in labels.py anpassen.")
 
     # SCHLANK speichern -- verlustfreie Integer-Casts (Rohdaten sind ganzzahlig):
     #   t: µs, max ~8e6 << 2^32 -> uint32 | x,y: 0..1279 -> uint16 | p: uint8
@@ -262,9 +274,18 @@ def build_labels(cfg: LabelCfg, verbose=True) -> list[int]:
     for r in runs:
         try:
             build_labels_for_run(cfg, r, verbose=verbose)
+        except LabelingMismatch:
+            raise
         except Exception as e:
             print(f"  !! run{r} uebersprungen: {type(e).__name__}: {e}")
             failed.append(r)
+    if len(failed) == len(runs) and runs:
+        # Alle Runs auf dieselbe Weise gescheitert ist kein Datenbefund.
+        # Ohne diese Grenze sieht ein Tippfehler im Code aus wie 100 kaputte
+        # Runs -- die Schleife faengt jede Exception und macht weiter.
+        raise RuntimeError(
+            f"ALLE {len(runs)} Run(s) fehlgeschlagen -- das ist kein "
+            "Datenproblem. Meldungen oben lesen (Pfad, Konfiguration, Code).")
     if failed:
         print(f"\nFehlgeschlagene Runs ({len(failed)}): {failed}")
     return failed
