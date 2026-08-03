@@ -82,6 +82,8 @@ class _Derivable:
 # Gruppen
 # ============================================================
 
+NEIGHBORHOOD_GEOMS = ("ellipsoid", "cylinder", "hyperboloid")
+
 @dataclass
 class Neighborhood(_Typed):
     """DER VERTRAG -- und zugleich die Identitaet des Arbeitspunkts.
@@ -96,6 +98,16 @@ class Neighborhood(_Typed):
 
     def short(self) -> str:
         return f"a{self.alpha}_r{_num(self.r_max)}_{self.geom}"
+
+    def __post_init__(self) -> None:
+        super().__post_init__()          # Typcast aus _Typed zuerst
+        # Zur Konfigurationszeit pruefen, nicht erst tief im Lauf: bis
+        # graph.neighborhood_pairs es merkt, ist der Slug laengst berechnet
+        # und ein Verzeichnis danach benannt.
+        if self.geom not in NEIGHBORHOOD_GEOMS:
+            raise ValueError(
+                f"neighborhood.geom={self.geom!r} unbekannt. "
+                f"Erlaubt: {NEIGHBORHOOD_GEOMS}")
 
 
 @dataclass

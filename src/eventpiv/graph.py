@@ -27,11 +27,15 @@ from __future__ import annotations
 
 import numpy as np
 from scipy.spatial import cKDTree
+from eventpiv.runconfig import NEIGHBORHOOD_GEOMS, Neighborhood, Solver
 
-K_MAX_DEFAULT = 24          # k-NN-Kappung, s. BA_NN_Kantenkosten.md §2.2
-
-NEIGHBORHOOD_MODES = ("ellipsoid", "cylinder", "hyperboloid")
-V_MAX_DEFAULT = 1.02e-4     # px/µs (= 0.102 px/ms, p99.9 gepoolt)
+# EINE Quelle fuer diese Zahlen: runconfig. Die Modulkonstanten bleiben als
+# Namen bestehen (Tests und Standardargumente benutzen sie), beziehen ihren
+# Wert aber von dort -- zwei Wahrheiten ueber dieselbe Zahl waren die Ursache
+# des train_edge_nn-Befunds vom 27.07.2026.
+_NB_DEFAULT   = Neighborhood()
+V_MAX_DEFAULT = _NB_DEFAULT.v_max     # px/µs (= 0.102 px/ms, p99.9 gepoolt)
+K_MAX_DEFAULT = Solver().k_max        # k-NN-Kappung, s. BA_NN_Kantenkosten.md §2.2
 
 
 def time_scale(alpha: float, r_max: float) -> float:
@@ -79,8 +83,10 @@ def neighborhood_pairs(t, x, y, alpha, r_max, *,
 
     Rueckgabe: (i, j) int64-Arrays, i = frueheres Event.
     """
-    if geom not in NEIGHBORHOOD_MODES:
-        raise ValueError(f"geom muss in {NEIGHBORHOOD_MODES} liegen")
+    if geom not in NEIGHBORHOOD_GEOMS:
+        # Doppelt mit Neighborhood.__post_init__ -- absichtlich: die Funktion
+        # ist rein und auch ohne Konfiguration aufrufbar.
+        raise ValueError(f"geom muss in {NEIGHBORHOOD_GEOMS} liegen")
 
     t = np.asarray(t, dtype=np.float64)
     x = np.asarray(x, dtype=np.float64)
@@ -109,7 +115,11 @@ def neighborhood_pairs(t, x, y, alpha, r_max, *,
                             distance_upper_bound=q, workers=-1)
         i = np.repeat(np.arange(n), k_max)
         j = idx[:, 1:].ravel()
-        ok = j < n
+        # j != i zusaetzlich: Spalte 0 ist NUR dann der Punkt selbst, wenn er
+        # eindeutig der naechste ist. Bei zwei Events auf exakt derselben
+        # (x, y, t) -- ON und OFF am selben Pixel -- kann Spalte 0 der andere
+        # Punkt sein und man selbst rutscht in Spalte 1.
+        ok = (j < n) & (j != i)
         i, j = i[ok], j[ok]
     else:
         pairs = tree.query_pairs(r=q, output_type="ndarray")
@@ -128,6 +138,10 @@ def neighborhood_pairs(t, x, y, alpha, r_max, *,
     if len(i) == 0:
         return empty
 
+    # Tupelzuweisung: die RECHTE SEITE wird vollstaendig ausgewertet, bevor
+    # zugewiesen wird. Auf zwei Zeilen aufgeteilt saehe das zweite np.where
+    # das bereits vertauschte i -- und die Haelfte aller dt kehrte still das
+    # Vorzeichen um. Der Vertrag t[i] <= t[j] traegt das gesamte Merkmalsdesign
     swap = t[i] > t[j]
     i, j = np.where(swap, j, i), np.where(swap, i, j)
 

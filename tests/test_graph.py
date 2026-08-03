@@ -10,7 +10,7 @@ sich Parameter oder Implementierung aendern.
 import numpy as np
 import pytest
 
-from eventpiv.graph import edge_deltas, neighborhood_pairs, NEIGHBORHOOD_MODES, V_MAX_DEFAULT
+from eventpiv.graph import edge_deltas, neighborhood_pairs, NEIGHBORHOOD_GEOMS, V_MAX_DEFAULT
 
 def brute_force(t, x, y, alpha, r_max):
     """O(n^2)-Referenz. Bildet die KUGEL-Bedingung ab, die der Code
@@ -44,7 +44,7 @@ def brute_force_geom(t, x, y, alpha, r_max, geom, v_max=V_MAX_DEFAULT):
     return sorted(out)
 
 
-@pytest.mark.parametrize("geom", NEIGHBORHOOD_MODES)
+@pytest.mark.parametrize("geom", NEIGHBORHOOD_GEOMS)
 @pytest.mark.parametrize("alpha,r_max", [(3_000, 5.0), (10_000, 7.06),
                                          (20_000, 3.0)])
 def test_alle_geometrien_gegen_brute_force(wolke, geom, alpha, r_max):
