@@ -86,20 +86,20 @@ def load_features(path, feature_mode: str):
         raise FileNotFoundError(
             f"{path} fehlt -- erst scripts/build_pair_dataset.py laufen "
             "lassen (gleiche neighborhood/pairs-Gruppe).")
-    d = np.load(path, allow_pickle=False)
-
-    kwargs = {}
-    if feature_mode == "raw6":
-        kwargs = {"ti": d["ti"].astype(np.float32),
-                  "xi": d["xi"].astype(np.float32),
-                  "yi": d["yi"].astype(np.float32)}
-    feats = build_features(d["dt"].astype(np.float32),
-                           d["dx"].astype(np.float32),
-                           d["dy"].astype(np.float32),
-                           mode=feature_mode, xp=np,
-                           **kwargs).astype(np.float32)
-    return (feats, d["label"].astype(np.float32), d["run"],
-            json.loads(str(d["meta"])))
+    
+    with np.load(path, allow_pickle=False) as d:
+        kwargs = {}
+        if feature_mode == "raw6":
+            kwargs = {"ti": d["ti"].astype(np.float32),
+                      "xi": d["xi"].astype(np.float32),
+                      "yi": d["yi"].astype(np.float32)}
+        feats = build_features(d["dt"].astype(np.float32),
+                               d["dx"].astype(np.float32),
+                               d["dy"].astype(np.float32),
+                               mode=feature_mode, xp=np,
+                               **kwargs).astype(np.float32)
+        return (feats, d["label"].astype(np.float32), d["run"],
+                json.loads(str(d["meta"])))
 
 def _mit_cm(m: dict) -> dict:
     """Trennt die Konfusionsmatrix in einen eigenen Zweig.
