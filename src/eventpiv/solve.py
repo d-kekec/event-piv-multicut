@@ -27,6 +27,7 @@ Optimalitaetszertifikat. Bei Bedarf stichprobenartig ueber rama_cuda.
 from __future__ import annotations
 
 import time
+import resource
 
 import numpy as np
 import torch
@@ -197,7 +198,8 @@ def info_groups(info: dict) -> dict:
     for k, v in info.items():
         if k.startswith("gt_"):
             gruppen["gt"][k[3:]] = v
-        elif k.startswith("t_") or k in ("vram_peak_gb", "gpu_name"):
+        elif k.startswith("t_") or k in ("vram_peak_gb", "gpu_name",
+                                         "max_rss_mb"):
             gruppen["diag"][k] = v
         else:
             gruppen["solve"][k] = v
@@ -299,7 +301,10 @@ def solve_window(cfg: SolveCfg, model, mu, sig, feature_mode, verbose=True,
             "dt_ms": win.dt / 1000.0 if win.dt else float("nan"),
             "events_per_ms": n / (win.dt / 1000.0) if win.dt else float("nan"),
             "t_graph": t_graph, "t_costs": t_costs, "t_rama": t_rama,
-            "vram_peak_gb": vram, "gpu_name": gpu_name, **kanten}
+            "vram_peak_gb": vram, "gpu_name": gpu_name, 
+            "max_rss_mb": round(
+                resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
+            **kanten}
     return labels, {"t": t, "x": x, "y": y}, info
 
 
