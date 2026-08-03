@@ -60,6 +60,21 @@ def collect_pairs(t, x, y, track_id, status, *, alpha, r_max,
     x = np.asarray(x, dtype=np.float64)
     y = np.asarray(y, dtype=np.float64)
 
+    if len(t) > 1 and not (np.diff(t) >= 0).all():
+        # Vorbedingung, bisher unausgesprochen: t_run0 = t[0] und die
+        # Slab-Kanten ab tw[0] setzen aufsteigende Zeit voraus.
+        # neighborhood_pairs braucht sie NICHT -- deshalb faellt es sonst
+        # nirgends auf. O(n) neben einem KDTree, also gratis.
+        raise ValueError("collect_pairs erwartet aufsteigend sortierte t")
+
+    offs = sorted(win_offsets)
+    if any(b - a < win_dt for a, b in zip(offs, offs[1:])):
+        # Ueberlappende Fenster sammelten dieselben Paare zweimal. Die
+        # Slab-Zuordnung schuetzt nur INNERHALB eines Fensters.
+        raise ValueError(
+            f"win_offsets ueberlappen bei win_dt={win_dt}: {offs}. "
+            "Ueberlappende Fenster sammeln Paare doppelt.")
+
     acc = {k: [] for k in FIELDS if k != "run"}
     if len(t) == 0:
         return {k: np.empty(0, np.float32) for k in acc} | {
@@ -145,11 +160,11 @@ def build_pairs_for_run(cfg: PairCfg, run_nr, want_label, win_dt):
         raise FileNotFoundError(
             f"{path} fehlt -- erst scripts/build_event_labels.py "
             f"selection.split={ps.split} selection.runs=[{run_nr}] laufen lassen.")
-    d = np.load(path)
-    return collect_pairs(d["t"], d["x"], d["y"], d["track_id"], d["status"],
-                         alpha=nb.alpha, r_max=nb.r_max, geom=nb.geom,
-                         win_offsets=tuple(ps.win_offsets), win_dt=win_dt,
-                         slab_dt=ps.slab_dt, want_label=want_label)
+    with np.load(path) as d:
+        return collect_pairs(d["t"], d["x"], d["y"], d["track_id"], d["status"],
+                             alpha=nb.alpha, r_max=nb.r_max, geom=nb.geom,
+                             win_offsets=tuple(ps.win_offsets), win_dt=win_dt,
+                             slab_dt=ps.slab_dt, want_label=want_label)
 
 
 def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):

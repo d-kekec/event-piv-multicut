@@ -176,7 +176,8 @@ def _labeling_passt(path, lb) -> bool:
     ohne nachweisbare Herkunft ist kein Grund, das Rechnen zu ueberspringen.
     """
     try:
-        meta = json.loads(str(np.load(path)["meta"]))
+        with np.load(path) as z:
+            meta = json.loads(str(z["meta"]))
     except Exception:
         return False
     return meta.get("labeling") == identity_meta(labeling=lb)["labeling"]

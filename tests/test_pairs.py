@@ -13,19 +13,23 @@ PARAMS = dict(alpha=1_000.0, r_max=5.0, win_offsets=(0,),
 
 @pytest.fixture
 def szene():
-    """Zwei dicht benachbarte Partikel (3 px), je 6 Events ueber 2 ms.
+    """Zwei dicht benachbarte Partikel (3 px), je 6 Events ueber 1,5 ms.
 
     Abstand 3 px < r_max -> es entstehen sowohl JA- als auch NEIN-Paare.
     Ein Event je Partikel ist absichtlich NICHT sauber.
+
+    ZEITLICH SORTIERT, wie ein echter Eventstrom: load_events liefert die
+    Prophesee-Datei in Aufnahmereihenfolge, und collect_pairs verankert
+    Fenster und Slab-Raster an t[0] bzw. tw[0].
     """
     zeiten = np.arange(6, dtype=np.float64) * 300.0
-    t = np.concatenate([zeiten, zeiten])
-    x = np.concatenate([np.full(6, 100.0), np.full(6, 103.0)])
+    t = np.repeat(zeiten, 2)                        # 0,0,300,300,600,600,...
+    x = np.tile(np.array([100.0, 103.0]), 6)        # abwechselnd P1, P2
     y = np.full(12, 100.0)
-    tid = np.array([1]*6 + [2]*6, dtype=np.int16)
+    tid = np.tile(np.array([1, 2], dtype=np.int16), 6)
     sta = np.full(12, STATUS_CLEAN, dtype=np.uint8)
-    sta[2] = STATUS_AMBIG        # Partikel 1
-    sta[9] = STATUS_NOISE        # Partikel 2
+    sta[4] = STATUS_AMBIG        # Partikel 1 bei t=600
+    sta[7] = STATUS_NOISE        # Partikel 2 bei t=900
     return t, x, y, tid, sta
 
 def test_geom_wird_durchgereicht(szene):
@@ -55,8 +59,6 @@ def test_nur_saubere_events(szene):
     """Kein Paar darf ein mehrdeutiges oder verrauschtes Event enthalten."""
     t, x, y, tid, sta = szene
     d = collect_pairs(t, x, y, tid, sta, want_label=None, **PARAMS)
-    unsauber_t = set(t[sta != STATUS_CLEAN].tolist())
-    beteiligt = set(d["ti"].tolist()) | set((d["ti"] + d["dt"]).tolist())
     # Events 2 und 9 liegen bei t=600 bzw. t=2700 -- Partner mit gleichem t
     # sind erlaubt, solange sie vom sauberen Partikel stammen. Deshalb ueber
     # die Positionen pruefen statt ueber die Zeit:
@@ -90,10 +92,10 @@ def test_saubere_szene_liefert_keine_nein_paare():
     """Physikalischer Befund aus BA_NN §4.1: weit getrennte Partikel
     erzeugen NULL NEIN-Paare -- deshalb sind Overlap-Runs zwingend."""
     zeiten = np.arange(6, dtype=np.float64) * 300.0
-    t = np.concatenate([zeiten, zeiten])
-    x = np.concatenate([np.full(6, 100.0), np.full(6, 400.0)])   # 300 px
+    t = np.repeat(zeiten, 2)
+    x = np.tile(np.array([100.0, 400.0]), 6)        # 300 px auseinander
     y = np.full(12, 100.0)
-    tid = np.array([1]*6 + [2]*6, dtype=np.int16)
+    tid = np.tile(np.array([1, 2], dtype=np.int16), 6)
     sta = np.full(12, STATUS_CLEAN, dtype=np.uint8)
     d = collect_pairs(t, x, y, tid, sta, want_label=None, **PARAMS)
     assert (d["label"] == 1).all()
@@ -112,3 +114,19 @@ def test_leere_eingabe():
     d = collect_pairs(leer, leer, leer, np.empty(0, np.int16),
                       np.empty(0, np.uint8), want_label=None, **PARAMS)
     assert len(d["label"]) == 0
+
+def test_unsortierte_zeit_faellt_auf(szene):
+    """t[0] und tw[0] verankern Fenster und Slabs -- bei unsortiertem t
+    fielen Events vor tw[0] still in gar keine Slab."""
+    t, x, y, tid, sta = szene
+    with pytest.raises(ValueError, match="sortiert"):
+        collect_pairs(t[::-1], x, y, tid, sta, want_label=None, **PARAMS)
+
+
+def test_ueberlappende_fenster_fallen_auf(szene):
+    """Die Slab-Zuordnung schuetzt nur INNERHALB eines Fensters -- zwei
+    ueberlappende Fenster sammelten dieselben Paare zweimal."""
+    t, x, y, tid, sta = szene
+    with pytest.raises(ValueError, match="ueberlappen"):
+        collect_pairs(t, x, y, tid, sta, want_label=None,
+                      **{**PARAMS, "win_offsets": (0, 1_000)})   # win_dt = 2000
