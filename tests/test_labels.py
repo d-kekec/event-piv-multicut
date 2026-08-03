@@ -13,20 +13,10 @@ import pytest
 from eventpiv.labels import (STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE,
                              assign_track_ids)
 
-BBOX_DTYPE = np.dtype([("t", "<i8"), ("x", "<f4"), ("y", "<f4"),
-                       ("w", "<f4"), ("h", "<f4"), ("class_id", "<u4"),
-                       ("track_id", "<u4"), ("class_confidence", "<f4")])
-
-def make_bbox(entries):
-    """entries: Liste von (t, x_ecke, y_ecke, track_id)."""
-    b = np.zeros(len(entries), dtype=BBOX_DTYPE)
-    for i, (t, x, y, tid) in enumerate(entries):
-        b[i] = (t, x, y, 11.0, 11.0, 0, tid, 1.0)
-    return b
 
 
 @pytest.fixture
-def scene():
+def scene(make_bbox):
     """Zwei Partikel, weit getrennt (Zentren 100.5 und 300.5), ein Rasterpunkt.
 
     Events von Hand gesetzt:
@@ -68,7 +58,7 @@ def test_saubere_events_liegen_innerhalb_r_assign(scene):
         cx, cy = centers[int(tid[i])]
         assert np.hypot(x[i] - cx, y[i] - cy) <= r_assign
 
-def test_zeitliche_zuordnung_zum_naechsten_rasterpunkt():
+def test_zeitliche_zuordnung_zum_naechsten_rasterpunkt(make_bbox):
     """Zwei Rasterpunkte, dasselbe Partikel bewegt sich dazwischen.
 
     Das Event liegt zeitlich naeher an t=2000 -> muss gegen die DORTIGE
@@ -108,7 +98,7 @@ def test_monotonie_r_ambig(scene):
     assert not (st == STATUS_AMBIG).any()
 
 
-def test_mehrdeutig_wird_erkannt():
+def test_mehrdeutig_wird_erkannt(make_bbox):
     """Zwei Boxen dicht beieinander, Event exakt mittig -> MEHRDEUTIG."""
     bbox = make_bbox([(1000, 95.0, 95.0, 1), (1000, 101.0, 95.0, 2)])
     t = np.array([1000.0]); x = np.array([103.5]); y = np.array([100.5])
@@ -124,7 +114,7 @@ def test_determinismus(scene):
     np.testing.assert_array_equal(a[1], b[1])
 
 
-def test_leere_eingabe():
+def test_leere_eingabe(make_bbox):
     bbox = make_bbox([(1000, 95.0, 95.0, 1)])
     tid, st = assign_track_ids(np.array([]), np.array([]), np.array([]), bbox)
     assert len(tid) == 0 and len(st) == 0
