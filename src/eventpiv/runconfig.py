@@ -82,11 +82,13 @@ class _Derivable:
 # Gruppen
 # ============================================================
 
-# Steht hier und nicht in model.py: runconfig darf kein torch importieren,
-# sonst zoege jedes Laden einer Konfiguration die halbe Bibliothek nach.
-# model.py holt sich die Liste von hier.
-FEATURE_MODES = ("dr", "absxy", "raw6")
+# Erlaubte Werte der Auswahlparameter. Stehen HIER und nicht in graph.py /
+# model.py / train.py: runconfig darf weder scipy noch torch importieren,
+# und die Pruefung muss zur Konfigurationszeit greifen -- sonst existiert
+# der Slug laengst und ein Verzeichnis ist danach benannt.
 NEIGHBORHOOD_GEOMS = ("ellipsoid", "cylinder", "hyperboloid")
+FEATURE_MODES = ("dr", "absxy", "raw6")
+IMBALANCE_MODES = ("sample", "weight")
 
 @dataclass
 class Neighborhood(_Typed):
@@ -159,13 +161,6 @@ class Training(_Typed):
 
     def short(self) -> str:
         return f"{self.feature_mode}_{self.imbalance}"
-
-    def __post_init__(self) -> None:
-        super().__post_init__()
-        if self.feature_mode not in FEATURE_MODES:
-            raise ValueError(
-                f"training.feature_mode={self.feature_mode!r} unbekannt. "
-                f"Erlaubt: {FEATURE_MODES}")
 
 
 @dataclass

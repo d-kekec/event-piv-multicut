@@ -38,23 +38,33 @@ from eventpiv.runconfig import TrainCfg, identity_meta
 
 IMBALANCE_MODES = ("sample", "weight")
 
-def check_dataset_geom(meta: dict, nb, name: str = "") -> None:
-    """Prueft, ob der Datensatz mit DIESER Geometrie gebaut wurde.
+def check_dataset_neighborhood(meta: dict, nb, name: str = "") -> None:
+    """Prueft, ob der Datensatz mit DIESER Nachbarschaft gebaut wurde.
 
-    Zwei unabhaengige Rechnungen desselben Werts: der abgeleitete Pfad
-    behauptet eine Geometrie, die Metadaten der Datei nennen die
-    tatsaechliche. Frueher baute train.py den Pfad ohne geom neu und lud
-    damit still den Ellipsoid-Datensatz (Befund 27.07.2026).
+    Zwei unabhaengige Rechnungen desselben Werts: der Pfad behauptet eine
+    Nachbarschaft, die Metadaten der Datei nennen die tatsaechliche.
+
+    Bei ABGELEITETEM Pfad ist das redundant -- slug(nb) deckt alle Felder ab.
+    Wirksam wird die Pruefung genau dann, wenn io.data_path von Hand gesetzt
+    ist (evaluate_pairs gegen einen val-Datensatz), und dort garantiert
+    nichts mehr die Uebereinstimmung. Die Vorgaengerversion verglich nur
+    geom und liess alpha/r_max/v_max durch -- ausgerechnet im einzigen Fall,
+    fuer den sie existiert.
+
+    NICHT ueber runconfig.same_neighborhood: das erwartet zwei Dataclasses
+    (canonical ruft asdict). Hier steht links ein dict aus JSON. Verglichen
+    wird deshalb gegen identity_meta, das dieselbe normierte Form erzeugt,
+    die beim Schreiben in die Datei ging.
 
     Aeltere Dateien ohne Metadatenblock laufen UNGEPRUEFT durch -- dieselbe
     Entscheidung wie in solve.check_consistency.
     """
     ds_nb = (meta or {}).get("neighborhood") or {}
-    if ds_nb and ds_nb.get("geom") != nb.geom:
+    jetzt = identity_meta(neighborhood=nb)["neighborhood"]
+    if ds_nb and ds_nb != jetzt:
         raise ValueError(
-            f"Datensatz {name} wurde mit geom={ds_nb.get('geom')!r} gebaut, "
-            f"Konfiguration sagt {nb.geom!r} -- der Pfad passt nicht zum "
-            "Inhalt.")
+            f"Datensatz {name} wurde mit neighborhood={ds_nb} gebaut, "
+            f"Konfiguration sagt {jetzt} -- der Pfad passt nicht zum Inhalt.")
 
 
 def load_features(path, feature_mode: str):
@@ -262,7 +272,7 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
     data_path = (Path(cfg.io.data_path) if cfg.io.data_path
                  else config.pairs_file(nb, ps, create=False))
     feats, label, run_arr, ds_meta = load_features(data_path, tr.feature_mode)
-    check_dataset_geom(ds_meta, nb, data_path.name)
+    check_dataset_neighborhood(ds_meta, nb, data_path.name)
     sym = is_symmetric(tr.feature_mode)
 
     if verbose:
@@ -504,7 +514,7 @@ def evaluate_pairs_on_dataset(cfg: TrainCfg, verbose=True) -> dict:
     data_path = (Path(cfg.io.data_path) if cfg.io.data_path
                  else config.pairs_file(nb, ps, create=False))
     feats, label, _, ds_meta = load_features(data_path, feature_mode)
-    check_dataset_geom(ds_meta, nb, data_path.name)
+    check_dataset_neighborhood(ds_meta, nb, data_path.name)
     split = ((ds_meta.get("pairs") or {}).get("split") or ps.split)
 
     X = (torch.tensor(feats) - mu_t) / sig_t

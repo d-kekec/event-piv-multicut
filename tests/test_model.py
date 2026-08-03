@@ -135,3 +135,10 @@ def test_checkpoint_rundreise(tmp_path, deltas):
     with torch.no_grad():
         nachher = geladen((f - mu_l) / sig_l)
     torch.testing.assert_close(vorher, nachher)
+
+
+def test_feature_modes_und_namen_stimmen_ueberein():
+    """runconfig kennt die Liste (torch-frei), model.py die Namen. Die
+    Doppelung ist von der Framework-Grenze erzwungen -- also pruefen."""
+    from eventpiv.model import _FEATURE_NAMES
+    assert tuple(_FEATURE_NAMES) == FEATURE_MODES
