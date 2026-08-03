@@ -3,9 +3,9 @@
 """Bruecke Hydra -> Dataclass. EINZIGE Stelle in scripts/, die OmegaConf kennt.
 
 Warum nicht einfach OmegaConf.to_object: Hydra erlaubt mit '+' das Anhaengen
-beliebiger Schluessel auf oberster Ebene (dafuer ist die Syntax da), und
-to_object wirft sie danach still weg. '+alpha=20000' -- flach statt gruppiert --
-wuerde damit weder auffallen noch wirken. Gemessen 27.07.2026.
+beliebiger Schluessel, und to_object wirft sie danach still weg.
+'+alpha=20000' -- flach statt gruppiert -- wuerde damit weder auffallen noch
+wirken.
 """
 from dataclasses import asdict
 from typing import Any, cast
@@ -24,17 +24,15 @@ def _flat(d: dict, prefix: str = "") -> set[str]:
 def to_cfg(cfg: DictConfig) -> Any:
     """DictConfig -> Dataclass, mit hartem Abbruch bei unbekannten Schluesseln.
 
-    Rueckgabetyp Any, und das ist keine Nachlaessigkeit: welche Dataclass
-    herauskommt, entscheidet das im ConfigStore registrierte Schema, also der
-    Aufrufer. Statisch ist das nicht bestimmbar. Any laesst die Zusicherung an
-    der Aufrufstelle stehen ("cfg: TrainCfg = to_cfg(...)"), wo bekannt ist,
-    welches Schema registriert wurde.
+    Rueckgabetyp Any, keine Nachlaessigkeit: welche Dataclass herauskommt,
+    entscheidet das im ConfigStore registrierte Schema, also der Aufrufer --
+    statisch nicht bestimmbar. Die Zusicherung steht deshalb an der
+    Aufrufstelle ("cfg: TrainCfg = to_cfg(...)").
     """
     obj: Any = OmegaConf.to_object(cfg)
-    # cast statt Any: to_container gibt statisch eine Union zurueck, weil ein
-    # Config auch eine Liste oder ein Skalar sein koennte. Hydra uebergibt hier
-    # immer einen DictConfig -- die Zusicherung kommt vom Framework, nicht vom
-    # Typsystem, und cast schreibt genau das hin.
+    # cast, weil to_container statisch eine Union liefert (ein Config
+    # koennte auch Liste oder Skalar sein). Dass hier immer ein DictConfig
+    # ankommt, sichert das Framework zu, nicht das Typsystem.
     roh = cast(dict, OmegaConf.to_container(cfg, resolve=True))
     fremd = _flat(roh) - _flat(asdict(obj))
     if fremd:
@@ -43,9 +41,8 @@ def to_cfg(cfg: DictConfig) -> Any:
             "Mit '+' angehaengt? Parameter gehoeren in ihre Gruppe "
             "(neighborhood.alpha=..., nicht alpha=...).")
     
-    # Abgeleitete Defaults (win_dt aus alpha/r_max) einsetzen, BEVOR
-    # irgendein Slug berechnet wird -- sonst bekaemen win_dt=None und
-    # win_dt=110763 verschiedene Identitaeten fuer denselben Datensatz.
+    # Abgeleitete Defaults einsetzen, BEVOR irgendein Slug berechnet wird --
+    # sonst bekaeme derselbe Datensatz zwei Identitaeten.
     if hasattr(obj, "resolve_derived"):
         obj.resolve_derived()
         
@@ -60,7 +57,7 @@ def konfusionstabelle(cm: dict):
 
     Geloggt wird sie ueber run.log, nicht ueber run.summary: nur der
     Log-Eintrag traegt den Deskriptor (_type, ncols, nrows, artifact_path),
-    aus dem die Oberflaeche ein Panel baut (geprueft 31.07.2026).
+    aus dem die Oberflaeche ein Panel baut. GEMESSEN an wandb 0.28.1.
     """
     import wandb
     t = wandb.Table(columns=["", "Predicted JA", "Predicted NEIN"])

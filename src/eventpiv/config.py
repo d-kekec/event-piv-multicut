@@ -6,7 +6,7 @@ config.py -- zentrale Aufloesung von Pfaden und Metadaten.
 Einzige Stelle im Projekt, die weiss, WO etwas liegt. Kein anderes Modul
 enthaelt Hartpfade.
 
-Drei getrennte Wurzeln (BA_NN_Pipeline_Dateien.md §7.1):
+Drei getrennte Wurzeln:
   PROJECT_ROOT  Code/Configs/Docs   -- im Git-Repo
   DATA_ROOT     Rohdaten            -- ausserhalb, read-only, ueber $EVENTPIV_DATA
   OUT_ROOT      erzeugte Artefakte  -- ausserhalb, ueber $EVENTPIV_OUT
@@ -38,18 +38,17 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 def _env_path(var_name: str, default: Path | None) -> Path:
     """Pfad aus Umgebungsvariable. '~' wird aufgeloest.
 
-    Ohne Default MUSS die Variable gesetzt sein: ein Fallback auf das Home
-    liefert plausibel aussehende, aber falsche Pfade (~/train, ~/labels/) --
-    der Lauf tut dann still nichts oder schreibt an die falsche Stelle.
+    Kein Fallback aufs Home: der liefert plausibel aussehende, aber falsche
+    Pfade (~/train, ~/labels/), und der Lauf tut dann still nichts oder
+    schreibt an die falsche Stelle.
     """
     value = os.environ.get(var_name)
     if value:
         return Path(value).expanduser().resolve()
     if default is None:
         raise RuntimeError(
-            f"${var_name} ist nicht gesetzt. In ~/.bashrc eintragen "
-            f"(BA_Umgebung_Setup.md §6) -- ohne die Variable gibt es keinen "
-            f"sinnvollen Default.")
+            f"${var_name} ist nicht gesetzt -- in ~/.bashrc eintragen: "
+            f"export {var_name}=...")
     return Path(default).expanduser().resolve()
 
 # Eingabe/Ausgabe von Dateien wird hier angesteuert.
@@ -74,7 +73,8 @@ def _check_split(split: str) -> str:
 # ============================================================
 
 def split_dir(split: str) -> Path:
-    """Ordner mit den Rohdaten eines Splits. DATA_ROOT zeigt direkt auf das Verzeichnis, das train/val/test Ordner enthält."""
+    """Rohdaten eines Splits. DATA_ROOT zeigt auf das Verzeichnis, das
+    train/, val/ und test/ enthaelt."""
     return DATA_ROOT / _check_split(split)
 
 
@@ -83,9 +83,8 @@ def run_files(split: str, run_nr: int, must_exist: bool = True,
     """Gibt (events.dat, bbox.npy) fuer einen Run zurueck.
 
     need_bbox=False fuer Aufrufer, die nur Events brauchen. Echte Messdaten
-    haben keine Bounding Boxes -- der Solve braucht sie auch nicht, nur die
-    Label-Erzeugung und die Bewertung. Ohne diesen Schalter liesse sich ein
-    Run ohne bbox gar nicht erst oeffnen.
+    haben keine Bounding Boxes; der Solve braucht sie auch nicht, nur die
+    Label-Erzeugung und die Bewertung.
     """
     base = split_dir(split) / f"run{run_nr}"
     dat  = base.with_suffix(".dat")
@@ -100,7 +99,8 @@ def run_files(split: str, run_nr: int, must_exist: bool = True,
 
 
 def available_runs(split: str) -> list[int]:
-    """Alle Run-Nummern eines Splits, aufsteigend (ersetzt --all_split-Glob)."""
+    """Alle Run-Nummern eines Splits, aufsteigend. Gelesen wird ueber die
+    _bbox.npy-Dateien."""
     pattern = re.compile(r"^run(\d+)_bbox\.npy$")
     hits = (pattern.match(p.name) for p in split_dir(split).glob("run*_bbox.npy"))
     return sorted(int(m.group(1)) for m in hits if m)
@@ -129,22 +129,21 @@ def results_dir(create: bool = False) -> Path:
     return _ensure(OUT_ROOT / "results", create)
 
 # ============================================================
-# Abgeleitete Artefaktpfade (BA_Konfiguration.md §4)
+# Abgeleitete Artefaktpfade
 # ============================================================
 # Der Baum IST die Abhaengigkeitskette: eine Ebene je Stufe. Ein Artefakt
-# haengt damit sichtbar unter allem, wovon es abhaengt -- und zwei Laeufe mit
-# verschiedenen Parametern koennen sich nicht mehr still ueberschreiben
-# (unter --multirun sonst sogar gleichzeitig).
+# haengt sichtbar unter allem, wovon es abhaengt, und zwei Laeufe mit
+# verschiedenen Parametern koennen sich nicht mehr still ueberschreiben.
 #
 # Labels liegen bewusst DANEBEN, nicht unter wp/: sie haengen von keinem
-# dieser Parameter ab (…Pipeline_Dateien.md §7.4).
+# dieser Parameter ab.
 
 
 
-# create=False ist Default: diese Funktionen BERECHNEN einen Pfad, sie legen
-# nichts an. Sonst erzeugte schon das Fragen nach einem Pfad den ganzen Ast,
-# und ein Lauf mit falschen Overrides fand ein leeres, selbst erzeugtes
-# Verzeichnis vor -- ein Konfigurationsfehler, der wie eine Messung aussieht.
+# create=False ist Default: diese Funktionen BERECHNEN einen Pfad. Sonst
+# erzeugte schon das Fragen danach den ganzen Ast, und ein Lauf mit falschen
+# Overrides fand ein leeres, selbst angelegtes Verzeichnis vor -- ein
+# Konfigurationsfehler, der wie eine Messung aussieht. 
 # Nur Schreibstellen setzen create=True.
 def wp_dir(nb, create: bool = False) -> Path:
     """Arbeitspunkt = Nachbarschaft. Wurzel aller abgeleiteten Artefakte."""
@@ -197,15 +196,12 @@ def build_meta(**extra) -> dict:
 
     Beantwortet: WOHER kommt diese Datei -- wann, aus welchem Commit, auf
     welcher Maschine, in welchem Job. NICHT: wie lief der Lauf; Laufzeit und
-    Speicher sind Messungen und gehoeren zu den Kennzahlen der jeweiligen
-    Stufe.
+    Speicher sind Messungen und gehoeren zu den Kennzahlen der Stufe.
 
-    host und slurm_job_id machen jedes Artefakt seinem Log zuordenbar
-    (logs/<jobname>-<jobid>.out). Sie sind KEINE Identitaet: Ressourcen sind
-    aus den Slugs bewusst ausgeschlossen (BA_Konfiguration.md §7), belegt
-    dadurch, dass derselbe Solve auf rema, sarmatia und tujestpolin exakt
-    dieselben Zahlen liefert. Wer sie in die Identitaet zoege, bekaeme fuer
-    denselben Lauf auf zwei Nodes zwei Artefakte.
+    host und slurm_job_id machen ein Artefakt seinem Log zuordenbar
+    (logs/<jobname>-<jobid>.out), sind aber KEINE Identitaet: derselbe Solve
+    liefert auf allen drei Maschinen exakt dieselben Zahlen. Wer sie in die
+    Identitaet zoege, bekaeme fuer einen Lauf zwei Artefakte.
 
     slurm_job_id ist None ausserhalb von SLURM -- das ist die Information,
     nicht ein fehlender Wert.
@@ -237,7 +233,7 @@ def meta_json(**extra) -> str:
 
 def describe() -> None:
     """Zeigt die aufgeloesten Pfade -- erster Befehl bei Pfadproblemen,
-    besonders auf SLURM (Arbeitsverzeichnis dort selten das erwartete)."""
+    besonders auf SLURM."""
     print(f"host         : {socket.gethostname()}"
           f"{'  (SLURM Job ' + os.environ['SLURM_JOB_ID'] + ')' if os.environ.get('SLURM_JOB_ID') else '  (kein SLURM)'}")
     print(f"PROJECT_ROOT : {PROJECT_ROOT}")
