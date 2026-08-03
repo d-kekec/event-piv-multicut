@@ -66,6 +66,21 @@ def load_solves(cfg, runs) -> list:
     (pipeline._solve_isolated); jetzt aus der Abwesenheit einer Datei.
     """
     out = []
+    if not runs:
+        return []
+    # Fehlt das VERZEICHNIS, ist die Konfiguration falsch, nicht das
+    # Ergebnis. Ohne diese Pruefung meldet der Bericht "0/N loesbar" -- und
+    # das sieht aus wie eine Messung, ist aber ein vergessener Override.
+    # (create=False verhindert nur, dass das Verzeichnis dabei ENTSTEHT.)
+    erster = config.solve_file(
+        cfg.neighborhood, cfg.pairs, cfg.training,
+        Selection(split=cfg.report.split, run_nr=runs[0]),
+        cfg.window, cfg.solver, create=False)
+    if not erster.parent.exists():
+        raise FileNotFoundError(
+            f"{erster.parent} existiert nicht -- zu dieser Konfiguration "
+            "gibt es gar keine Solves. report_solves.py braucht DIESELBEN "
+            "neighborhood/pairs/training-Overrides wie der Solve-Lauf.")
     for r in runs:
         p = config.solve_file(cfg.neighborhood, cfg.pairs, cfg.training,
                               Selection(split=cfg.report.split, run_nr=r),
