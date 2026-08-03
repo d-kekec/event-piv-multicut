@@ -50,8 +50,18 @@ class _Typed:
             if v is None:
                 continue
             cast = _CAST.get(str(f.type).split("|")[0].strip())
-            if cast is not None and not isinstance(v, cast):
-                setattr(self, f.name, cast(v))
+            if cast is None or isinstance(v, cast):
+                continue
+            if cast is bool and isinstance(v, str):
+                # bool("false") ist True -- der Cast wuerde die Bedeutung
+                # umdrehen, still. Ueber Hydra kann das nicht passieren
+                # (OmegaConf castet gegen das Schema), bei direkter
+                # Konstruktion in Tests und Skripten schon.
+                raise TypeError(
+                    f"{type(self).__name__}.{f.name}={v!r}: Wahrheitswert als "
+                    "Zeichenkette. bool(str) ist immer True -- echten "
+                    "Wahrheitswert uebergeben.")
+            setattr(self, f.name, cast(v))
 
 class _Derivable:
     """resolve_derived fuer alle Stufen, die neighborhood UND pairs tragen.
@@ -107,6 +117,15 @@ class PairSampling(_Typed):
     seed: int = 0
 
     def short(self) -> str:
+        # Engstelle: slug() ruft short() IMMER auf. Ein unaufgeloestes win_dt
+        # ergibt still einen anderen Hash fuer denselben Datensatz
+        # (gemessen: -b7c58d gegen -6f854e). identity_meta bleibt ungeprueft --
+        # dort steht None sichtbar in der JSON, hier verschwindet es im Hash.
+        if self.win_dt is None or self.win_dt_yes is None:
+            raise RuntimeError(
+                "PairSampling ist unaufgeloest (win_dt/win_dt_yes = None). "
+                "runconfig.resolve(nb, ps) laeuft normalerweise in "
+                "scripts/_cli.to_cfg -- bei direkter Konstruktion selbst rufen.")
         return f"{self.split}_c{len(self.clean_runs)}_o{len(self.overlap_runs)}"
 
 
@@ -391,8 +410,8 @@ def _num(v) -> str:
 def _norm(o):
     """Rekursiv normieren: Floats auf 12 signifikante Stellen, Tupel -> Liste,
     Dicts sortiert. Damit koennen 3 und 3.0 nicht auseinanderlaufen."""
-    if isinstance(o, bool) or isinstance(o, int):
-        return o
+    if isinstance(o, int):      # schliesst bool ein (Subklasse von int);
+        return o                # json.dumps schreibt daraus true/false
     if isinstance(o, float):
         return float(f"{o:.12g}")
     if isinstance(o, (list, tuple)):
