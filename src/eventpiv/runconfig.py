@@ -6,14 +6,15 @@ runconfig.py -- Laufparameter als Gruppen-Dataclasses.
 PARAMETER, nicht Pfade. config.py bleibt die einzige Stelle mit Pfadwissen:
 hier steht, WAS gerechnet wird, dort, WOHIN es geschrieben wird.
 
-Der Gruppenschnitt folgt dem UEBEREINSTIMMUNGS-Kriterium, nicht dem
-Neubau-Kriterium (BA_Konfiguration.md §1): nur `Neighborhood` muss zwischen
-Paarbau [2] und Solve [4] gleich sein, und nur sie wird verglichen.
+Der Gruppenschnitt folgt dem UEBEREINSTIMMUNGS-Kriterium: eine Gruppe ist,
+was zwischen zwei Stufen gleich sein MUSS. Nur `Neighborhood` muss das, und
+nur sie wird verglichen.
 
 KEIN frozen=True -- OmegaConf macht den Container dann read-only und jeder
-Hydra-Override scheitert (gemessen 27.07.2026). Der Schutz kommt statt dessen
-aus der Struktur: scripts/_cli.to_cfg laeuft genau einmal, danach reicht das
-fertige Objekt nach unten durch. Module schreiben NIE in cfg.
+Hydra-Override scheitert. GEMESSEN, nicht hergeleitet: bei einem OmegaConf-
+Wechsel neu pruefen. Der Schutz kommt statt dessen aus der Struktur:
+scripts/_cli.to_cfg laeuft genau einmal und loest dabei die abgeleiteten
+Defaults auf. DANACH schreibt kein Modul mehr in cfg.
 """
 from __future__ import annotations
 
@@ -21,23 +22,21 @@ import hashlib
 import json
 from dataclasses import asdict, dataclass, field, fields
 
-WIN_DT_YES_DEFAULT = 40_000     # µs, JA-Seite (BA_NN_Kantenkosten.md §4.1)
+WIN_DT_YES_DEFAULT = 40_000     # µs, Sammelfenster der JA-Seite
 
-BOX_W = 11.0                    # px, Boxbreite = Hoehe. KONSTANTE DES DATENSATZES,
-                                # BoundingBox Länge.
+BOX_W = 11.0                    # px, Kantenlaenge der quadratischen
+                                # GT-Bounding-Box. Konstante des Datensatzes.
 
 _CAST = {"int": int, "float": float, "str": str, "bool": bool}
 
 
 class _Typed:
-    """Feldwerte auf ihren annotierten Typ bringen.
+    """Feldwerte auf ihren annotierten Typ bringen. 
 
-    `r_max: float` ist in Python nur Dokumentation -- Neighborhood(r_max=3)
-    haelt eine 3, Neighborhood(r_max=3.0) eine 3.0, und die kanonische Form
-    liefe auseinander: derselbe Arbeitspunkt bekaeme zwei Verzeichnisse, und
-    check_consistency schluege ohne Grund an. Ueber Hydra faellt das nie auf
-    (OmegaConf castet gegen das Schema) -- bei direkter Konstruktion in
-    Tests, Skripten und Auswertungen schon. Gefunden von tests/test_runconfig.py.
+    Ohne diesen Cast bekaeme derselbe Arbeitspunkt zwei Verzeichnisse:
+    r_max=3 und r_max=3.0 ergeben verschiedene kanonische Formen. Ueber
+    Hydra faellt das nie auf (OmegaConf castet gegen das Schema), bei
+    direkter Konstruktion in Tests und Auswertungsskripten schon.
 
     `from __future__ import annotations` macht f.type zu einem STRING;
     "int | None" wird am Trenner zerlegt. Listen (list[int]) stehen nicht in
@@ -54,9 +53,7 @@ class _Typed:
                 continue
             if cast is bool and isinstance(v, str):
                 # bool("false") ist True -- der Cast wuerde die Bedeutung
-                # umdrehen, still. Ueber Hydra kann das nicht passieren
-                # (OmegaConf castet gegen das Schema), bei direkter
-                # Konstruktion in Tests und Skripten schon.
+                # still umdrehen.
                 raise TypeError(
                     f"{type(self).__name__}.{f.name}={v!r}: Wahrheitswert als "
                     "Zeichenkette. bool(str) ist immer True -- echten "
@@ -66,10 +63,9 @@ class _Typed:
 class _Derivable:
     """resolve_derived fuer alle Stufen, die neighborhood UND pairs tragen.
 
-    Wird von scripts/_cli.to_cfg aufgerufen -- genau einmal, an der Grenze
-    Hydra -> Modul. Danach ist die Konfiguration vollstaendig, und
-    canonical()/slug() sind eindeutig. Ohne diesen Aufruf traegt win_dt noch
-    None, und derselbe Datensatz bekaeme zwei verschiedene Identitaeten.
+    Aufgerufen von scripts/_cli.to_cfg, genau einmal. Ohne diesen Aufruf
+    traegt win_dt noch None, und derselbe Datensatz bekaeme zwei
+    verschiedene Identitaeten.
 
     Kein @dataclass: die Klasse hat keine Felder, sie steuert nur Verhalten
     bei -- genauso wie _Typed.
@@ -82,10 +78,9 @@ class _Derivable:
 # Gruppen
 # ============================================================
 
-# Erlaubte Werte der Auswahlparameter. Stehen HIER und nicht in graph.py /
-# model.py / train.py: runconfig darf weder scipy noch torch importieren,
-# und die Pruefung muss zur Konfigurationszeit greifen -- sonst existiert
-# der Slug laengst und ein Verzeichnis ist danach benannt.
+# Erlaubte Werte, HIER und nicht in graph.py / model.py / train.py:
+# runconfig darf weder scipy noch torch importieren, und die Pruefung muss
+# greifen, BEVOR der Slug existiert.
 NEIGHBORHOOD_GEOMS = ("ellipsoid", "cylinder", "hyperboloid")
 FEATURE_MODES = ("dr", "absxy", "raw6")
 IMBALANCE_MODES = ("sample", "weight")
@@ -95,7 +90,8 @@ class Neighborhood(_Typed):
     """DER VERTRAG -- und zugleich die Identitaet des Arbeitspunkts.
 
     v_max wirkt nur bei geom="hyperboloid", gehoert aber hierher: er
-    entscheidet dort mit, welche Kanten existieren (Befund 27.07.2026).
+    entscheidet dort mit, welche Kanten existieren. Ueberkonservativ ist
+    zulaessig, eine bedingte Identitaetsregel waere eine spaetere Falle.
     """
     alpha: int = 20_000
     r_max: float = 3.0
@@ -107,9 +103,8 @@ class Neighborhood(_Typed):
 
     def __post_init__(self) -> None:
         super().__post_init__()          # Typcast aus _Typed zuerst
-        # Zur Konfigurationszeit pruefen, nicht erst tief im Lauf: bis
-        # graph.neighborhood_pairs es merkt, ist der Slug laengst berechnet
-        # und ein Verzeichnis danach benannt.
+        # Hier und nicht erst in graph.neighborhood_pairs: dort ist der Slug
+        # laengst berechnet und ein Verzeichnis danach benannt.
         if self.geom not in NEIGHBORHOOD_GEOMS:
             raise ValueError(
                 f"neighborhood.geom={self.geom!r} unbekannt. "
@@ -135,9 +130,9 @@ class PairSampling(_Typed):
 
     def short(self) -> str:
         # Engstelle: slug() ruft short() IMMER auf. Ein unaufgeloestes win_dt
-        # ergibt still einen anderen Hash fuer denselben Datensatz
-        # (gemessen: -b7c58d gegen -6f854e). identity_meta bleibt ungeprueft --
-        # dort steht None sichtbar in der JSON, hier verschwindet es im Hash.
+        # ergaebe sonst still einen anderen Hash fuer denselben Datensatz.
+        # identity_meta bleibt ungeprueft -- dort steht None sichtbar in der
+        # JSON, hier verschwaende es im Hash.
         if self.win_dt is None or self.win_dt_yes is None:
             raise RuntimeError(
                 "PairSampling ist unaufgeloest (win_dt/win_dt_yes = None). "
@@ -164,7 +159,7 @@ class Training(_Typed):
     def __post_init__(self) -> None:
         super().__post_init__()          # Typcast aus _Typed zuerst
         # Wie bei Neighborhood.geom: bis train_edge_nn es merkt, steht der
-        # Slug (dr_sample-055f61) schon und ein Verzeichnis heisst danach.
+        # Slug schon und ein Verzeichnis heisst danach.
         if self.feature_mode not in FEATURE_MODES:
             raise ValueError(
                 f"training.feature_mode={self.feature_mode!r} unbekannt. "
@@ -177,7 +172,7 @@ class Training(_Typed):
 
 @dataclass
 class Solver(_Typed):
-    """Erzwingt keinen Neubau und wird nie verglichen (…Pipeline_Dateien §5)."""
+    """Erzwingt keinen Neubau und wird nie verglichen."""
     mode: str = "P"
     use_knn: bool = False
     k_max: int = 24
@@ -227,7 +222,7 @@ class Compute(_Typed):
 
 @dataclass
 class IO(_Typed):
-    """Schublade 3 und 4 (BA_Konfiguration.md §1): Ein-/Ausgabe und Notausgaenge.
+    """Ein-/Ausgabe und Notausgaenge.
 
     NIE Teil einer Artefakt-Identitaet -- deshalb eine eigene Gruppe, die
     identity_meta() nicht anfasst. Felder, die eine Stufe nicht braucht,
@@ -252,7 +247,7 @@ class Report(_Typed):
     """Auswertung mehrerer Solve-Laeufe. KEINE Laufauswahl: `crossing` und
     `clean` sind zwei BEWERTUNGSGRUPPEN, die getrennt gemittelt werden --
     ein Mittelwert ueber beide koennte schlechte Trennung durch gute
-    Kontrolle kaschieren (BA_NN_Kantenkosten.md §3.8)."""
+    Kontrolle kaschieren."""
     split: str = "val"
     crossing: list[int] = field(default_factory=lambda: [3, 4, 6, 20])
     clean: list[int] = field(default_factory=lambda: [7, 9, 12, 13, 21])
@@ -263,8 +258,8 @@ class Overlap(_Typed):
 
     box_w ist dieselbe Datensatzkonstante wie in Labeling -- hier dient sie
     als Schwelle fuer "nah". cross_thresh und mean_clean_max sind EMPIRISCH
-    an den Ergebnissen kalibriert (BA_Datensatz_und_Pipeline.md §2.2), nicht
-    hergeleitet.
+    an den Ergebnissen kalibriert, nicht hergeleitet -- wer sie aendert,
+    aendert die Run-Listen.
     """
     box_w: float = BOX_W
     cross_thresh: float = 1.4
@@ -275,9 +270,9 @@ class Overlap(_Typed):
 class AnimRun(_Typed):
     """Darstellung [A]: ganzer Run, Farbe = Polaritaet.
 
-    Fuenfte Schublade (BA_Konfiguration.md §1): Konfiguration, aber sie
-    beruehrt keine Zahl, braucht keine Konsistenz und gehoert in keine
-    Identitaet. Framezahl = dt / frame_ms -- ueber ~100 wird das GIF unhandlich.
+    Konfiguration, die keine Zahl beruehrt: keine Konsistenz, keine
+    Identitaet. Framezahl = dt / frame_ms -- ueber ~100 wird das GIF
+    unhandlich.
     """
     frame_ms: float = 20.0
     speedup: float = 1.0        # > 1 ueberspringt Frames
@@ -328,10 +323,10 @@ class PairCfg(_Derivable):
 @dataclass
 class TrainCfg(_Derivable):
     """neighborhood und pairs werden NICHT gerechnet -- sie leiten den
-    EINGABEpfad ab (config.pairs_file). Die Geometrie bleibt trotzdem eine
-    Eigenschaft des Datensatzes: train.py liest sie aus der .npz und prueft
-    sie gegen cfg.neighborhood.geom. Zwei unabhaengige Rechnungen desselben
-    Werts -- stimmen sie nicht ueberein, luegt einer von beiden."""
+    EINGABEpfad ab (config.pairs_file). Die Nachbarschaft bleibt trotzdem
+    eine Eigenschaft des DATENSATZES: train.py liest sie aus der .npz und
+    prueft die ganze Gruppe gegen cfg.neighborhood. Zwei unabhaengige
+    Rechnungen desselben Werts -- stimmen sie nicht ueberein, luegt eine."""
     io:           IO           = field(default_factory=IO)
     neighborhood: Neighborhood = field(default_factory=Neighborhood)
     pairs:        PairSampling = field(default_factory=PairSampling)
@@ -415,11 +410,13 @@ def win_dt_for(alpha, r_max, *, ref_alpha=10_000, ref_r_max=7.06,
 
 def resolve(nb: Neighborhood, ps: PairSampling) -> PairSampling:
     """Abgeleitete Defaults einsetzen. MUSS vor canonical()/slug() laufen --
-    sonst bekaemen win_dt=None und win_dt=110756 verschiedene Slugs, obwohl
-    sie denselben Datensatz beschreiben.
+    sonst bekaemen ein unaufgeloestes und ein aufgeloestes PairSampling
+    verschiedene Slugs, obwohl sie denselben Datensatz beschreiben.
+
+    Veraendert ps AN ORT UND STELLE und gibt es zusaetzlich zurueck.
 
     `is None` statt `or`: win_dt=0 ist ein gueltiger (wenn auch unsinniger)
-    Wert und darf nicht still durch den Default ersetzt werden (TODO C2).
+    Wert und darf nicht still durch den Default ersetzt werden.
     """
     if ps.win_dt is None:
         ps.win_dt = win_dt_for(nb.alpha, nb.r_max)
@@ -467,7 +464,7 @@ def slug(group) -> str:
 
     Der lesbare Teil dient dem Menschen, der Hash der Vollstaendigkeit -- so
     landet auch v_max in der Identitaet, ohne den Namen aufzublaehen. Wer den
-    Hash aufloesen will, liest die config.yaml, die danebenliegt.
+    Hash aufloesen will, liest den identity-Block im Artefakt.
     """
     return f"{group.short()}-{digest(group)}"
 
