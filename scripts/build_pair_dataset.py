@@ -52,7 +52,9 @@ def main(dcfg: DictConfig) -> None:
         skalare = {kk: v for kk, v in k.items() if kk != "per_run"}
         try:
             run.summary.update(flatten({"pairs": skalare}))
-            run.summary["pairs/per_run"] = ausbeute_tabelle(k["per_run"])
+            # run.log, nicht run.summary: nur der Log-Eintrag traegt den
+            # Deskriptor, aus dem die Oberflaeche ein Panel baut.
+            run.log({"pairs/per_run": ausbeute_tabelle(k["per_run"])})
         except Exception as e:
             print(f"  WARN: W&B summary fehlgeschlagen: {e}")
 
