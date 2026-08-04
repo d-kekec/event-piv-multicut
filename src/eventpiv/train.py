@@ -4,19 +4,17 @@
 train.py -- BAUSTEIN [3]: Training und Bewertung des Kantenkosten-Netzes.
 
 p = sigmoid(logit), BCE gegen das Paar-Label "gleiches Partikel?".
-Metrik ist AUC: rangbasiert, schwellenunabhaengig und bei starker Imbalance
-ehrlich -- Accuracy waere bei 266:1 wertlos.
 
-WICHTIG (BA_NN_Kantenkosten.md §3.6, Nachtrag 19.07.):
-AUC bewertet die Trennschaerfe des NETZES und ist dafuer die richtige Metrik
-(Feature-Ablation, Kapazitaetsdiagnose, Trainingsverlauf). Sie taugt aber
-NICHT zur Wahl von alpha/r_max: kleinere Nachbarschaften machen die
-Paar-Trennung trivial (AUC steigt), waehrend die Cluster-Fragmentierung
-steigt. Fuer die Parameterwahl zaehlen Cluster-Metriken, nicht AUC.
+WOFUER AUC TAUGT UND WOFUER NICHT: sie bewertet die Trennschaerfe des NETZES
+und ist dafuer richtig (Merkmals-Ablation, Kapazitaetsdiagnose,
+Trainingsverlauf). Sie taugt NICHT zur Wahl von alpha/r_max -- kleinere
+Nachbarschaften machen die Paar-Trennung trivial, die AUC steigt, waehrend
+die Cluster zerfallen. Die Hierarchie lautet Fragmentierung > Reinheit >>
+AUC.
 
-Val-Split NACH RUNS, stratifiziert (beide Klassen in val, sonst NaN bei
-AUC/TPR). Split innerhalb eines Runs waere Leakage: Paare desselben Runs sind
-hochgradig abhaengig.
+Holdout NACH RUNS, stratifiziert: beide Klassen muessen drin sein, sonst
+werden AUC und TPR NaN. Ein Schnitt INNERHALB eines Runs waere Leakage --
+Paare desselben Runs zeigen dieselben Partikel auf denselben Bahnen.
 """
 from __future__ import annotations
 
@@ -45,15 +43,11 @@ def check_dataset_neighborhood(meta: dict, nb, name: str = "") -> None:
 
     Bei ABGELEITETEM Pfad ist das redundant -- slug(nb) deckt alle Felder ab.
     Wirksam wird die Pruefung genau dann, wenn io.data_path von Hand gesetzt
-    ist (evaluate_pairs gegen einen val-Datensatz), und dort garantiert
-    nichts mehr die Uebereinstimmung. Die Vorgaengerversion verglich nur
-    geom und liess alpha/r_max/v_max durch -- ausgerechnet im einzigen Fall,
-    fuer den sie existiert.
+    ist (evaluate_pairs gegen einen val-Datensatz); dort garantiert nichts
+    mehr die Uebereinstimmung.
 
-    NICHT ueber runconfig.same_neighborhood: das erwartet zwei Dataclasses
-    (canonical ruft asdict). Hier steht links ein dict aus JSON. Verglichen
-    wird deshalb gegen identity_meta, das dieselbe normierte Form erzeugt,
-    die beim Schreiben in die Datei ging.
+    Verglichen wird gegen identity_meta und nicht ueber same_neighborhood:
+    letzteres erwartet zwei Dataclasses, hier steht links ein dict aus JSON.
 
     Aeltere Dateien ohne Metadatenblock laufen UNGEPRUEFT durch -- dieselbe
     Entscheidung wie in solve.check_consistency.
@@ -69,15 +63,12 @@ def check_dataset_neighborhood(meta: dict, nb, name: str = "") -> None:
 def load_features(path, feature_mode: str):
     """Laedt einen Paar-Datensatz und baut daraus die Feature-Matrix.
 
-    EINE Stelle, an der aus pairs.npz Merkmale werden. Vorher stand die Kette
-    (laden, casten, build_features) inline in train_edge_nn; ein zweiter
-    Verbraucher haette sie dupliziert -- genau die Doppelung, gegen die
-    model.build_features gebaut wurde.
+    EINE Stelle, an der aus pairs.npz Merkmale werden -- train_edge_nn und
+    evaluate_pairs_on_dataset teilen sie sich.
 
     Liegt in train.py und nicht in pairs.py, obwohl der Name dorthin zeigt:
-    pairs.py darf nicht von model.py abhaengen. Stufe [2] speichert rohe
-    dt/dx/dy und baut nie Merkmale -- ein Import von model zoege torch in
-    eine Stufe, die es nicht braucht.
+    Stufe [2] speichert rohe dt/dx/dy und baut nie Merkmale. Ein Import von
+    model zoege torch in eine Stufe, die es nicht braucht.
 
     Rueckgabe: (feats float32 (n, n_in), label float32, run, meta dict)
     """
@@ -104,8 +95,8 @@ def load_features(path, feature_mode: str):
 def _mit_cm(m: dict) -> dict:
     """Trennt die Konfusionsmatrix in einen eigenen Zweig.
 
-    Aus dem flachen pair_report wird {..., "cm": {tp, fp, fn, tn}}. Der
-    Grund ist Darstellung im Panel, aber die Trennung ist auch inhaltlich
+    Aus dem flachen pair_report wird {..., "cm": {tp, fp, fn, tn}}. Grund
+    ist die Panel-Gruppierung, aber die Trennung ist auch inhaltlich
     richtig: Zaehlungen und Raten sind verschiedene Groessen.
     """
     cm = {k: m[k] for k in ("tp", "fp", "fn", "tn")}
@@ -117,8 +108,7 @@ def _epochenzeile(ep: int, loss_running: float, trn: dict, hold: dict,
     """Baut die Logzeile einer Epoche. VERSCHACHTELT, nicht flach.
 
     Die oberste Ebene sagt, WELCHE MENGE gemessen wurde -- ohne sie waere
-    "tp" mehrdeutig, sobald es Trainings- UND Holdout-Matrix gibt. Genau das
-    ist seit E1 der Fall.
+    "tp" mehrdeutig, seit es eine Trainings- UND eine Holdout-Matrix gibt.
 
     ZWEI VERLUSTE auf der Trainingsseite, und der Unterschied ist kein Detail:
       train/loss_running  laufender Mittel ueber die Minibatches -- gerechnet
@@ -140,10 +130,10 @@ def _epochenzeile(ep: int, loss_running: float, trn: dict, hold: dict,
 def _json_default(o):
     """numpy-Skalare JSON-tauglich machen.
 
-    Geprueft 29.07.2026: np.float64 ist zufaellig eine float-Unterklasse und
-    ginge auch ohne -- np.int64 und np.float32 NICHT. Ein Lauf ueber viele
-    Minuten darf nicht an der letzten Zeile sterben, weil irgendwo ein
-    numpy-Skalar durchgerutscht ist. Unbekannte Typen fliegen weiterhin auf.
+    np.float64 ist zufaellig eine float-Unterklasse und ginge auch ohne --
+    np.int64 und np.float32 NICHT. Ein Lauf ueber viele Minuten darf nicht
+    an der letzten Zeile sterben, weil irgendwo ein numpy-Skalar
+    durchgerutscht ist. Unbekannte Typen fliegen weiterhin auf.
     """
     if isinstance(o, np.integer):
         return int(o)
@@ -169,12 +159,11 @@ def split_runs_stratified(label, run_arr, val_frac, rng):
     rng.shuffle(nein)
 
     def nimm(runs):
-        # max(1, ...): mindestens EIN Run je Klasse muss in die Validierung,
+        # max(1, ...): mindestens EIN Run je Klasse in die Validierung,
         # sonst fehlt dort eine Klasse und AUC/TPR werden NaN.
-        # min(len-1, ...): mindestens EIN Run je Klasse muss im TRAINING
-        # bleiben. Ohne diese Schranke landeten bei nur einem Run je Klasse
-        # beide im Holdout -- der Trainingssatz war leer und die Schleife
-        # brach mit ZeroDivisionError ab (gefunden 27.07.2026).
+        # min(len-1, ...): mindestens EIN Run je Klasse bleibt im TRAINING.
+        # Ohne diese Schranke landeten beide im Holdout, der Trainingssatz
+        # war leer und die Schleife brach mit ZeroDivisionError ab.
         if len(runs) < 2:
             raise ValueError(
                 f"Nur {len(runs)} Run(s) in einer Klasse. Ein run-getrennter "
@@ -191,20 +180,17 @@ def split_runs_stratified(label, run_arr, val_frac, rng):
 def evaluate(model, X, y, mu, sig, symmetric=True, loss_fn=None) -> dict:
     """Kennzahlen auf einem Datensatz. Rueckgabe: FLACHES dict.
 
-    Frueher ein 4-Tupel (acc, auc, tpr, tnr). Ein dict, weil die Kennzahlen
-    unveraendert an eine Logging-Senke gereicht werden sollen und ein Tupel
-    bei jeder neuen Groesse alle Aufrufstellen bricht.
+    Ein dict und kein Tupel, weil die Kennzahlen unveraendert an eine
+    Logging-Senke gereicht werden -- ein Tupel braeche bei jeder neuen
+    Groesse alle Aufrufstellen.
 
     SCHWELLE AM LOGIT, nicht an p: mathematisch dasselbe (sigmoid ist streng
     monoton), aber in float32 rundet sigmoid(x) fuer winzige negative x auf
     exakt 0.5 -- die alte Schwelle zaehlte solche Kanten als JA, waehrend
-    RAMA sie am Vorzeichen des Logits als abstossend liest. Gemessen
-    29.07.2026: ueber 20 Laeufe liegt der Unterschied in acc/auc/tpr/tnr
-    unter 1.3e-7, die Uebereinstimmung mit dem Solver ist dafuer exakt.
-    Das Band, in dem beide Schwellen sich widersprechen, ist 1.8e-7 breit;
-    auf 20 Mio. Logits realistischer Streuung faellt dort 0 bis 1 Kante
-    hinein (gemessen 29.07.2026). Die Umstellung ist Korrektheit im
-    Prinzip, keine Fehlerbehebung mit messbarer Folge.
+    RAMA sie am Vorzeichen als abstossend liest. Gemessener Unterschied ueber
+    20 Laeufe: unter 1.3e-7. Korrektheit im Prinzip, keine Fehlerbehebung
+    mit messbarer Folge -- die Uebereinstimmung mit dem Solver ist dafuer
+    exakt.
 
     loss_fn : optional. Mit derselben Verlustfunktion wie im Training
         aufgerufen, damit train/loss und holdout/loss vergleichbar sind.
@@ -233,16 +219,14 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
     """Trainiert das Kanten-Netz und schreibt model.pt an den abgeleiteten Pfad.
 
     neighborhood und pairs werden nicht gerechnet -- sie leiten den EINGABE-
-    pfad ab. Die Geometrie bleibt trotzdem eine Eigenschaft des DATENSATZES:
-    sie wird aus dessen Metadaten gelesen und gegen cfg.neighborhood geprueft.
-    Zwei unabhaengige Rechnungen desselben Werts; stimmen sie nicht ueberein,
-    luegt eine von beiden. Frueher baute diese Funktion den Pfad selbst neu --
-    ohne geom, und lud damit still den Ellipsoid-Datensatz (Befund 27.07.2026).
+    pfad ab. Die Nachbarschaft bleibt trotzdem eine Eigenschaft des
+    DATENSATZES: sie wird aus dessen Metadaten gelesen und gegen
+    cfg.neighborhood geprueft. Zwei unabhaengige Rechnungen desselben Werts;
+    stimmen sie nicht ueberein, luegt eine von beiden.
 
     on_epoch : optional Callable, bekommt je Epoche EIN verschachteltes dict.
-        Der Anschluss fuer W&B (scripts/train_edge_nn.py reicht wandb.log
-        durch), ohne dass dieses Modul das Framework kennt -- dieselbe Grenze
-        wie bei Hydra. Ein Test haengt stattdessen an eine Liste an.
+        Der Anschluss fuer W&B, ohne dass dieses Modul das Framework kennt --
+        dieselbe Grenze wie bei Hydra.
 
     on_start : optional Callable, bekommt EINMAL vor der ersten Epoche das
         Datenblock-dict (Klassenverhaeltnisse, Standardisierung, Holdout).
@@ -285,10 +269,10 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
     tr_idx = np.flatnonzero(~is_val)
     val_idx = np.flatnonzero(is_val)
 
-    # Klassenverhaeltnis an VIER Stellen statt der drei angeforderten. Eine
-    # Zahl allein sagt nichts -- erst der Vergleich zeigt, was Split und
-    # Balancing tatsaechlich getan haben. Der Split ist run-getrennt, die
-    # beiden Seiten haben deshalb NICHT automatisch dasselbe Verhaeltnis.
+    # Klassenverhaeltnis an VIER Stellen. Eine Zahl allein sagt nichts --
+    # erst der Vergleich zeigt, was Split und Balancing getan haben. Der
+    # Split ist run-getrennt, die beiden Seiten haben deshalb NICHT
+    # automatisch dasselbe Verhaeltnis.
     daten = {
         "raw": class_balance(label),
         "train_split": class_balance(label[tr_idx]),
@@ -389,12 +373,10 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
             opt.step()
             tot += loss.item() * len(bi)
 
-        # Auswertung auf BEIDEN Mengen, je Epoche. Der Trainingssatz kostet
-        # etwa doppelt so viel wie der Holdout (4,83 gegen 2,38 Mio. Paare);
-        # der Lauf waechst dadurch von rund 14 auf rund 27 Sekunden. Das ist
-        # der Preis dafuer, Ueberanpassung in JEDER Kennzahl zu sehen statt
-        # nur im Verlust -- und dafuer, dass die vom Betreuer angeforderte
-        # Konfusionsmatrix fuer beide Mengen existiert.
+        # Auswertung auf BEIDEN Mengen, je Epoche. Kostet etwa die doppelte
+        # Laufzeit -- der Preis dafuer, Ueberanpassung in JEDER Kennzahl zu
+        # sehen statt nur im Verlust, und dafuer, dass es die
+        # Konfusionsmatrix fuer beide Mengen gibt.
         hold = evaluate(model, Xva, yva, mu_t, sig_t, sym, loss_fn)
         trn = evaluate(model, Xtr, ytr, mu_t, sig_t, sym, loss_fn)
         zeile = _epochenzeile(ep, tot / n, trn, hold,
@@ -412,15 +394,13 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
                   f"[{zeile['diag']['sec_epoch']}s]")
     
     # diag misst den LAUF, nicht die Herkunft der Datei -- die steht in
-    # config.build_meta. Zwei Zeitangaben, weil sie verschiedene Fragen
-    # beantworten: sec_epochs ist Rechnen, sec_total enthaelt zusaetzlich
-    # das Laden von 11,6 Mio. Paaren ueber NFS. Klaffen sie auseinander,
-    # ist nicht das Netz langsam, sondern die Platte.
+    # config.build_meta. Zwei Zeitangaben: sec_epochs ist Rechnen, sec_total
+    # enthaelt zusaetzlich das Laden ueber NFS. Klaffen sie auseinander, ist
+    # nicht das Netz langsam, sondern die Platte.
     #
-    # ru_maxrss ist unter Linux KILObytes. Selbst messen ist hier Pflicht,
-    # nicht Bequemlichkeit: SLURM buchhaltet Speicher auf diesem Cluster
-    # nicht, sacct liefert eine leere MaxRSS-Spalte (gemessen 29.07.2026,
-    # BA_Umgebung_Setup.md §0.9).
+    # ru_maxrss ist unter Linux KILObytes. Selbst messen ist Pflicht: SLURM
+    # buchhaltet Speicher auf diesem Cluster nicht, sacct liefert eine leere
+    # MaxRSS-Spalte.
     diag = {
         "device": str(Xtr.device),
         "torch": torch.__version__,
@@ -430,9 +410,7 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
         "sec_total": round(time.perf_counter() - t_start, 2),
     }
     # Verschachtelt wie die Epochenzeile -- daraus wird final/train/cm/tp und
-    # final/holdout/auc, also dieselben Namen wie im Verlauf. Vorher lag die
-    # Matrix im Verlauf unter holdout/cm/, in der Zusammenfassung aber flach
-    # unter final/tp; das war eine unnoetige Stolperstelle.
+    # final/holdout/auc, also dieselben Namen wie im Verlauf.
     kennzahlen = {"train": _mit_cm(trn), "holdout": _mit_cm(hold),
                   "n_params": n_params, "val_runs": sorted(val_runs),
                   "diag": diag}
@@ -479,21 +457,18 @@ def evaluate_pairs_on_dataset(cfg: TrainCfg, verbose=True) -> dict:
 
     Kein Training, kein Split -- bewertet wird der GANZE Datensatz. Wozu:
     der Holdout in train_edge_nn liegt INNERHALB des train-Splits. Ein
-    Datensatz aus val-Runs ist die erste unabhaengige Messung auf
-    Paar-Ebene, und genau die hat der Betreuer angefragt.
+    Datensatz aus val-Runs ist die erste unabhaengige Messung auf Paar-Ebene.
 
-    Der FREMDE Datensatz kommt ueber cfg.io.data_path herein: Netz aus
-    train_c5_o10, Daten aus dem val-Zweig. Beide Pfade sind sonst abgeleitet.
+    Der FREMDE Datensatz kommt ueber cfg.io.data_path herein; beide Pfade
+    sind sonst abgeleitet.
 
     Das Praefix kommt aus den METADATEN des Datensatzes, nicht aus cfg --
-    die Datei sagt selbst, aus welchem Split sie stammt. Ein val-Datensatz
-    meldet val/..., ein test-Datensatz test/..., ohne dass der Aufrufer es
-    richtig setzen muss.
+    die Datei sagt selbst, aus welchem Split sie stammt, und der Aufrufer
+    kann es nicht falsch setzen.
 
-    IN EINEM STUECK gerechnet, nicht stapelweise: bei hidden=8 ist die
-    versteckte Schicht 11,6 Mio. x 8 float32, also rund 370 MB. Bei
-    deutlich groesserem hidden waere das der Punkt, an dem solve.edge_costs
-    stapelt -- dann hier ebenso.
+    IN EINEM STUECK gerechnet, nicht stapelweise: bei hidden=8 bleibt die
+    versteckte Schicht unter einem Gigabyte. Bei deutlich groesserem hidden
+    waere hier zu stapeln wie in solve.edge_costs.
     """
     nb, ps, tr = cfg.neighborhood, cfg.pairs, cfg.training
     check_mode(tr.feature_mode)

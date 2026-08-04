@@ -26,12 +26,11 @@ PROJECT = "event-piv-multicut"
 def senken(run):
     """(on_start, on_epoch) fuer train_edge_nn.
 
-    FEHLERPOLITIK, bewusst unsymmetrisch: wandb.init darf abbrechen (kein
-    try in main) -- dort ist noch nichts gerechnet, und ein stiller Lauf
-    ohne Log faellt sonst erst hinterher auf. wandb.log darf NICHT
-    abbrechen: dort steckt schon Rechenzeit im Lauf, und ein Netzaussetzer
-    ist kein Grund, ein Modell wegzuwerfen -- metrics.json entsteht ohnehin
-    unabhaengig von W&B.
+    FEHLERPOLITIK, bewusst unsymmetrisch: wandb.init DARF abbrechen -- dort
+    ist noch nichts gerechnet, und ein stiller Lauf ohne Log faellt sonst
+    erst hinterher auf. wandb.log darf NICHT abbrechen: dort steckt schon
+    Rechenzeit im Lauf, und metrics.json entsteht ohnehin unabhaengig von
+    W&B.
     """
     def on_start(daten):
         # Messungen, keine Konfiguration -> summary. config bleibt dadurch
@@ -79,9 +78,9 @@ def main(dcfg: DictConfig) -> None:
         # den gleichnamigen Verlaufswerten aus holdout/ verwechselt werden.
         run.summary.update(flatten({"final": kennzahlen}))
         run.summary["model_path"] = str(path)
-        #Die Tabellen gehen ueber log statt ueber summary: nur der Log-Eintrag traegt
-        # den Descriptor, aus dem die Oberflaeche ein Panel baut (geprueft 31.07.2026). 
-        # In summary abgelegt wird die Datei zwar geschrieben, aber nie angezeigt (geprueft 31.07.2026).
+        # Tabellen ueber log, nicht ueber summary: nur der Log-Eintrag traegt
+        # den Deskriptor, aus dem die Oberflaeche ein Panel baut. In summary
+        # wird die Tabelle zwar geschrieben, aber nie angezeigt.
         # EINMAL am Ende mit der letzten Epoche als Schritt -- eine
         # Momentaufnahme je Lauf, kein Verlauf.
         run.log({"epoch": cfg.training.epochs,
