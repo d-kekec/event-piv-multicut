@@ -40,3 +40,4 @@ def load_events(split: str, run_nr: int, t0=None, dt=None) -> np.ndarray:
         # intern korrekt, legt den Puffer aber auf Dateigroesse an -- mit
         # grossem t0 also teuer, nie falsch.
         return loader.load_n_events(loader.event_count())
+    return loader.load_delta_t(dt)
