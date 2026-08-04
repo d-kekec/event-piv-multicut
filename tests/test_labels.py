@@ -3,9 +3,9 @@
 """Invariantentests fuer labels.assign_track_ids.
 
 Laufen OHNE Datensatz (der liegt nicht im Repo) auf einem synthetischen
-Mini-Fixture mit von Hand bekannter Zuordnung. Pruefen Eigenschaften, die
-unabhaengig von der Parameterwahl gelten muessen -- im Gegensatz zum
-Bit-Vergleich der Portierung, der bei jeder gewollten Aenderung wertlos wird.
+Mini-Fixture mit von Hand bekannter Zuordnung. Geprueft werden Eigenschaften,
+die unabhaengig von der Parameterwahl gelten muessen -- ein Vergleich gegen
+eine Referenzdatei waere bei jeder gewollten Aenderung wertlos.
 """
 import numpy as np
 import pytest

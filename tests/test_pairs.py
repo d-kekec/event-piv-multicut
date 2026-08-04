@@ -59,9 +59,9 @@ def test_nur_saubere_events(szene):
     """Kein Paar darf ein mehrdeutiges oder verrauschtes Event enthalten."""
     t, x, y, tid, sta = szene
     d = collect_pairs(t, x, y, tid, sta, want_label=None, **PARAMS)
-    # Events 2 und 9 liegen bei t=600 bzw. t=2700 -- Partner mit gleichem t
-    # sind erlaubt, solange sie vom sauberen Partikel stammen. Deshalb ueber
-    # die Positionen pruefen statt ueber die Zeit:
+    # Die unsauberen Events liegen bei t=600 (P1) und t=900 (P2). Partner mit
+    # demselben t sind erlaubt, solange sie vom sauberen Partikel stammen --
+    # deshalb ueber die Positionen pruefen statt ueber die Zeit:
     assert d["label"].size > 0
     for ti, xi, dt, dx in zip(d["ti"], d["xi"], d["dt"], d["dx"]):
         for tt, xx in ((ti, xi), (ti + dt, xi + dx)):
@@ -89,8 +89,9 @@ def test_kein_doppelzaehlen_ueber_slabgrenzen(szene):
 
 
 def test_saubere_szene_liefert_keine_nein_paare():
-    """Physikalischer Befund aus BA_NN §4.1: weit getrennte Partikel
-    erzeugen NULL NEIN-Paare -- deshalb sind Overlap-Runs zwingend."""
+    """Physikalisch: weit getrennte Partikel liegen ausserhalb von r_max und
+    erzeugen zwischen sich gar keine Paare -- deshalb sind Overlap-Runs die
+    EINZIGE NEIN-Quelle."""
     zeiten = np.arange(6, dtype=np.float64) * 300.0
     t = np.repeat(zeiten, 2)
     x = np.tile(np.array([100.0, 400.0]), 6)        # 300 px auseinander

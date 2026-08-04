@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Tests fuer die datenunabhaengigen Teile von pipeline.py.
+"""Tests fuer die datenunabhaengigen Teile von report.py.
 
-Die Orchestrierung selbst (Datensatz -> Training -> Bewertung) braucht den
-Datensatz und wird deshalb NICHT getestet -- wohl aber die reinen
-Hilfsfunktionen, insbesondere der Fall "kein Run loesbar", der real auftritt
-(VRAM-Abstuerze, BA_NN_Kantenkosten.md §3.8).
+Geprueft werden die reinen Hilfsfunktionen, insbesondere der Fall "kein Run
+loesbar" -- der tritt real auf (Absturz, VRAM) und ist ein Ergebnis, kein
+Fehler. load_solves braucht das Dateisystem und bleibt ungetestet.
 """
 import math
 

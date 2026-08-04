@@ -33,7 +33,8 @@ def test_durchgehende_ueberlappung(make_bbox):
 
 
 def test_mean11_zaehlt_paare_nicht_boxen(make_bbox):
-    """Befund 23.07.2026: drei nahe Boxen ergeben 3 PAARE, nicht 3 Boxen."""
+    """Drei nahe Boxen ergeben 3 PAARE, nicht 3 Boxen -- query_pairs zaehlt
+    Paare."""
     bbox = make_bbox([(0, 100.0, 100.0, 1), (0, 104.0, 100.0, 2),
                       (0, 108.0, 100.0, 3)])
     assert overlap_metrics(bbox, box_w=OV.box_w)["mean11"] == 3.0

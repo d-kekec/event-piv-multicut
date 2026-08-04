@@ -2,10 +2,9 @@
 # -*- coding: utf-8 -*-
 """Tests fuer runconfig: abgeleitete Defaults, kanonische Form, Identitaet.
 
-Die kanonische Form ist seit dem 27.07.2026 der Konsistenz-VERTRAG
-(check_consistency vergleicht sie) UND die Grundlage jedes Artefaktpfads.
-Sie war bis hierher ungetestet -- eine Luecke genau an der Stelle, an der
-zwei Dinge zusammenfallen, die frueher getrennt waren.
+Die kanonische Form ist der Konsistenz-VERTRAG (check_consistency vergleicht
+sie) UND die Grundlage jedes Artefaktpfads -- zwei Dinge, die dieselbe
+Rechnung benutzen. Genau deshalb muss sie geprueft sein.
 """
 import pytest
 
@@ -43,7 +42,7 @@ def test_v_max_gehoert_zur_identitaet():
 
 def test_resolve_ueberschreibt_null_nicht():
     """`is None` statt `or`: win_dt=0 ist gueltig (wenn auch unsinnig) und
-    darf nicht still durch den Default ersetzt werden (TODO C2)."""
+    darf nicht still durch den Default ersetzt werden."""
     ps = resolve(Neighborhood(), PairSampling(win_dt=0, win_dt_yes=0))
     assert ps.win_dt == 0 and ps.win_dt_yes == 0
 

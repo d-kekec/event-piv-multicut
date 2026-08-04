@@ -5,7 +5,7 @@ test_metrics.py -- Invarianten der Paar-Kennzahlen.
 
 Ohne Datensatz, ohne Torch, ohne Hydra: von Hand nachrechenbare Beispiele.
 Die Probe darauf, dass metrics.py reine Messung ist und kein Framework
-kennt (BA_NN_Pipeline_Dateien.md §2.4).
+kennt.
 """
 from __future__ import annotations
 
@@ -60,15 +60,15 @@ def test_confusion_von_hand():
 
 
 def test_schwelle_null_zaehlt_als_ja():
-    """Logit exakt 0 gilt als JA -- konsistent mit dem bisherigen p >= 0.5."""
+    """Logit exakt 0 gilt als JA -- dieselbe Seite wie p >= 0.5."""
     assert confusion([1, 0], [0.0, 0.0]) == {"tp": 1, "fp": 1, "fn": 0,
                                              "tn": 0}
 
 
 def test_schwelle_verschiebbar():
-    """Ein Kostenversatz verschiebt die Matrix -- der Regler fuer Stufe 1
-    des Tracklet-Ansatzes (BA_00_TODO.md §C1): negativer Versatz kauft
-    Reinheit mit Fragmentierung, also FN gegen FP."""
+    """Ein Kostenversatz verschiebt die Matrix -- der vorgesehene Regler fuer
+    Stufe 1 des Tracklet-Ansatzes: negativer Versatz kauft Reinheit mit
+    Fragmentierung, also FN gegen FP."""
     y, s = [1, 1, 0, 0], [3.0, 1.0, 2.0, -1.0]
     assert confusion(y, s, threshold=0.0)["fp"] == 1
     assert confusion(y, s, threshold=2.5)["fp"] == 0    # FP weggeschnitten
@@ -155,8 +155,8 @@ def test_auc_nan_wenn_eine_klasse_fehlt():
 def test_auc_invariant_unter_sigmoid():
     """AUC ist rangbasiert, sigmoid ist streng monoton -> identisch.
 
-    DAS ist die Rechtfertigung dafuer, in C3 direkt am Logit zu schwellen
-    statt an p: die Kennzahl aendert sich dadurch nicht.
+    DAS ist die Rechtfertigung dafuer, direkt am Logit zu schwellen statt an
+    p: die Kennzahl aendert sich dadurch nicht.
     """
     rng = np.random.default_rng(7)
     y = rng.integers(0, 2, 400)
@@ -166,7 +166,7 @@ def test_auc_invariant_unter_sigmoid():
 
 
 def test_auc_gleichstaende_kleiner_extremfall():
-    """Haelt den IST-Zustand fest (Befund 29.07.2026), KEIN Soll-Verhalten.
+    """Haelt den IST-Zustand fest, KEIN Soll-Verhalten.
 
     Ein JA und ein NEIN mit demselben Score: korrekt waere 0.5 ("nicht
     unterscheidbar"), die Rangvergabe ohne mittlere Raenge liefert 0.0.
@@ -196,10 +196,9 @@ def test_auc_gleichstaende_mitteln_sich_bei_grossen_mengen_weg():
 def _auc_mittlere_raenge(y, s):
     """Referenz nach Definition: Mann-Whitney mit mittleren Raengen.
 
-    Nur fuer den Test -- bewusst NICHT in metrics.py. Die produktive
-    Funktion soll wortgleich die aus train.py bleiben (Commit C1); eine
-    Umstellung waere eine inhaltliche Aenderung und gehoert in einen
-    eigenen Commit.
+    Nur fuer den Test -- bewusst NICHT in metrics.py. Die produktive Funktion
+    auf mittlere Raenge umzustellen waere eine inhaltliche Aenderung und
+    muesste zusammen mit der kind=-Frage entschieden werden.
     """
     y, s = np.asarray(y), np.asarray(s)
     o = np.argsort(s, kind="stable")
@@ -227,9 +226,9 @@ def test_class_balance_von_hand():
 
 
 def test_class_balance_ohne_nein_gibt_nan():
-    """Saubere Runs liefern per Konstruktion NULL NEIN-Paare
-    (BA_NN_Kantenkosten.md §4.1) -- der Quotient ist dort undefiniert,
-    nicht unendlich, und darf den Lauf nicht abbrechen."""
+    """Saubere Runs liefern per Konstruktion NULL NEIN-Paare -- der Quotient
+    ist dort undefiniert, nicht unendlich, und darf den Lauf nicht
+    abbrechen."""
     b = class_balance([1, 1, 1])
     assert b["n_nein"] == 0
     assert math.isnan(b["ratio_ja_nein"])
