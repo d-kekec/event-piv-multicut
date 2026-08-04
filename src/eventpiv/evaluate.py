@@ -10,11 +10,11 @@ Zwei Kennzahlen, die IMMER ZUSAMMEN gelesen werden muessen:
   FRAGMENTIERUNG je GT-Partikel: in wie viele Cluster zerfaellt es?
       1.0 = ideal, das Partikel ist genau ein Cluster.
 
-Warum zusammen: Reinheit allein ist trivial zu maximieren -- lauter Singletons
-sind perfekt rein. Genau das passierte mit dem dr_weight-Netz (Reinheit 0.999
-bei Fragmentierung 5.38, BA_NN_Kantenkosten.md §3.7).
+Warum zusammen: Reinheit allein ist trivial zu maximieren -- lauter
+Singletons sind perfekt rein. Genau das lieferte das dr_weight-Netz:
+Reinheit 0.999 bei Fragmentierung 5.38.
 
-EINSCHRAENKUNG (dokumentiert, BA_NN §3.7): bewertet werden nur SAUBERE Events
+EINSCHRAENKUNG: bewertet werden nur SAUBERE Events
 (status == 0). Mehrdeutige -- also genau die schweren Ueberlappungsfaelle --
 fliessen nicht ein. Die Bewertung ist damit OPTIMISTISCH. Fuer RELATIVE
 Vergleiche zwischen Konfigurationen unkritisch (die Verzerrung trifft alle
@@ -45,21 +45,19 @@ def cluster_metrics(labels, track_id, status, t=None) -> dict:
                            zaehlt so viel wie einer aus 5000.
       purity_event_mean    Mittel UEBER EVENTS -- jedes Event zaehlt gleich.
     Bei vielen kleinen Fragmenten liegt die erste hoeher als die zweite. Fuer
-    RELATIVE Vergleiche ist beides brauchbar (die Verzerrung trifft alle
-    Konfigurationen gleich), fuer die FINALE Zahl ist die eventgewichtete die
-    ehrlichere. Der frueher hier stehende Alias purity_mean ist am 29.07.2026
-    entfallen; bestehende solves/*.json wurden neu gerechnet.
+    RELATIVE Vergleiche ist beides brauchbar, fuer die FINALE Zahl ist die
+    eventgewichtete die ehrlichere.
 
-    purity_event_mean laesst sich direkt aus groesste/groessen bilden:
+    purity_event_mean entsteht direkt aus groesste/groessen:
     sum(groesste)/sum(groessen) ist der Anteil der Events, die in ihrem
-    Cluster zur Mehrheits-GT gehoeren. Keine zweite Rechnung noetig.
+    Cluster zur Mehrheits-GT gehoeren -- keine zweite Rechnung noetig.
 
-    EINSCHRAENKUNG (unveraendert, BA_NN §3.7): bewertet werden nur SAUBERE
-    Events (status == 0). Auch die gt_-Felder gelten damit nur fuer diese
-    Teilmenge -- gt_visible_ms_median unterschaetzt die echte Sichtbarkeit,
-    wenn ein Partikel am Rand mehrdeutige Events hat. Bewusst so, weil eine
-    zweite Maske die Ausrichtung dupliziert haette, und genau dort liegt die
-    Falle (align_gt_window).
+    EINSCHRAENKUNG: bewertet werden nur SAUBERE Events (status == 0). Auch
+    die gt_-Felder gelten damit nur fuer diese Teilmenge --
+    gt_visible_ms_median unterschaetzt die Sichtbarkeit, wenn ein Partikel am
+    Rand mehrdeutige Events hat. Bewusst so: eine zweite Maske wuerde die
+    Ausrichtung duplizieren, und genau dort liegt die Falle
+    (align_gt_window).
     """
     labels = np.asarray(labels)
     clean = np.asarray(status) == STATUS_CLEAN
@@ -123,16 +121,20 @@ def cluster_metrics(labels, track_id, status, t=None) -> dict:
 def align_gt_window(gt_t, event_t):
     """Findet den Index-Ausschnitt der Label-Datei, der zum Eventfenster passt.
 
-    Warum nicht per Zeitmaske: bei mehreren Events mit demselben Zeitstempel
-    am Fensterrand liefert (t >= t0) & (t <= t1) mehr Eintraege als das
-    geladene Fenster hat -- die Vorgaengerversion hat solche Runs still
-    uebersprungen. Da die Label-Datei denselben Eventstream in derselben
-    Reihenfolge enthaelt, ist der Ausschnitt zusammenhaengend: Startindex
-    suchen, n Eintraege nehmen, Zeitstempel gegenpruefen.
+    Warum nicht per Zeitmaske: viele Events teilen sich einen Zeitstempel
+    (rund vier je µs), und dann liefert (t >= t0) & (t <= t1) am Fensterrand
+    mehr Eintraege als das geladene Fenster hat. Da die Label-Datei denselben
+    Eventstrom in derselben Reihenfolge enthaelt, ist der Ausschnitt
+    ZUSAMMENHAENGEND: Startindex suchen, n Eintraege nehmen, Zeitstempel
+    gegenpruefen.
 
-    Rueckgabe: slice. Wirft ValueError, wenn die Zeitstempel nicht passen
-    (dann stammt die Label-Datei nicht aus diesem Run oder nur aus einem
-    Teilfenster).
+    Ein GEFILTERTER Eventstrom (ON-only) faellt hier auf: er ist eine
+    Teilfolge, die Positionen laufen sofort auseinander, der Vergleich
+    schlaegt fehl. Die Meldung zeigt dann allerdings auf die falsche
+    Ursache. Richtig bleibt: erst auf dem ungefilterten Strom ausrichten,
+    dann dieselbe Maske auf beide Seiten.
+
+    Rueckgabe: slice. ValueError, wenn die Zeitstempel nicht passen.
     """
     gt_t = np.asarray(gt_t)
     event_t = np.asarray(event_t)
@@ -159,24 +161,21 @@ def edge_gt_stats(i, j, t, x, y, track_id, status) -> dict:
     die zwei Events desselben Partikels verbinden -- die Klassenverteilung,
     die das Netz im Einsatz tatsaechlich vorfindet.
 
-    Wozu: pred_neg_frac auf dem Holdout (22,2 %) und frac_neg im Einsatz
-    (12,4-13,8 %) weichen ab, und bisher liess sich nicht trennen, ob das an
-    der Klassenverteilung liegt oder an den Merkmalen. edge_ja_frac macht die
-    erste Haelfte messbar.
+    Wozu: pred_neg_frac auf dem Holdout und frac_neg im Einsatz weichen
+    voneinander ab, und ohne edge_ja_frac liesse sich nicht trennen, ob das
+    an der Klassenverteilung liegt oder an den Merkmalen.
 
     NUR Kanten mit ZWEI sauberen Endpunkten sind bewertbar -- dieselbe
-    Bedingung wie beim Sammeln des Paar-Datensatzes (pairs.collect_pairs),
-    damit die Zahlen ueberhaupt vergleichbar sind. edge_bewertbar_frac sagt,
-    auf welchem Anteil der Kanten die Aussage ruht.
+    Bedingung wie beim Sammeln des Paar-Datensatzes, damit die Zahlen
+    vergleichbar sind. edge_bewertbar_frac sagt, auf welchem Anteil der
+    Kanten die Aussage ruht.
 
     dt_mean und dr_mean laufen dagegen ueber ALLE Kanten -- das ist, was das
     Netz im Einsatz sieht. Mit data/mu aus dem Training nur naeherungsweise
-    vergleichbar (dort ausschliesslich sauber-sauber-Paare); bei hohem
-    edge_bewertbar_frac ist der Unterschied klein.
+    vergleichbar, weil dort ausschliesslich sauber-sauber-Paare stehen.
 
-    Zwischenbedarf: vier Arrays der Kantenzahl in float64, bei 12,5 Mio.
-    Kanten rund 400 MB. Wird NACH dem RAMA-Aufruf gerechnet, liegt also nicht
-    in der Speicherspitze (die entsteht im KDTree).
+    Legt vier Arrays der Kantenzahl in float64 an. Wird NACH dem RAMA-Aufruf
+    gerechnet und liegt deshalb nicht in der Speicherspitze.
     """
     i, j = np.asarray(i), np.asarray(j)
     if len(i) == 0:

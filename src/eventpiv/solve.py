@@ -3,8 +3,7 @@
 """
 solve.py -- BAUSTEIN [4]: NN-Kantenkosten -> RAMA -> Cluster.
 
-Die Vorgaengerversion mischte VIER Zustaendigkeiten in einer Funktion:
-Graphbau, NN-Auswertung, RAMA-Aufruf und GT-Abgleich. Hier getrennt:
+Vier getrennte Zustaendigkeiten:
 
   graph.neighborhood_pairs  Kanten            (eigenes Modul, mit pairs geteilt)
   edge_costs                Kosten je Kante   (hier)
@@ -12,11 +11,12 @@ Graphbau, NN-Auswertung, RAMA-Aufruf und GT-Abgleich. Hier getrennt:
   evaluate.cluster_metrics  GT-Abgleich       (eigenes Modul)
   solve_and_evaluate        setzt es zusammen (hier)
 
-Nutzen: Auswertung und Visualisierung koennen die Teile einzeln importieren.
-Die Prozess-Isolation gegen VRAM-Abstuerze liegt jetzt in den sbatch-Skripten
-(ein Python-Prozess je Lauf), nicht mehr im Python-Code.
+Nutzen: Auswertung und Visualisierung importieren die Teile einzeln, und
+solve_window laeuft dadurch auch ohne Ground Truth. Die Prozess-Isolation
+gegen VRAM-Abstuerze liegt in den sbatch-Skripten (ein Python-Prozess je
+Lauf), nicht im Python-Code.
 
-POINTER-PFAD-REGELN (BA_RAMA_Verstaendnis.md §3.6, hart):
+POINTER-PFAD-REGELN, hart:
   i,j int32 | costs float32 | node_labels int32-PUFFER selbst anlegen
   (die Funktion schreibt hinein, gibt nichts zurueck) | alles .contiguous()
   | torch.cuda.synchronize() vor UND nach (asynchron!) | num_nodes korrekt
@@ -44,21 +44,19 @@ from eventpiv.runconfig import Neighborhood, SolveCfg, identity_meta
 def edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, cp):
     """Logit je Kante = Multicut-Kantenkosten. Rueckgabe: float32-GPU-Tensor.
 
-    cp : runconfig.Compute -- device und cost_batch waren hartkodiert
-         (device="cuda", batch=4_000_000). Auf tujestpolin mit bis zu sechs
-         Karten ist device_index keine Konstante (Befund 27.07.2026).
-    Der Logit wird DIREKT als Kosten verwendet, ohne Nachskalierung -- durch
-    Sigmoid+BCE ist er die Log-Odds, also genau die von RAMA erwartete
-    Kalibrierung (BA_RAMA_Verstaendnis.md §1.4).
+    cp : runconfig.Compute. device_index ist keine Konstante -- auf
+         tujestpolin stecken bis zu sechs Karten in einem Knoten.
 
-    Die Features entstehen ueber dieselbe build_features wie im Training,
-    nur mit xp=torch statt xp=numpy.
+    Der Logit wird DIREKT als Kosten verwendet, ohne Nachskalierung: durch
+    Sigmoid+BCE ist er die Log-Odds, also genau die von RAMA erwartete
+    Kalibrierung. Die Features entstehen ueber dieselbe build_features wie
+    im Training, nur mit xp=torch statt xp=numpy.
 
     STAPELWEISE, und das ist bei grossen Fenstern kein Detail: die versteckte
-    Schicht ist (n, hidden) gross. Bei 80 M Kanten und hidden=8 sind das
-    2.5 GB -- pro Zwischenergebnis, und Linear und Tanh legen je eines an.
-    Auf einen Schlag gerechnet sprengt das die Karte, bevor RAMA ueberhaupt
-    startet. Mit batch=4M bleibt der Spitzenbedarf bei ~150 MB.
+    Schicht ist (n, hidden) gross, bei 80 Mio. Kanten und hidden=8 also
+    2,5 GB -- je Zwischenergebnis, und Linear und Tanh legen je eines an.
+    Auf einen Schlag gerechnet sprengt das die Karte, BEVOR RAMA ueberhaupt
+    startet. Mit batch=4M bleibt die Spitze bei ~150 MB.
     """
     device, batch = cp.device, cp.cost_batch
     n_edges = len(i)
@@ -97,7 +95,7 @@ def solve_multicut(i, j, costs_gpu, num_nodes, cp, mode="PD"):
     """RAMA ueber den GPU-Pointer-Pfad. Rueckgabe: node_labels (numpy int32).
 
     Import von rama_py bewusst LOKAL: so laesst sich solve.py importieren
-    (und testen), ohne dass RAMA installiert sein muss.
+    und testen, ohne dass RAMA installiert ist.
     """
     import rama_py
 
@@ -107,8 +105,8 @@ def solve_multicut(i, j, costs_gpu, num_nodes, cp, mode="PD"):
                          "(cudaErrorIllegalAddress), vorher abfangen.")
 
     # int32-Cast auf der CPU: torch.as_tensor(int64_array) legt sonst erst
-    # ein int64-Array auf der GPU an (bei 80 M Kanten 636 MB je Richtung)
-    # und castet danach.
+    # ein int64-Array auf der GPU an und castet danach -- bei 80 Mio. Kanten
+    # 636 MB je Richtung umsonst.
     i_t = torch.as_tensor(np.ascontiguousarray(i, np.int32), device=cp.device)
     j_t = torch.as_tensor(np.ascontiguousarray(j, np.int32), device=cp.device)
     c_t = costs_gpu.contiguous().to(torch.float32)
@@ -143,31 +141,26 @@ def solve_multicut(i, j, costs_gpu, num_nodes, cp, mode="PD"):
 def check_consistency(ckpt, nb: Neighborhood, strict: bool = True) -> None:
     """Prueft, ob das Netz mit DIESER Nachbarschaft trainiert wurde.
 
-    Verglichen wird die kanonische Form der ganzen Gruppe, nicht Feld fuer
-    Feld: ein spaeter hinzugefuegtes Feld wird damit automatisch mitgeprueft.
-    Eine handgepflegte Liste haette es uebersehen -- belegt an v_max, das in
-    beiden Metadatenbloecken fehlte (BA_Konfiguration.md §2). Der frueher
-    noetige Float-Vergleich entfaellt; die kanonische Form rundet, 3 und 3.0
-    koennen nicht auseinanderlaufen.
+    Verglichen wird die normierte Form der GANZEN Gruppe gegen die, die beim
+    Schreiben in die Datei ging -- nicht Feld fuer Feld. Ein spaeter
+    hinzugefuegtes Feld wird damit automatisch mitgeprueft, und 3 gegen 3.0
+    kann nicht auseinanderlaufen.
 
-    Dateien von VOR dem 27.07.2026 tragen die alte flache Struktur. Sie
-    werden bewusst NICHT gelesen: eine Rekonstruktion muesste fehlende Felder
-    (geom, v_max) raten, und geratene Identitaet ist genau das, was dieses
-    Schema abschafft. Solche Netze laufen mit Warnung und UNGEPRUEFT.
+    NICHT ueber Neighborhood(**gruppe): fehlt im gespeicherten Block ein
+    Feld, fuellte der Konstruktor still den heutigen Default ein, und ein
+    Netz aus der Zeit vor `geom` verglichen sich als passend zu einer
+    cylinder-Konfiguration.
+
+    Netze ohne Metadatenblock laufen mit Warnung und UNGEPRUEFT.
     """
     gruppe = (ckpt.get("meta") or {}).get("neighborhood")
     if not isinstance(gruppe, dict):
         print("  WARN: .pt enthaelt keinen Metadatenblock 'neighborhood' "
-              "(vor dem 27.07.2026 erzeugt) -- Konsistenz UNGEPRUEFT.")
+              "-- Konsistenz UNGEPRUEFT.")
         return
     jetzt = identity_meta(neighborhood=nb)["neighborhood"]
     if gruppe == jetzt:
         return
-    # NICHT ueber Neighborhood(**gruppe): fehlt im gespeicherten Block ein
-    # Feld, fuellt der Konstruktor still den heutigen Default ein -- ein Netz
-    # aus der Zeit vor `geom` verglichen sich damit als passend zu einer
-    # cylinder-Konfiguration. Verglichen wird deshalb die normierte Form
-    # gegen die normierte Form, so wie sie beim Schreiben entstand.
     text = (f"Netz trainiert mit {gruppe}, Einsatz mit {jetzt}. "
             "Training/Einsatz inkonsistent -- Datensatz und Netz neu bauen.")
     if strict:
@@ -179,9 +172,8 @@ def info_groups(info: dict) -> dict:
     """Ordnet die flachen Kennzahlen eines Solves in semantische Gruppen.
 
     Dieselbe Rolle wie train._epochenzeile: das MODUL entscheidet, welche
-    Frage eine Zahl beantwortet; das Skript verflacht nur. info selbst bleibt
-    flach -- es ist das Dateiformat der solves/*.json, und report.py liest es
-    so.
+    Frage eine Zahl beantwortet, das Skript verflacht nur. info selbst bleibt
+    flach -- es ist das Dateiformat der solves/*.json.
 
     REGELBASIERT statt handgepflegte Liste: ein spaeter hinzugefuegtes Feld
     landet automatisch irgendwo, statt still zu verschwinden.
@@ -210,16 +202,16 @@ def solve_window(cfg: SolveCfg, model, mu, sig, feature_mode, verbose=True,
                  on_edges=None):
     """Ein Zeitfenster eines Runs loesen. Rueckgabe: (labels, events, info).
 
-    on_edges : optional Callable(i, j, t, x, y) -> dict. Die Kanten existieren
-        nur hier, die GT kennt solve_window bewusst NICHT -- die Funktion
-        laeuft auch fuer Runs ohne Label-Datei. Die Senke bekommt beides
-        zusammen und gibt Kennzahlen zurueck; nichts Grosses verlaesst die
-        Funktion, und kein Aufrufer bricht. Dieselbe Loesung wie on_epoch im
-        Training.
+    on_edges : optional Callable(i, j, t, x, y) -> dict. Die Kanten
+        existieren nur hier, und die GT kennt solve_window bewusst NICHT --
+        so laeuft die Funktion auch auf Runs ohne Label-Datei, also auf
+        echten Messdaten. Die Senke bekommt beides zusammen und gibt kleine
+        Kennzahlen zurueck; nichts Grosses verlaesst die Funktion. Dieselbe
+        Loesung wie on_epoch im Training.
 
-    Nimmt die Konfiguration statt zwoelf Einzelargumenten entgegen. Gelesen
-    werden cfg.selection, cfg.window, cfg.neighborhood, cfg.solver, cfg.compute
-    -- geschrieben wird NIE in cfg (BA_Konfiguration.md §5).
+    Nimmt die Konfiguration statt zwoelf Einzelargumenten entgegen; gelesen
+    werden selection, window, neighborhood, solver und compute. Geschrieben
+    wird NIE in cfg.
     """
     nb, sv, cp = cfg.neighborhood, cfg.solver, cfg.compute
     sel, win = cfg.selection, cfg.window
@@ -260,8 +252,8 @@ def solve_window(cfg: SolveCfg, model, mu, sig, feature_mode, verbose=True,
     t_rama = time.time() - tic
 
     # Aufgerufen NACH dem RAMA-Lauf: die Statistik legt CPU-Arrays in
-    # Kantengroesse an, und die sollen nicht waehrend des Solves im Speicher
-    # liegen. i und j existieren hier noch, sie werden oben gebraucht.
+    # Kantengroesse an, die nicht waehrend des Solves im Speicher liegen
+    # sollen.
     kanten = {}
     if on_edges is not None:
         tic = time.time()
@@ -274,15 +266,14 @@ def solve_window(cfg: SolveCfg, model, mu, sig, feature_mode, verbose=True,
                   f"dt {kanten['dt_mean']/1000:.2f}ms, "
                   f"dr {kanten['dr_mean']:.2f}px")
             
-    # np.unique(labels) zaehlte den -1-Eimer als Cluster mit -- also um
-    # genau EINS zu hoch, sobald es kantenlose Knoten gibt, und die gibt es
-    # zu Tausenden (13.611 von ~18.500 Rauschevents in run32, BA_NN §4.2).
-    # Getrennt gefuehrt, weil beides eine eigene Frage beantwortet:
+    # DREI Clusterzahlen, drei Fragen -- die Luecke dazwischen ist gross:
     #   n_clusters_rama       wie viele Cluster hat der Solver gebildet
     #   n_nodes_unassigned    wie viele Knoten hatten gar keine Kante
-    # Die spaeter dazukommende n_clusters aus cluster_metrics ist eine DRITTE
-    # Zahl: nur Cluster mit mindestens einem sauberen Event. Genau diese
-    # Luecke (1142 gegen 56) war bisher unbenannt.
+    #   n_clusters (spaeter aus cluster_metrics)
+    #                         wie viele davon enthalten ein SAUBERES Event
+    # np.unique(labels) zaehlte frueher den -1-Eimer als Cluster mit, also um
+    # genau eins zu hoch, sobald es kantenlose Knoten gibt -- und die gibt es
+    # zu Tausenden.
     zugeordnet = labels >= 0
     n_clusters_rama = int(len(np.unique(labels[zugeordnet])))
     n_unassigned = int((~zugeordnet).sum())
@@ -301,7 +292,10 @@ def solve_window(cfg: SolveCfg, model, mu, sig, feature_mode, verbose=True,
             "dt_ms": win.dt / 1000.0 if win.dt else float("nan"),
             "events_per_ms": n / (win.dt / 1000.0) if win.dt else float("nan"),
             "t_graph": t_graph, "t_costs": t_costs, "t_rama": t_rama,
-            "vram_peak_gb": vram, "gpu_name": gpu_name, 
+            "vram_peak_gb": vram, "gpu_name": gpu_name,
+            # Die Spitze liegt im KDTree, also im RAM, nicht auf der Karte.
+            # ru_maxrss ist unter Linux KILObytes; SLURM buchhaltet Speicher
+            # auf diesem Cluster nicht.
             "max_rss_mb": round(
                 resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
             **kanten}
@@ -329,9 +323,9 @@ def solve_and_evaluate(cfg: SolveCfg, verbose=True) -> dict:
         mpath, device=cfg.compute.device)
     check_consistency(ckpt, cfg.neighborhood, strict=cfg.io.strict)
 
-    # feature_mode steht im Checkpoint UND in der Konfiguration. Bisher wurde
-    # der Checkpoint stillschweigend bevorzugt -- dann behauptet der
-    # abgeleitete Modellpfad etwas anderes, als gerechnet wird.
+    # feature_mode steht im Checkpoint UND in der Konfiguration. Weichen sie
+    # ab, behauptet der abgeleitete Modellpfad etwas anderes, als gerechnet
+    # wird.
     if feature_mode != cfg.training.feature_mode:
         text = (f"Checkpoint hat feature_mode={feature_mode!r}, Konfiguration "
                 f"{cfg.training.feature_mode!r} -- Pfad passt nicht zum Modell.")
@@ -352,9 +346,9 @@ def solve_and_evaluate(cfg: SolveCfg, verbose=True) -> dict:
     def kantensenke(i, j, t, x, y):
         """Richtet die GT auf das Fenster aus und misst die Kanten.
 
-        Laedt die Label-Datei ein ZWEITES Mal. Der Preis dafuer, dass die
-        vollen GT-Arrays (bei 30 Mio. Events rund 400 MB) nicht waehrend des
-        Graphbaus im Speicher liegen -- und der ist die RAM-kritische Phase.
+        Laedt die Label-Datei ein ZWEITES Mal -- der Preis dafuer, dass die
+        vollen GT-Arrays (rund 400 MB) nicht waehrend des Graphbaus im
+        Speicher liegen, und der ist die RAM-kritische Phase.
         """
         with np.load(gt_path) as g:
             sl = align_gt_window(g["t"], t)
