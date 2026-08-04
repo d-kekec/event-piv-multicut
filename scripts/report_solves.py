@@ -25,8 +25,8 @@ def main(dcfg: DictConfig) -> None:
     cfg: ReportCfg = to_cfg(dcfg)
 
     # Ein eigener W&B-Lauf, obwohl hier nichts gerechnet wird: DIESE Zeilen
-    # sind die Tabelle aus BA_NN_Kantenkosten.md §3.8, die am Ende in der
-    # Arbeit steht. Ein Lauf je Netz, mit CROSSING und CLEAN getrennt in der
+    # sind die Tabelle, die am Ende in der Arbeit steht. Ein Lauf je Netz,
+    # mit CROSSING und CLEAN getrennt in der
     # Runtabelle -- das ist die Ansicht, in der Arbeitspunkte verglichen
     # werden.
     run = wandb.init(

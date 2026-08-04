@@ -3,19 +3,19 @@
 """
 report.py -- Auswertung mehrerer Solve-Laeufe.
 
-Uebernommen aus pipeline.py, das mit dem Hydra-Umbau entfallen ist. Die
-Orchestrierung dort war Geruest (Subprozess-Kommandozeilen, Parameter
-durchreichen) -- DIES hier ist Fachlogik und bleibt:
+Zwei Gruppen, GETRENNT gemittelt:
 
   CROSSING/OVERLAP-Runs = Schnitt-Test (fordern das Trennen)
   CLEAN-Runs            = Kontrolle (duerfen NICHT fragmentieren)
-  Beide Gruppen GETRENNT mitteln -- ein Mittelwert ueber beide koennte
-  schlechte Trennung durch gute Kontrolle kaschieren.
 
-"Nicht loesbar" ist ein ERGEBNIS, kein Fehler: n_ok/n_total sind die Spalten
-OV_ok/CL_ok aus BA_NN_Kantenkosten.md §3.8 ("alpha=3000/r_max=5 loest als
-EINZIGE alle Overlap-Runs"). Frueher entstand das aus abgestuerzten
-Subprozessen; jetzt aus fehlenden solves/*.json.
+Ein Mittelwert ueber beide koennte schlechte Trennung durch gute Kontrolle
+kaschieren.
+
+"Nicht loesbar" ist ein ERGEBNIS, kein Fehler: n_ok/n_total ist die Zahl,
+an der sich zeigte, dass eine Einstellung als einzige alle Overlap-Runs
+loeste. Eine fehlende solves/*.json bedeutet Absturz, VRAM oder kein
+GT-Abgleich -- ein FEHLENDES VERZEICHNIS dagegen bedeutet, dass die
+Overrides nicht passen, und bricht ab.
 """
 from __future__ import annotations
 
@@ -28,11 +28,11 @@ from eventpiv.runconfig import Selection
 def summarize(name, infos, verbose=True) -> dict:
     """Mittelt ueber die loesbaren Runs einer Gruppe.
 
-    UNGEWICHTETES Mittel ueber RUNS -- ein Run mit 12 Mio. Kanten zaehlt so
-    viel wie einer mit 20 Mio. Dasselbe Weichenproblem wie eine Ebene tiefer
-    bei purity_cluster_mean gegen purity_event_mean, hier bewusst gleich
-    entschieden: fuer den Vergleich von KONFIGURATIONEN ist das ungewichtete
-    Mittel das richtige, weil sonst grosse Runs die Aussage dominieren.
+    UNGEWICHTETES Mittel ueber RUNS -- ein grosser Run zaehlt so viel wie ein
+    kleiner. Dieselbe Weiche wie eine Ebene tiefer bei purity_cluster gegen
+    purity_event, hier bewusst gleich entschieden: fuer den Vergleich von
+    KONFIGURATIONEN ist das ungewichtete Mittel richtig, sonst dominieren
+    grosse Runs die Aussage.
     """
     gueltig = [i for i in infos if i]
     leer = {"n_ok": 0, "n_total": len(infos),
@@ -60,10 +60,8 @@ def summarize(name, infos, verbose=True) -> dict:
 def load_solves(cfg, runs) -> list:
     """Sammelt die solves/*.json der angegebenen Runs.
 
-    None = kein Ergebnis. Das ist ein ERGEBNIS, kein Fehler: eine fehlende
-    Datei heisst Absturz, VRAM-OOM oder kein GT-Abgleich moeglich. Frueher
-    entstand dieselbe Information aus abgestuerzten Subprozessen
-    (pipeline._solve_isolated); jetzt aus der Abwesenheit einer Datei.
+    None = kein Ergebnis, und das ist ein ERGEBNIS: eine fehlende Datei
+    heisst Absturz, VRAM-OOM oder kein GT-Abgleich moeglich.
     """
     out = []
     if not runs:
@@ -122,6 +120,6 @@ def report(cfg) -> dict:
 
     print("\nCROSSING = Schnitt-Test (fordert das Trennen), "
           "CLEAN = Kontrolle (darf nicht fragmentieren).")
-    print("Metrik-Hierarchie: Fragmentierung > Reinheit >> AUC (§3.8) -- "
-          "AUC steigt bei kleinem r_max truegerisch, waehrend Cluster zerfallen.")
+    print("Metrik-Hierarchie: Fragmentierung > Reinheit >> AUC -- AUC steigt "
+          "bei kleinem r_max truegerisch, waehrend Cluster zerfallen.")
     return ergebnisse

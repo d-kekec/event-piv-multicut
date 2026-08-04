@@ -8,7 +8,7 @@ Zwei Anwendungsfaelle:
   [A] animate_run()       ein ganzer Run, Events nach Polaritaet eingefaerbt.
                           Zweck: visuell finden, WANN Ueberlappungen und
                           Kreuzungen passieren, um Zeitfenster gezielt zu
-                          waehlen. (Portiert aus dem Baseline-Werkzeug.)
+                          waehlen.
 
   [B] animate_clusters()  ein geloestes Zeitfenster, Panels nebeneinander:
                           Rohevents | RAMA-Cluster | Ground Truth.
@@ -31,7 +31,7 @@ FARBWAHL (wichtig fuer die Interpretation!):
   verlaessliches GT-Label (status != 0).
 
 Nur Pillow, kein ffmpeg -- Ausgabe ist ein GIF. Matplotlib wird bewusst
-nicht verwendet (WSLg-Probleme, s. BA_Umgebung_Setup.md §5).
+nicht verwendet.
 """
 from __future__ import annotations
 
@@ -101,10 +101,9 @@ def majority_gt_colors(labels, track_id, status, *, min_size=1, ignore=(-1,)):
     Farbe = gleiches Partikel. ACHTUNG: Fragmentierung wird dadurch
     unsichtbar (s. Modul-Docstring).
 
-    Behandelt -1 und kleine Cluster wie color_lookup: Label -1 ist KEIN
-    Cluster, sondern das Sammelbecken der kantenlosen Knoten. Ohne diese
-    Ausnahme gewinnt dort ein einzelnes sauberes Event die Mehrheits-
-    abstimmung und faerbt den gesamten isolierten Rauschanteil ein.
+    Label -1 ist KEIN Cluster, sondern das Sammelbecken der kantenlosen
+    Knoten. Ohne die Ausnahme gewaenne dort ein einzelnes sauberes Event die
+    Mehrheitsabstimmung und faerbte den gesamten Rauschanteil ein.
     """
     labels = np.asarray(labels)
     sauber = np.asarray(status) == STATUS_CLEAN
@@ -281,8 +280,7 @@ def animate_clusters(cfg: AnimClustersCfg):
     if win.t0 is None or win.dt is None:
         raise SystemExit(
             "window.t0/window.dt muessen gesetzt sein -- animate_clusters "
-            "LOEST das Fenster. Ganze Runs sind das Ziel (TODO B: k-NN, "
-            "ON-only, Tracklets), sprengen aber derzeit den VRAM.")
+            "LOEST das Fenster. Ganze Runs sprengen derzeit den VRAM.")
 
     mpath = (Path(cfg.io.model_path) if cfg.io.model_path
              else config.model_file(cfg.neighborhood, cfg.pairs, cfg.training,
