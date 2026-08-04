@@ -308,11 +308,12 @@ def animate_clusters(cfg: AnimClustersCfg):
     gt_pfad = (config.label_file(split, run_nr) if cfg.io.label_dir is None
                else Path(cfg.io.label_dir) / f"run{run_nr}_eventlabels.npz")
     if gt_pfad.exists():
-        gt = np.load(gt_pfad)
-        sl = align_gt_window(gt["t"], t)
-        tid, sta = gt["track_id"][sl], gt["status"][sl]
+        with np.load(gt_pfad) as gt:
+            sl = align_gt_window(gt["t"], t)
+            tid, sta = gt["track_id"][sl], gt["status"][sl]
         info.update(cluster_metrics(labels, tid, sta))
-        print(f"  Reinheit {info['purity_mean']:.3f}  "
+        print(f"  Reinheit cluster {info['purity_cluster_mean']:.3f} / "
+              f"event {info['purity_event_mean']:.3f}  "
               f"Fragmentierung {info['frag_mean']:.2f}  "
               f"({info['n_clusters']} Cluster / {info['n_gt']} GT-Partikel)")
     else:
