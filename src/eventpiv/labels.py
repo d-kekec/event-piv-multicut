@@ -7,13 +7,19 @@ Weist jedem Event eine track_id zu (TRAININGS-WAHRHEIT, NIE NN-Input!) und
 markiert dabei drei Qualitaetsklassen:
 
     status = 0  SAUBER      eindeutig einem Partikel zugeordnet   -> Training
-    status = 1  MEHRDEUTIG  fast gleich weit zu zwei Boxen        -> verwerfen
+    status = 1  MEHRDEUTIG  fast gleich weit zu zwei Boxen        -> nicht ins
+                            Training, aber zugeordnet (Bewertung)
     status = 2  RAUSCH      keiner Box nah genug                  -> raushalten
 
 Verfahren: Event -> zeitlich naechster 60-Hz-Rasterpunkt -> raeumlich
 naechstes Boxzentrum. Die zweite Bedingung (Abstand zum ZWEITnaechsten) ist
 noetig, weil ein Run als Ganzes sauber sein kann und trotzdem einzelne
 Grenz-Events enthaelt.
+
+track_id und status beantworten ZWEI Fragen: track_id sagt, WOHIN ein Event
+gehoert, status, wie VERLAESSLICH diese Zuordnung ist. Nur RAUSCH traegt -1
+-- dort ist kein Zentrum nahe genug. Wer Trainingsdaten will, filtert auf
+status == STATUS_CLEAN; wer bewerten will, nimmt track_id.
 
 Ausgabe haengt NICHT von alpha/r_max/win_dt ab -> einmal je Run und Split
 bauen.
@@ -43,6 +49,14 @@ STATUS_CLEAN = 0
 STATUS_AMBIG = 1
 STATUS_NOISE = 2
 
+# Version des LABEL-INHALTS, nicht der Labeling-Parameter. Wird erhoeht,
+# wenn sich die Bedeutung der Felder aendert, ohne dass sich `Labeling`
+# aendert -- sonst gaelten alte Dateien als gueltig und wuerden still
+# weiterverwendet (dieselbe Fehlerklasse wie FIELDS/raw6).
+#   1 -> track_id nur fuer SAUBERE Events
+#   2 -> track_id auch fuer MEHRDEUTIGE (-1 nur noch fuer RAUSCH)
+LABEL_FORMAT = 2
+
 # --- Defaults: EINE Quelle, runconfig.Labeling. Die Namen bleiben hier
 # bestehen, ihren Wert beziehen sie von dort.
 _LB_DEFAULT      = Labeling()
@@ -69,8 +83,11 @@ def assign_track_ids(t, x, y, bbox,
          Abfrage nach den zwei naechsten.
       3) Status aus (d1, d2):
            d1 > r_assign        -> RAUSCH (2),      track_id = -1
-           (d2 - d1) < r_ambig  -> MEHRDEUTIG (1),  track_id = -1
+           (d2 - d1) < r_ambig  -> MEHRDEUTIG (1),  track_id = naechstes
            sonst                -> SAUBER (0),      track_id des naechsten
+
+    track_id ist die ZUORDNUNG, status die VERLAESSLICHKEIT dieser
+    Zuordnung. Nur RAUSCH traegt -1, weil dort kein Zentrum nahe genug ist.
 
     Die BOXFORM geht nie ein: box_w dient allein dazu, die Ecke oben links
     in das Zentrum umzurechnen. Danach ist ein Partikel ein Punkt, und
@@ -148,7 +165,15 @@ def assign_track_ids(t, x, y, bbox,
         status[sl[is_noise]] = STATUS_NOISE
         status[sl[is_ambig]] = STATUS_AMBIG
         status[sl[is_clean]] = STATUS_CLEAN
-        track_id[sl[is_clean]] = tids[i1[is_clean]]
+        # track_id auch fuer MEHRDEUTIGE. Das naechste Zentrum ist bereits
+        # gerechnet und wurde bisher verworfen.
+        # status entscheidet, was ins TRAINING geht -- daran aendert sich
+        # nichts. track_id sagt nur, WOHIN ein Event gehoert, und wird fuer
+        # die BEWERTUNG gebraucht: verschmolzene Bereiche bestehen
+        # ueberwiegend aus mehrdeutigen Events, und solange die -1 tragen,
+        # ist die Merge-Rate genau dort blind, wo sie hinschauen soll.
+        zuordenbar = is_clean | is_ambig
+        track_id[sl[zuordenbar]] = tids[i1[zuordenbar]]
 
     return track_id, status
 
@@ -187,7 +212,8 @@ def _labeling_passt(path, lb) -> bool:
             meta = json.loads(str(z["meta"]))
     except Exception:
         return False
-    return meta.get("labeling") == identity_meta(labeling=lb)["labeling"]
+    return (meta.get("labeling") == identity_meta(labeling=lb)["labeling"]
+            and meta.get("label_format") == LABEL_FORMAT)
 
 
 def build_labels_for_run(cfg: LabelCfg, run_nr, verbose=True):
@@ -213,11 +239,13 @@ def build_labels_for_run(cfg: LabelCfg, run_nr, verbose=True):
                 print(f"  run{run_nr}: existiert schon -> uebersprungen")
             return out_path, None
         raise LabelingMismatch(
-            f"{out_path.name} wurde mit ANDEREN Labeling-Parametern gebaut. "
-            f"Jetzt verlangt: r_assign={lb.r_assign}, r_ambig={lb.r_ambig}, "
-            f"box_w={lb.box_w}. Ohne io.overwrite=true wuerde still die alte "
-            "Datei weiterverwendet, und jedes Folgeartefakt hinge an "
-            "Parametern, die nie angewendet wurden.")
+            f"{out_path.name} passt nicht: entweder ANDERE Labeling-Parameter "
+            f"(jetzt verlangt: r_assign={lb.r_assign}, r_ambig={lb.r_ambig}, "
+            f"box_w={lb.box_w}) oder ein aelteres LABEL_FORMAT "
+            f"(jetzt {LABEL_FORMAT}; Format 1 trug track_id nur fuer SAUBERE "
+            "Events). Ohne io.overwrite=true wuerde still die alte Datei "
+            "weiterverwendet, und jedes Folgeartefakt hinge an einer "
+            "Bedeutung, die nie angewendet wurde.")
 
     bbox = load_bbox(split, run_nr)
     ev = load_events(split, run_nr)
@@ -256,7 +284,7 @@ def build_labels_for_run(cfg: LabelCfg, run_nr, verbose=True):
              status=status.astype(np.uint8),
              meta=config.meta_json(stage="event_labels", split=split,
                                    run=run_nr, **identity_meta(labeling=lb),
-                                   **st))
+                                   label_format=LABEL_FORMAT, **st))
 
     del ev, track_id, status
     gc.collect()                      # RAM-Druck bei Batch-Laeufen daempfen

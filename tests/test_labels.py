@@ -41,11 +41,18 @@ def test_formatzusicherungen(scene):
     assert set(np.unique(st)) <= {STATUS_CLEAN, STATUS_AMBIG, STATUS_NOISE}
 
 
-def test_track_id_genau_dann_wenn_sauber(scene):
-    """Kernzusicherung des Formats: -1 <=> nicht sauber."""
+def test_track_id_genau_dann_wenn_rauschen(scene):
+    """Kernzusicherung des Formats: -1 <=> RAUSCH.
+
+    Frueher galt -1 <=> nicht sauber. Mehrdeutige Events tragen jetzt die
+    track_id ihres naechsten Zentrums: status entscheidet, was ins TRAINING
+    geht, track_id sagt nur, WOHIN ein Event gehoert. Ohne diese Trennung
+    ist die Merge-Rate blind, weil verschmolzene Bereiche ueberwiegend aus
+    mehrdeutigen Events bestehen.
+    """
     t, x, y, bbox = scene
     tid, st = assign_track_ids(t, x, y, bbox)
-    np.testing.assert_array_equal(tid == -1, st != STATUS_CLEAN)
+    np.testing.assert_array_equal(tid == -1, st == STATUS_NOISE)
 
 
 def test_saubere_events_liegen_innerhalb_r_assign(scene):
@@ -99,11 +106,29 @@ def test_monotonie_r_ambig(scene):
 
 
 def test_mehrdeutig_wird_erkannt(make_bbox):
-    """Zwei Boxen dicht beieinander, Event exakt mittig -> MEHRDEUTIG."""
+    """Zwei Boxen dicht beieinander, Event exakt mittig -> MEHRDEUTIG.
+
+    Der Abstand zu beiden Zentren ist hier exakt gleich (3.0 px). WELCHE
+    der beiden IDs cKDTree bei Gleichstand liefert, ist nicht zugesichert
+    -- geprueft wird deshalb nur, dass ueberhaupt zugeordnet wird.
+    """
     bbox = make_bbox([(1000, 95.0, 95.0, 1), (1000, 101.0, 95.0, 2)])
     t = np.array([1000.0]); x = np.array([103.5]); y = np.array([100.5])
     tid, st = assign_track_ids(t, x, y, bbox, r_assign=8.0, r_ambig=2.0)
-    assert st[0] == STATUS_AMBIG and tid[0] == -1
+    assert st[0] == STATUS_AMBIG and tid[0] in (1, 2)
+
+
+def test_mehrdeutig_bekommt_naechstes_zentrum(make_bbox):
+    """Mehrdeutig, aber mit eindeutigem NAECHSTEN -- dessen ID muss stehen.
+
+    Zentren bei 100.5 und 106.5, Event bei 103.0: d1 = 2.5 zu Partikel 1,
+    d2 = 3.5 zu Partikel 2. Differenz 1.0 < r_ambig = 2.0 -> MEHRDEUTIG,
+    naechstes Zentrum aber eindeutig Partikel 1.
+    """
+    bbox = make_bbox([(1000, 95.0, 95.0, 1), (1000, 101.0, 95.0, 2)])
+    t = np.array([1000.0]); x = np.array([103.0]); y = np.array([100.5])
+    tid, st = assign_track_ids(t, x, y, bbox, r_assign=8.0, r_ambig=2.0)
+    assert st[0] == STATUS_AMBIG and tid[0] == 1
 
 
 def test_determinismus(scene):
