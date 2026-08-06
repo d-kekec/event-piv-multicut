@@ -2,6 +2,7 @@
 *.npz
 *.pt
 *.dat
+*.gif
 logs/
 archives/
 outputs/
