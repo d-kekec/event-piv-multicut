@@ -435,8 +435,8 @@ def solve_and_evaluate(cfg: SolveCfg, verbose=True) -> dict:
     if verbose and "purity_cluster_mean" in info:
         print(f"\n  GT-Abgleich (nur saubere Events):")
         print(f"    Cluster: {info['n_clusters']} bewertet von "
-              f"{info['n_clusters_rama']} (RAMA)  vs  "
-              f"GT-Partikel: {info['n_gt']}")
+              f"{info['n_clusters_rama']} ({info.get('backend', 'rama')})"
+              f"  vs  GT-Partikel: {info['n_gt']}")
         print(f"    Reinheit  clustergewichtet {info['purity_cluster_mean']:.3f}, "
               f"eventgewichtet {info['purity_event_mean']:.3f}, "
               f"{info['purity_lt90']} Cluster < 0.90 "
