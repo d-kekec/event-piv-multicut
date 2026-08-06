@@ -294,7 +294,8 @@ def animate_clusters(cfg: AnimClustersCfg):
 
     gt_pfad = (config.label_file(split, run_nr) if cfg.io.label_dir is None
                else Path(cfg.io.label_dir) / f"run{run_nr}_eventlabels.npz")
-    fenster = lade_fenster(sel, win, gt_pfad)
+    fenster = lade_fenster(sel, win, polarity=cfg.neighborhood.polarity,
+                           gt_path=gt_pfad)
 
     labels, info = solve_window(cfg, fenster, model, mu, sig, feature_mode)
     if labels is None:

@@ -105,6 +105,7 @@ class _Derivable:
 # runconfig darf weder scipy noch torch importieren, und die Pruefung muss
 # greifen, BEVOR der Slug existiert.
 NEIGHBORHOOD_GEOMS = ("ellipsoid", "cylinder", "hyperboloid")
+POLARITIES = ("on", "both")
 FEATURE_MODES = ("dr", "absxy", "raw6")
 IMBALANCE_MODES = ("sample", "weight")
 SOLVER_BACKENDS = ("rama", "cc")
@@ -116,14 +117,27 @@ class Neighborhood(_Typed):
     v_max wirkt nur bei geom="hyperboloid", gehoert aber hierher: er
     entscheidet dort mit, welche Kanten existieren. Ueberkonservativ ist
     zulaessig, eine bedingte Identitaetsregel waere eine spaetere Falle.
+
+    polarity waehlt die KNOTENMENGE: "on" laesst nur positive Events zu,
+    "both" alle. Es gehoert aus demselben Grund hierher wie v_max, nur
+    zwingender -- der Filter wirkt in Stufe [2] und in Stufe [4], und
+    stimmen sie nicht ueberein, sieht das Netz im Einsatz eine andere
+    Kantenpopulation als im Training. Bei r_max = 3 sind 13,8 % der Kanten
+    gemischtpolar; ohne dieses Feld wuerde ein mit beiden Polaritaeten
+    gebauter Datensatz still fuer einen ON-only-Einsatz weiterverwendet.
     """
     alpha: int = 20_000
     r_max: float = 3.0
     geom: str = "cylinder"
     v_max: float = 1.02e-4
+    polarity: str = "both"
 
     def short(self) -> str:
-        return f"a{self.alpha}_r{_num(self.r_max)}_{self.geom}"
+        # polarity IMMER im Kern, nicht nur bei Abweichung: das Feld aendert
+        # den Hash ohnehin, ein unterdruecktes Suffix erspart also keinen
+        # Umzug und macht den Pfad nur unleserlicher.
+        return (f"a{self.alpha}_r{_num(self.r_max)}_{self.geom}"
+                f"_{self.polarity}")
 
     def __post_init__(self) -> None:
         super().__post_init__()          # Typcast aus _Typed zuerst
@@ -133,6 +147,10 @@ class Neighborhood(_Typed):
             raise ValueError(
                 f"neighborhood.geom={self.geom!r} unbekannt. "
                 f"Erlaubt: {NEIGHBORHOOD_GEOMS}")
+        if self.polarity not in POLARITIES:
+            raise ValueError(
+                f"neighborhood.polarity={self.polarity!r} unbekannt. "
+                f"Erlaubt: {POLARITIES}")
 
 @dataclass
 class PairSampling(_Typed):

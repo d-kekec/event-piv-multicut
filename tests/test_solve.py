@@ -110,7 +110,8 @@ def test_vorgabe_aendert_den_dateinamen_nicht():
 
 def test_fenster_ohne_gt(mini_datensatz):
     f = lade_fenster(Selection(split="train", run_nr=1),
-                     Window(t0=450_000, dt=20_000), gt_path=None)
+                     Window(t0=450_000, dt=20_000),
+                     polarity="both", gt_path=None)
     assert len(f) > 0 and not f.hat_gt
     assert f.t.dtype == np.float64 and f.x.dtype == np.float64
     assert len(f.p) == len(f)
@@ -119,7 +120,7 @@ def test_fenster_ohne_gt(mini_datensatz):
 def test_fehlende_gt_datei_ist_kein_fehler(mini_datensatz):
     """Der Normalfall auf echten Messdaten -- dort gibt es keine Labels."""
     f = lade_fenster(Selection(split="train", run_nr=1),
-                     Window(t0=450_000, dt=20_000),
+                     Window(t0=450_000, dt=20_000), polarity="both",
                      gt_path=mini_datensatz.out / "gibtsnicht.npz")
     assert not f.hat_gt and f.track_id is None and f.status is None
 
@@ -134,7 +135,8 @@ def test_fenster_mit_gt_ist_ausgerichtet(mini_datensatz):
 
     sel, win = Selection(split="train", run_nr=1), Window(t0=450_000,
                                                           dt=20_000)
-    f = lade_fenster(sel, win, config.label_file("train", 1))
+    f = lade_fenster(sel, win, polarity="both",
+                     gt_path=config.label_file("train", 1))
     assert f.hat_gt
     assert len(f.track_id) == len(f) and len(f.status) == len(f)
     # Mitten in der Kreuzung -- alle drei Statusklassen muessen vorkommen.
@@ -216,3 +218,42 @@ def test_kantenstatistik_kommt_aus_dem_fenster():
     ohne = Fenster(**gem)
     _, info2 = solve_window(cfg, ohne, modell, mu, sig, "dr", verbose=False)
     assert "edge_ja_frac" not in info2
+
+
+# --- ON-only ----------------------------------------------------------
+
+def test_polarity_on_laesst_nur_positive_events_durch(mini_datensatz):
+    sel, win = Selection(split="train", run_nr=1), Window(t0=450_000,
+                                                          dt=20_000)
+    beide = lade_fenster(sel, win, polarity="both")
+    nur_on = lade_fenster(sel, win, polarity="on")
+    assert set(np.unique(nur_on.p)) == {1}
+    assert len(nur_on) == int((beide.p == 1).sum())
+    assert 0 < len(nur_on) < len(beide)
+
+
+def test_gt_bleibt_unter_der_maske_ausgerichtet(mini_datensatz):
+    """Erst ausrichten, dann filtern. Andersherum bekaeme align_gt_window
+    eine Teilfolge und liefe sofort auseinander."""
+    from eventpiv.labels import build_labels
+    from eventpiv.runconfig import LabelCfg, Labeling
+    build_labels(LabelCfg(io=IO(), labeling=Labeling(),
+                          selection=Selection(split="train")), verbose=False)
+
+    sel, win = Selection(split="train", run_nr=1), Window(t0=450_000,
+                                                          dt=20_000)
+    gt = config.label_file("train", 1)
+    beide = lade_fenster(sel, win, polarity="both", gt_path=gt)
+    nur_on = lade_fenster(sel, win, polarity="on", gt_path=gt)
+
+    assert len(nur_on.track_id) == len(nur_on)
+    np.testing.assert_array_equal(nur_on.track_id,
+                                  beide.track_id[beide.p == 1])
+    np.testing.assert_array_equal(nur_on.status, beide.status[beide.p == 1])
+
+
+def test_polarity_ist_pflicht():
+    """Ohne Vorgabewert: ein vergessener Filter faellt an keiner Kennzahl
+    auf, also muss er beim Aufruf auffallen."""
+    with pytest.raises(TypeError):
+        lade_fenster(Selection(split="train", run_nr=1), Window())

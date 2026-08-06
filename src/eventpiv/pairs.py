@@ -34,7 +34,7 @@ from pathlib import Path
 import numpy as np
 
 from eventpiv import config
-from eventpiv.graph import neighborhood_pairs
+from eventpiv.graph import neighborhood_pairs, polarity_mask
 from eventpiv.labels import STATUS_CLEAN
 from eventpiv.runconfig import PairCfg, identity_meta
 
@@ -163,7 +163,11 @@ def build_pairs_for_run(cfg: PairCfg, run_nr, want_label, win_dt):
             f"{path} fehlt -- erst scripts/build_event_labels.py "
             f"selection.split={ps.split} selection.runs=[{run_nr}] laufen lassen.")
     with np.load(path) as d:
-        return collect_pairs(d["t"], d["x"], d["y"], d["track_id"], d["status"],
+        # VOR dem float64-Cast in collect_pairs: bei polarity="on" halbiert
+        # das nebenbei den festen Speicheraufwand je Run.
+        m = polarity_mask(d["p"], nb.polarity)
+        return collect_pairs(d["t"][m], d["x"][m], d["y"][m],
+                             d["track_id"][m], d["status"][m],
                              alpha=nb.alpha, r_max=nb.r_max, geom=nb.geom,
                              win_offsets=tuple(ps.win_offsets), win_dt=win_dt,
                              slab_dt=ps.slab_dt, want_label=want_label)

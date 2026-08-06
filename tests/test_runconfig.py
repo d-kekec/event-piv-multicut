@@ -149,3 +149,18 @@ def test_derivable_ohne_abgeleitete_gruppe_bricht_ab():
 
     with pytest.raises(RuntimeError, match="abgeleiteten"):
         Leer().resolve_derived()
+
+
+def test_polarity_gehoert_zur_identitaet():
+    """Der Filter wirkt in [2] UND [4]. Ohne ihn in der Identitaet wuerde
+    ein mit beiden Polaritaeten gebauter Datensatz still fuer einen
+    ON-only-Einsatz weiterverwendet -- dieselbe Fehlerklasse wie FIELDS."""
+    a, b = Neighborhood(polarity="both"), Neighborhood(polarity="on")
+    assert not same_neighborhood(a, b)
+    assert slug(a) != slug(b)
+    assert a.short().endswith("_both") and b.short().endswith("_on")
+
+
+def test_unbekannte_polaritaet_faellt_zur_konfigurationszeit_auf():
+    with pytest.raises(ValueError, match="polarity"):
+        Neighborhood(polarity="off")

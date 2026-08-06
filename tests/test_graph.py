@@ -10,7 +10,8 @@ sich Parameter oder Implementierung aendern.
 import numpy as np
 import pytest
 
-from eventpiv.graph import edge_deltas, neighborhood_pairs, NEIGHBORHOOD_GEOMS, V_MAX_DEFAULT
+from eventpiv.graph import (edge_deltas, neighborhood_pairs, polarity_mask,
+                            NEIGHBORHOOD_GEOMS, V_MAX_DEFAULT)
 
 
 def brute_force_geom(t, x, y, alpha, r_max, geom, v_max=V_MAX_DEFAULT):
@@ -162,3 +163,61 @@ def test_determinismus(wolke):
     b = neighborhood_pairs(t, x, y, 10_000, 7.0)
     np.testing.assert_array_equal(a[0], b[0])
     np.testing.assert_array_equal(a[1], b[1])
+
+# --- polarity_mask: die Knotenmenge ------------------------------------
+
+def test_polarity_both_laesst_alles_durch():
+    p = np.array([1, 0, 1, 1, 0], np.uint8)
+    assert polarity_mask(p, "both").all()
+
+
+def test_polarity_on_nimmt_genau_die_positiven():
+    p = np.array([1, 0, 1, 1, 0], np.uint8)
+    np.testing.assert_array_equal(polarity_mask(p, "on"),
+                                  [True, False, True, True, False])
+
+
+def test_maske_hat_immer_eventlaenge_und_ist_boolesch():
+    """Sie indiziert vier Arrays gleichzeitig (t, x, y, GT) -- eine
+    Index-Maske statt einer booleschen wuerde dort still etwas anderes tun."""
+    for pol in ("on", "both"):
+        m = polarity_mask(np.array([1, 0, 1], np.uint8), pol)
+        assert m.dtype == bool and len(m) == 3
+
+
+def test_leere_eingabe():
+    for pol in ("on", "both"):
+        assert len(polarity_mask(np.empty(0, np.uint8), pol)) == 0
+
+
+def test_unbekannte_polaritaet_faellt_auf():
+    """Doppelt mit Neighborhood.__post_init__ -- absichtlich, wie bei geom:
+    die Funktion ist rein und auch ohne Konfiguration aufrufbar."""
+    with pytest.raises(ValueError, match="polarity"):
+        polarity_mask(np.array([1, 0], np.uint8), "off")
+
+
+def test_on_only_entfernt_die_gemischtpolaren_kanten(wolke):
+    """Der Sinn des Filters, an der Kantenmenge gemessen.
+
+    Die ON- und die OFF-Sichel eines Partikels liegen rund 6 px
+    auseinander; die Kanten ZWISCHEN ihnen sind die schwaechste Bindung
+    innerhalb eines Partikels und reissen zuerst. Unter "on" bleiben nur
+    Kanten uebrig, deren beide Endpunkte positiv sind -- und die Menge ist
+    genau die Teilmenge der vollen, nicht eine andere.
+    """
+    t, x, y = wolke
+    rng = np.random.default_rng(7)
+    p = rng.integers(0, 2, len(t)).astype(np.uint8)
+
+    voll = set(als_menge(*neighborhood_pairs(t, x, y, 10_000, 7.0)))
+
+    m = polarity_mask(p, "on")
+    idx = np.flatnonzero(m)                 # lokal -> global
+    i, j = neighborhood_pairs(t[m], x[m], y[m], 10_000, 7.0)
+    gefiltert = ungerichtet(zip(idx[i].tolist(), idx[j].tolist()))
+
+    assert gefiltert <= ungerichtet(voll)
+    assert gefiltert == {(a, b) for a, b in ungerichtet(voll)
+                         if p[a] == 1 and p[b] == 1}
+    assert len(gefiltert) < len(voll)

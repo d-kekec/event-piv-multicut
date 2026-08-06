@@ -24,7 +24,8 @@ from __future__ import annotations
 
 import numpy as np
 from scipy.spatial import cKDTree
-from eventpiv.runconfig import NEIGHBORHOOD_GEOMS, Neighborhood, Solver
+from eventpiv.runconfig import (NEIGHBORHOOD_GEOMS, POLARITIES, Neighborhood,
+                                Solver)
 
 # EINE Quelle fuer diese Zahlen: runconfig. Die Namen bleiben hier bestehen
 # (Tests und Standardargumente benutzen sie), ihren Wert beziehen sie von
@@ -38,6 +39,43 @@ K_MAX_DEFAULT = Solver().k_max        # k-NN-Kappung
 def time_scale(alpha: float, r_max: float) -> float:
     """Skalierung der Zeitachse, damit alpha in der Metrik r_max entspricht."""
     return r_max / alpha
+
+
+def polarity_mask(p, polarity: str) -> np.ndarray:
+    """Welche Events als KNOTEN zugelassen sind. Boolesche Maske.
+
+    Liegt aus demselben Grund hier wie neighborhood_pairs: Stufe [2] und
+    Stufe [4] muessen dieselbe Knotenmenge bilden. Zwei Fassungen dieser
+    Regel waeren zwei Wahrheiten ueber dieselbe Frage, und die Abweichung
+    faellt an keiner Kennzahl auf -- sie sieht aus wie ein anderer
+    Arbeitspunkt.
+
+    "on"   nur positive Events. Die ON-Sichel liegt in Bewegungsrichtung
+           vor dem Boxzentrum, die OFF-Sichel gleich weit dahinter; die
+           Kanten ZWISCHEN beiden sind die schwaechste Bindung innerhalb
+           eines Partikels und reissen deshalb zuerst. Sie fallen hier
+           ganz weg.
+    "both" alle Events.
+
+    OFF-Events bleiben in der Datei. Stufe 2 braucht sie fuer Zentrum und
+    Richtung: der Mittelwert beider Zentroiden ist erwartungstreu fuer die
+    Partikelposition, ihr Abstand |D| ist der einzige belastbare
+    Richtungsschaetzer. Gefiltert wird der GRAPH, nicht der Datensatz.
+
+    WICHTIG bei der Anwendung: erst auf dem ungefilterten Strom ausrichten
+    (evaluate.align_gt_window), dann dieselbe Maske auf beide Seiten. Ein
+    bereits gefilterter Strom ist eine Teilfolge, und die Ausrichtung
+    laeuft sofort auseinander.
+    """
+    p = np.asarray(p)
+    if polarity == "both":
+        return np.ones(len(p), dtype=bool)
+    if polarity == "on":
+        return p == 1
+    # Doppelt mit Neighborhood.__post_init__ -- absichtlich, wie bei geom:
+    # die Funktion ist rein und auch ohne Konfiguration aufrufbar.
+    raise ValueError(f"polarity muss in {POLARITIES} liegen")
+
 
 def neighborhood_pairs(t, x, y, alpha, r_max, *,
                        geom: str = "ellipsoid",
@@ -148,7 +186,6 @@ def neighborhood_pairs(t, x, y, alpha, r_max, *,
         i, j = i[uniq], j[uniq]
 
     return i.astype(np.int64), j.astype(np.int64)
-
 
 
 def edge_deltas(t, x, y, i, j):

@@ -3,18 +3,20 @@
 """
 solve.py -- BAUSTEIN [4]: NN-Kantenkosten -> RAMA -> Cluster.
 
-Vier getrennte Zustaendigkeiten:
+Getrennte Zustaendigkeiten:
 
+  lade_fenster              Events + ausgerichtete GT, gefiltert (hier)
   graph.neighborhood_pairs  Kanten            (eigenes Modul, mit pairs geteilt)
   edge_costs                Kosten je Kante   (hier)
-  solve_multicut            RAMA              (hier)
+  solve_multicut/solve_cc   Solver            (hier, ueber solver.backend)
   evaluate.cluster_metrics  GT-Abgleich       (eigenes Modul)
   solve_and_evaluate        setzt es zusammen (hier)
 
 Nutzen: Auswertung und Visualisierung importieren die Teile einzeln, und
-solve_window laeuft dadurch auch ohne Ground Truth. Die Prozess-Isolation
-gegen VRAM-Abstuerze liegt in den sbatch-Skripten (ein Python-Prozess je
-Lauf), nicht im Python-Code.
+solve_window laeuft ohne Ground Truth wie mit. Laden und Rechnen sind
+getrennt -- solve_window bekommt ein fertiges Fenster und ist damit frei
+von Pfaden. Die Prozess-Isolation gegen VRAM-Abstuerze liegt in den
+sbatch-Skripten (ein Python-Prozess je Lauf), nicht im Python-Code.
 
 POINTER-PFAD-REGELN, hart:
   i,j int32 | costs float32 | node_labels int32-PUFFER selbst anlegen
@@ -39,7 +41,7 @@ from scipy.sparse.csgraph import connected_components
 from eventpiv import config
 from eventpiv.data import load_events
 from eventpiv.evaluate import align_gt_window, cluster_metrics, edge_gt_stats
-from eventpiv.graph import edge_deltas, neighborhood_pairs
+from eventpiv.graph import edge_deltas, neighborhood_pairs, polarity_mask
 from eventpiv.model import SWAP_RAW6, build_features, is_symmetric
 from eventpiv.runconfig import Neighborhood, SolveCfg, identity_meta
 
@@ -286,7 +288,7 @@ class Fenster:
         return len(self.t)
 
 
-def lade_fenster(sel, win, gt_path=None) -> Fenster:
+def lade_fenster(sel, win, *, polarity, gt_path=None) -> Fenster:
     """Laedt ein Zeitfenster eines Runs und richtet die GT darauf aus.
 
     Vom Loesen getrennt, weil beides verschiedene Kosten hat: Laden ist
@@ -302,19 +304,32 @@ def lade_fenster(sel, win, gt_path=None) -> Fenster:
     Hoechststand, und die GT-Spitze lag vorher nur hinter der des KDTrees
     statt davor.
 
+    polarity ist Pflicht und ohne Vorgabewert: ein stillschweigend
+    vergessener Filter waere im Einsatz eine andere Knotenmenge als im
+    Training, und das faellt an keiner Kennzahl auf.
+
     gt_path = None oder eine fehlende Datei heisst: keine GT. Kein Fehler.
     """
     ev = load_events(sel.split, sel.run_nr, t0=win.t0, dt=win.dt)
-    f = Fenster(t=ev["t"].astype(np.float64),
-                x=ev["x"].astype(np.float64),
-                y=ev["y"].astype(np.float64),
-                p=ev["p"])
+    t = ev["t"].astype(np.float64)
+    x = ev["x"].astype(np.float64)
+    y = ev["y"].astype(np.float64)
+
+    # REIHENFOLGE, und sie ist nicht beliebig: erst auf dem UNGEFILTERTEN
+    # Strom ausrichten, dann dieselbe Maske auf beide Seiten. Umgekehrt
+    # bekaeme align_gt_window eine Teilfolge, die Positionen liefen sofort
+    # auseinander, und die Meldung zeigte auf die falsche Ursache.
+    tid = sta = None
     if gt_path is not None and Path(gt_path).exists():
         with np.load(gt_path) as g:
-            sl = align_gt_window(g["t"], f.t)
-            f.track_id = g["track_id"][sl]
-            f.status = g["status"][sl]
-    return f
+            sl = align_gt_window(g["t"], t)
+            tid = g["track_id"][sl]
+            sta = g["status"][sl]
+
+    m = polarity_mask(ev["p"], polarity)
+    return Fenster(t=t[m], x=x[m], y=y[m], p=ev["p"][m],
+                   track_id=None if tid is None else tid[m],
+                   status=None if sta is None else sta[m])
 
 
 def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
@@ -467,7 +482,8 @@ def solve_and_evaluate(cfg: SolveCfg, verbose=True) -> dict:
                if cfg.io.label_dir
                else config.label_file(sel.split, sel.run_nr))
 
-    fenster = lade_fenster(sel, win, gt_path)
+    fenster = lade_fenster(sel, win, polarity=cfg.neighborhood.polarity,
+                           gt_path=gt_path)
 
     labels, info = solve_window(cfg, fenster, model, mu, sig, feature_mode,
                                 verbose)
