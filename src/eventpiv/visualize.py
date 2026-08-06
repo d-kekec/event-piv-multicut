@@ -264,9 +264,9 @@ def animate_clusters(cfg: AnimClustersCfg):
     Der Modellpfad wird ABGELEITET wie beim Solve; cfg.io.model_path ist der
     Notausgang. Rueckgabe: (gif_pfad, info) mit den Cluster-Metriken.
     """
-    from eventpiv.evaluate import align_gt_window, cluster_metrics
+    from eventpiv.evaluate import cluster_metrics
     from eventpiv.model import load_checkpoint
-    from eventpiv.solve import check_consistency, solve_window
+    from eventpiv.solve import check_consistency, lade_fenster, solve_window
 
     sel, win, an = cfg.selection, cfg.window, cfg.anim
     split, run_nr = sel.split, sel.run_nr
@@ -291,24 +291,24 @@ def animate_clusters(cfg: AnimClustersCfg):
 
     print(f"run{run_nr} ({split}), Fenster [{win.t0/1000:.0f}ms "
           f"+{win.dt/1000:.1f}ms], Netz {mpath.name}")
-    labels, ev, info = solve_window(cfg, model, mu, sig, feature_mode)
+
+    gt_pfad = (config.label_file(split, run_nr) if cfg.io.label_dir is None
+               else Path(cfg.io.label_dir) / f"run{run_nr}_eventlabels.npz")
+    fenster = lade_fenster(sel, win, gt_pfad)
+
+    labels, info = solve_window(cfg, fenster, model, mu, sig, feature_mode)
     if labels is None:
         raise ValueError("Keine Loesung (leeres Fenster oder keine Kanten).")
 
+    # Koordinaten fuer das Zeichnen: der Loeser rechnet in float64, die
+    # Leinwand adressiert in Pixeln.
+    t = fenster.t
+    x = fenster.x.astype(np.int64)
+    y = fenster.y.astype(np.int64)
+
+    tid, sta = fenster.track_id, fenster.status
     show_gt = an.show_gt
-
-    t = ev["t"]
-    x = ev["x"].astype(np.int64)
-    y = ev["y"].astype(np.int64)
-
-    # --- GT laden, falls vorhanden ---
-    tid = sta = None
-    gt_pfad = (config.label_file(split, run_nr) if cfg.io.label_dir is None
-               else Path(cfg.io.label_dir) / f"run{run_nr}_eventlabels.npz")
-    if gt_pfad.exists():
-        with np.load(gt_pfad) as gt:
-            sl = align_gt_window(gt["t"], t)
-            tid, sta = gt["track_id"][sl], gt["status"][sl]
+    if fenster.hat_gt:
         info.update(cluster_metrics(labels, tid, sta))
         print(f"  Reinheit cluster {info['purity_cluster_mean']:.3f} / "
               f"event {info['purity_event_mean']:.3f}  "

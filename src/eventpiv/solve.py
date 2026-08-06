@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import time
 import resource
+from dataclasses import dataclass
 
 import numpy as np
 import torch
@@ -253,36 +254,98 @@ def info_groups(info: dict) -> dict:
     return gruppen
 
 
-def solve_window(cfg: SolveCfg, model, mu, sig, feature_mode, verbose=True,
-                 on_edges=None):
-    """Ein Zeitfenster eines Runs loesen. Rueckgabe: (labels, events, info).
+@dataclass
+class Fenster:
+    """Ein geladenes Zeitfenster: Events und, falls vorhanden, die dazu
+    AUSGERICHTETE Ground Truth.
+
+    Warum ein eigener Typ und kein dict: die Ausrichtung der GT auf den
+    Eventstrom ist die fehleranfaelligste Stelle dieser Stufe --
+    align_gt_window existiert nur deswegen, und ein gefilterter Strom
+    laeuft dort sofort auseinander. Ein Typ macht "ausgerichtet oder gar
+    nicht" zu einer Eigenschaft des Objekts statt zu einer Zusage im Kopf.
+
+    track_id und status sind None, wenn es keine Label-Datei gibt -- der
+    Normalfall auf echten Messdaten. Sie sind NIE einzeln None.
+
+    t, x, y in float64, weil der KDTree das erwartet. p bleibt in seinem
+    Speicherformat: es geht in keine Rechnung ein.
+    """
+    t: np.ndarray
+    x: np.ndarray
+    y: np.ndarray
+    p: np.ndarray
+    track_id: np.ndarray | None = None
+    status: np.ndarray | None = None
+
+    @property
+    def hat_gt(self) -> bool:
+        return self.track_id is not None
+
+    def __len__(self) -> int:
+        return len(self.t)
+
+
+def lade_fenster(sel, win, gt_path=None) -> Fenster:
+    """Laedt ein Zeitfenster eines Runs und richtet die GT darauf aus.
+
+    Vom Loesen getrennt, weil beides verschiedene Kosten hat: Laden ist
+    I/O ueber NFS, Loesen ist Rechnen. solve_window ist dadurch frei von
+    Pfaden und laesst sich auf vorgerechneten Arrays pruefen.
+
+    Die GT wird EINMAL geladen und sofort geschnitten. Die vollen Arrays
+    (rund 190 MB je Run) leben nur innerhalb des with-Blocks; was das
+    Fenster behaelt, ist fenstergross. Vorher geschah dasselbe zweimal --
+    einmal fuer die Kantenstatistik, einmal fuer den Cluster-Abgleich.
+
+    Die Spitze im Speicher aendert sich dadurch NICHT: ru_maxrss ist ein
+    Hoechststand, und die GT-Spitze lag vorher nur hinter der des KDTrees
+    statt davor.
+
+    gt_path = None oder eine fehlende Datei heisst: keine GT. Kein Fehler.
+    """
+    ev = load_events(sel.split, sel.run_nr, t0=win.t0, dt=win.dt)
+    f = Fenster(t=ev["t"].astype(np.float64),
+                x=ev["x"].astype(np.float64),
+                y=ev["y"].astype(np.float64),
+                p=ev["p"])
+    if gt_path is not None and Path(gt_path).exists():
+        with np.load(gt_path) as g:
+            sl = align_gt_window(g["t"], f.t)
+            f.track_id = g["track_id"][sl]
+            f.status = g["status"][sl]
+    return f
+
+
+def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
+                 feature_mode, verbose=True, on_edges=None):
+    """Ein GELADENES Zeitfenster loesen. Rueckgabe: (labels, info).
+
+    Laedt nichts. Das Fenster kommt fertig herein (lade_fenster), und
+    damit ist die Funktion frei von Pfaden und I/O -- pruefbar auf
+    vorgerechneten Arrays, ohne Datensatz.
 
     on_edges : optional Callable(i, j, t, x, y) -> dict. Die Kanten
-        existieren nur hier, und die GT kennt solve_window bewusst NICHT --
-        so laeuft die Funktion auch auf Runs ohne Label-Datei, also auf
-        echten Messdaten. Die Senke bekommt beides zusammen und gibt kleine
-        Kennzahlen zurueck; nichts Grosses verlaesst die Funktion. Dieselbe
-        Loesung wie on_epoch im Training.
+        existieren nur hier; die Senke bekommt sie zusammen mit den
+        Koordinaten und gibt kleine Kennzahlen zurueck. Nichts Grosses
+        verlaesst die Funktion. Dieselbe Loesung wie on_epoch im Training.
 
     Nimmt die Konfiguration statt zwoelf Einzelargumenten entgegen; gelesen
-    werden selection, window, neighborhood, solver und compute. Geschrieben
-    wird NIE in cfg.
+    werden window, neighborhood, solver und compute. Geschrieben wird NIE
+    in cfg.
     """
     nb, sv, cp = cfg.neighborhood, cfg.solver, cfg.compute
-    sel, win = cfg.selection, cfg.window
+    win = cfg.window
 
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
 
-    ev = load_events(sel.split, sel.run_nr, t0=win.t0, dt=win.dt)
-    t = ev["t"].astype(np.float64)
-    x = ev["x"].astype(np.float64)
-    y = ev["y"].astype(np.float64)
-    n = len(t)
+    t, x, y = fenster.t, fenster.x, fenster.y
+    n = len(fenster)
     if verbose:
         print(f"  {n:,} Events")
     if n == 0:
-        return None, {"t": t, "x": x, "y": y}, {"n_events": 0}
+        return None, {"n_events": 0}
 
     tic = time.time()
     i, j = neighborhood_pairs(t, x, y, nb.alpha, nb.r_max, geom=nb.geom,
@@ -292,7 +355,7 @@ def solve_window(cfg: SolveCfg, model, mu, sig, feature_mode, verbose=True,
     if verbose:
         print(f"  {len(i):,} Kanten [{t_graph:.1f}s, {nb.geom}]")
     if len(i) == 0:
-        return None, {"t": t, "x": x, "y": y}, {"n_events": n, "n_edges": 0}
+        return None, {"n_events": n, "n_edges": 0}
 
     tic = time.time()
     costs = edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, cp)
@@ -357,7 +420,7 @@ def solve_window(cfg: SolveCfg, model, mu, sig, feature_mode, verbose=True,
             "max_rss_mb": round(
                 resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
             **kanten}
-    return labels, {"t": t, "x": x, "y": y}, info
+    return labels, info
 
 
 def solve_and_evaluate(cfg: SolveCfg, verbose=True) -> dict:
@@ -401,36 +464,29 @@ def solve_and_evaluate(cfg: SolveCfg, verbose=True) -> dict:
                if cfg.io.label_dir
                else config.label_file(sel.split, sel.run_nr))
 
+    fenster = lade_fenster(sel, win, gt_path)
+
     def kantensenke(i, j, t, x, y):
-        """Richtet die GT auf das Fenster aus und misst die Kanten.
+        """Misst die Kanten gegen die bereits ausgerichtete GT."""
+        return edge_gt_stats(i, j, t, x, y,
+                             fenster.track_id, fenster.status)
 
-        Laedt die Label-Datei ein ZWEITES Mal -- der Preis dafuer, dass die
-        vollen GT-Arrays (rund 400 MB) nicht waehrend des Graphbaus im
-        Speicher liegen, und der ist die RAM-kritische Phase.
-        """
-        with np.load(gt_path) as g:
-            sl = align_gt_window(g["t"], t)
-            return edge_gt_stats(i, j, t, x, y,
-                                 g["track_id"][sl], g["status"][sl])
-
-    labels, ev, info = solve_window(
-        cfg, model, mu, sig, feature_mode, verbose,
-        on_edges=kantensenke if gt_path.exists() else None)
+    labels, info = solve_window(
+        cfg, fenster, model, mu, sig, feature_mode, verbose,
+        on_edges=kantensenke if fenster.hat_gt else None)
     info["run"] = sel.run_nr
 
     if labels is None:
         return info
-    if not gt_path.exists():
+    if not fenster.hat_gt:
         if verbose:
             print(f"  keine GT-Datei ({gt_path.name}) -> kein Abgleich")
         return info
 
-    with np.load(gt_path) as gt:
-        sl = align_gt_window(gt["t"], ev["t"])
-        tic = time.time()
-        info.update(cluster_metrics(labels, gt["track_id"][sl],
-                                    gt["status"][sl], t=ev["t"]))
-        info["t_eval"] = time.time() - tic
+    tic = time.time()
+    info.update(cluster_metrics(labels, fenster.track_id, fenster.status,
+                                t=fenster.t))
+    info["t_eval"] = time.time() - tic
 
     if verbose and "purity_cluster_mean" in info:
         print(f"\n  GT-Abgleich (nur saubere Events):")

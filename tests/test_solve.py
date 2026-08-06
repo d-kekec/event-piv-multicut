@@ -7,9 +7,13 @@ auf der bekannten Instanz liefert, steht in RAMA_Anbindung.md §5.1.
 """
 import numpy as np
 import pytest
+import torch
 
-from eventpiv.runconfig import Solver
-from eventpiv.solve import SOLVER_FUNKTIONEN, solve_cc
+from eventpiv import config
+from eventpiv.runconfig import (IO, Compute, Neighborhood, PairSampling,
+                                Selection, SolveCfg, Solver, Training, Window)
+from eventpiv.solve import (SOLVER_FUNKTIONEN, Fenster, lade_fenster,
+                            solve_cc, solve_window)
 
 
 def test_formatzusicherungen():
@@ -101,3 +105,83 @@ def test_vorgabe_aendert_den_dateinamen_nicht():
     """Der Anker muss unter demselben Pfad erreichbar bleiben."""
     assert Solver().short() == "P"
     assert Solver(backend="cc").short() == "P_cc"
+
+# --- Fenster und lade_fenster -----------------------------------------
+
+def test_fenster_ohne_gt(mini_datensatz):
+    f = lade_fenster(Selection(split="train", run_nr=1),
+                     Window(t0=450_000, dt=20_000), gt_path=None)
+    assert len(f) > 0 and not f.hat_gt
+    assert f.t.dtype == np.float64 and f.x.dtype == np.float64
+    assert len(f.p) == len(f)
+
+
+def test_fehlende_gt_datei_ist_kein_fehler(mini_datensatz):
+    """Der Normalfall auf echten Messdaten -- dort gibt es keine Labels."""
+    f = lade_fenster(Selection(split="train", run_nr=1),
+                     Window(t0=450_000, dt=20_000),
+                     gt_path=mini_datensatz.out / "gibtsnicht.npz")
+    assert not f.hat_gt and f.track_id is None and f.status is None
+
+
+def test_fenster_mit_gt_ist_ausgerichtet(mini_datensatz):
+    """track_id und status haben Fensterlaenge, nicht Runlaenge -- die
+    Ausrichtung ist die fehleranfaelligste Stelle der Stufe."""
+    from eventpiv.labels import build_labels
+    from eventpiv.runconfig import LabelCfg, Labeling
+    build_labels(LabelCfg(io=IO(), labeling=Labeling(),
+                          selection=Selection(split="train")), verbose=False)
+
+    sel, win = Selection(split="train", run_nr=1), Window(t0=450_000,
+                                                          dt=20_000)
+    f = lade_fenster(sel, win, config.label_file("train", 1))
+    assert f.hat_gt
+    assert len(f.track_id) == len(f) and len(f.status) == len(f)
+    # Mitten in der Kreuzung -- alle drei Statusklassen muessen vorkommen.
+    assert set(np.unique(f.status)) == {0, 1, 2}
+
+
+def test_solve_window_braucht_keinen_datensatz():
+    """Der eigentliche Gewinn der Aufteilung: die Funktion laedt nichts
+    mehr und laesst sich auf von Hand gebauten Arrays pruefen -- ohne
+    Datensatz, ohne Label-Datei, ohne Pfade."""
+    from eventpiv.model import EdgeMLP, n_features
+
+    rng = np.random.default_rng(0)
+    # Zwei dichte Wolken, weit auseinander.
+    t = np.repeat(np.arange(40, dtype=np.float64) * 100.0, 2)
+    x = np.tile([100.0, 400.0], 40) + rng.normal(0, 1.0, 80)
+    y = np.tile([100.0, 400.0], 40) + rng.normal(0, 1.0, 80)
+    o = np.argsort(t, kind="stable")
+    f = Fenster(t=t[o], x=x[o], y=y[o], p=np.ones(80, np.uint8))
+
+    cfg = SolveCfg(io=IO(), neighborhood=Neighborhood(alpha=10_000, r_max=5.0,
+                                                      geom="cylinder"),
+                   pairs=PairSampling(), training=Training(),
+                   solver=Solver(backend="cc"),
+                   selection=Selection(split="train", run_nr=1),
+                   window=Window(t0=0, dt=10_000),
+                   compute=Compute(device="cpu", cost_batch=1_000_000))
+
+    modell = EdgeMLP(n_features("dr"), 4)
+    labels, info = solve_window(cfg, f, modell, torch.zeros(2),
+                                torch.ones(2), "dr", verbose=False)
+    assert info["n_edges"] > 0
+    assert labels is not None and len(labels) == len(f)
+
+
+def test_leeres_fenster_bricht_nicht_ab():
+    from eventpiv.model import EdgeMLP, n_features
+
+    leer = np.empty(0, np.float64)
+    f = Fenster(t=leer, x=leer, y=leer, p=np.empty(0, np.uint8))
+    cfg = SolveCfg(io=IO(), neighborhood=Neighborhood(),
+                   pairs=PairSampling(), training=Training(),
+                   solver=Solver(backend="cc"),
+                   selection=Selection(split="train", run_nr=1),
+                   window=Window(),
+                   compute=Compute(device="cpu"))
+    labels, info = solve_window(cfg, f, EdgeMLP(n_features("dr"), 4),
+                                torch.zeros(2), torch.ones(2), "dr",
+                                verbose=False)
+    assert labels is None and info["n_events"] == 0
