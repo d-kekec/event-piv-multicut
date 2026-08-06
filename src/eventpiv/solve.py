@@ -32,6 +32,8 @@ import resource
 import numpy as np
 import torch
 from pathlib import Path
+from scipy.sparse import coo_array
+from scipy.sparse.csgraph import connected_components
 
 from eventpiv import config
 from eventpiv.data import load_events
@@ -136,6 +138,59 @@ def solve_multicut(i, j, costs_gpu, num_nodes, cp, mode="PD"):
     torch.cuda.synchronize()
     return node_labels.cpu().numpy()
 
+
+def solve_cc(i, j, costs, num_nodes, cp=None, mode=None):
+    """Zusammenhangskomponenten des nicht-negativen Teilgraphen.
+
+    Vergleichssolver zu solve_multicut, mit derselben Signatur -- der
+    Aufrufer tauscht die Funktion, nicht seinen Code. cp und mode werden
+    ignoriert und stehen nur da, damit die Signaturen austauschbar bleiben.
+
+    VERFAHREN: alle Kanten mit NEGATIVEN Kosten loeschen, vom Rest die
+    Zusammenhangskomponenten. Kosten von exakt 0 bleiben also erhalten --
+    dieselbe Lesart wie solve/frac_neg, das 0 als nicht-negativ zaehlt.
+
+    Was CC nicht kann: die Zyklusbedingung. Multicut darf eine positive
+    Kante schneiden, wenn die Bilanz es verlangt; CC nie. Zwei Wolken
+    verschmelzen hier deshalb, sobald EINE Kante zwischen ihnen positiv
+    ist. Genau das ist der Fehler, den Stufe 1 nicht machen darf, und
+    deshalb ist diese Funktion ein Ergebnis und kein Hilfsmittel.
+
+    Kantenlose Knoten bekommen -1 wie bei RAMA (dort ueber
+    sanitize_graph). Ohne diese Angleichung waeren n_clusters_rama und
+    n_nodes_unassigned zwischen den beiden Solvern nicht vergleichbar --
+    und der Vergleich ist der ganze Zweck. Ein Knoten, der Kanten hat, aber
+    nur negative, bekommt dagegen eine echte eigene Cluster-ID: er ist
+    zugeordnet, nur allein.
+
+    scipy statt eigenem Union-Find: dieselbe Rechnung, aber in C. Eine
+    Python-Schleife ueber 12,5 Mio. Kanten waere Minuten.
+
+    Laeuft auf der CPU und braucht weder GPU noch RAMA. Rueckgabe:
+    node_labels (numpy int32) der Laenge num_nodes.
+    """
+    c = costs.detach().cpu().numpy() if hasattr(costs, "detach") else np.asarray(costs)
+    i, j = np.asarray(i), np.asarray(j)
+    if len(i) == 0 or num_nodes == 0:
+        raise ValueError("Leere Instanz -- wie bei solve_multicut vorher abfangen.")
+
+    behalten = c >= 0.0
+    a = coo_array((np.ones(int(behalten.sum()), np.int8),
+                   (i[behalten], j[behalten])), shape=(num_nodes, num_nodes))
+    _, labels = connected_components(a, directed=False)
+    labels = labels.astype(np.int32)
+
+    hat_kante = np.zeros(num_nodes, dtype=bool)
+    hat_kante[i] = True
+    hat_kante[j] = True
+    labels[~hat_kante] = -1
+    return labels
+
+
+# Die eine Stelle, an der aus solver.backend eine Funktion wird. Als Tabelle
+# und nicht als if-Kette: ein dritter Solver kostet eine Zeile, und die
+# Pruefung des Werts sitzt schon in Solver.__post_init__.
+SOLVER_FUNKTIONEN = {"rama": solve_multicut, "cc": solve_cc}
 
 
 def check_consistency(ckpt, nb: Neighborhood, strict: bool = True) -> None:
@@ -248,7 +303,8 @@ def solve_window(cfg: SolveCfg, model, mu, sig, feature_mode, verbose=True,
               f"[{t_costs:.1f}s]")
 
     tic = time.time()
-    labels = solve_multicut(i, j, costs, num_nodes=n, cp=cp, mode=sv.mode)
+    labels = SOLVER_FUNKTIONEN[sv.backend](i, j, costs, num_nodes=n, cp=cp,
+                                           mode=sv.mode)
     t_rama = time.time() - tic
 
     # Aufgerufen NACH dem RAMA-Lauf: die Statistik legt CPU-Arrays in
@@ -282,11 +338,13 @@ def solve_window(cfg: SolveCfg, model, mu, sig, feature_mode, verbose=True,
     gpu_name = (torch.cuda.get_device_name(cp.device_index)
             if torch.cuda.is_available() else "cpu")
     if verbose:
-        print(f"  RAMA ({sv.mode}): {n_clusters_rama} Cluster, "
+        wer = f"RAMA ({sv.mode})" if sv.backend == "rama" else "CC-Baseline"
+        print(f"  {wer}: {n_clusters_rama} Cluster, "
               f"{n_unassigned:,} Knoten ohne Kante "
               f"[{t_rama:.1f}s, Torch-Peak {vram:.1f} GB]")
 
     info = {"n_events": n, "n_edges": int(len(i)), "frac_neg": frac_neg,
+            "backend": sv.backend,
             "n_clusters_rama": n_clusters_rama,
             "n_nodes_unassigned": n_unassigned,
             "dt_ms": win.dt / 1000.0 if win.dt else float("nan"),

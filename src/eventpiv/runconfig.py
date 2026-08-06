@@ -84,6 +84,7 @@ class _Derivable:
 NEIGHBORHOOD_GEOMS = ("ellipsoid", "cylinder", "hyperboloid")
 FEATURE_MODES = ("dr", "absxy", "raw6")
 IMBALANCE_MODES = ("sample", "weight")
+SOLVER_BACKENDS = ("rama", "cc")
 
 @dataclass
 class Neighborhood(_Typed):
@@ -172,13 +173,38 @@ class Training(_Typed):
 
 @dataclass
 class Solver(_Typed):
-    """Erzwingt keinen Neubau und wird nie verglichen."""
+    """Erzwingt keinen Neubau und wird nie verglichen.
+
+    backend waehlt zwischen RAMA und der CC-Baseline. Das ist keine
+    Optimierung, sondern der Vergleichspunkt, der den Solver rechtfertigt:
+    CC loescht alle negativen Kanten und nimmt die Zusammenhangskomponenten,
+    verschmilzt also zwei Wolken, sobald EINE Kante zwischen ihnen positiv
+    ist. Multicut darf von der Kantenpraeferenz abweichen, wenn die Bilanz
+    es verlangt. Der Abstand zwischen beiden ist die Zahl, die in die Arbeit
+    gehoert -- und fuer Stufe 1 zaehlt sie doppelt, weil Verschmelzen dort
+    der einzige unumkehrbare Fehler ist.
+
+    mode wirkt nur bei backend="rama"; ueberkonservativ im Namen zu
+    bleiben ist billiger als eine bedingte Regel.
+    """
     mode: str = "P"
     use_knn: bool = False
     k_max: int = 24
+    backend: str = "rama"
 
     def short(self) -> str:
-        return self.mode + (f"_knn{self.k_max}" if self.use_knn else "")
+        # Kein Suffix im Vorgabefall: bestehende solves/*.json behalten
+        # ihren Namen, der Anker bleibt unter demselben Pfad erreichbar.
+        return (self.mode
+                + (f"_knn{self.k_max}" if self.use_knn else "")
+                + ("" if self.backend == "rama" else f"_{self.backend}"))
+
+    def __post_init__(self) -> None:
+        super().__post_init__()          # Typcast aus _Typed zuerst
+        if self.backend not in SOLVER_BACKENDS:
+            raise ValueError(
+                f"solver.backend={self.backend!r} unbekannt. "
+                f"Erlaubt: {SOLVER_BACKENDS}")
 
 
 @dataclass
