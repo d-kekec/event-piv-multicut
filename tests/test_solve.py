@@ -185,3 +185,34 @@ def test_leeres_fenster_bricht_nicht_ab():
                                 torch.zeros(2), torch.ones(2), "dr",
                                 verbose=False)
     assert labels is None and info["n_events"] == 0
+
+
+def test_kantenstatistik_kommt_aus_dem_fenster():
+    """Ohne Senke: traegt das Fenster eine GT, misst solve_window die
+    Kanten dagegen -- und laesst es sonst."""
+    from eventpiv.model import EdgeMLP, n_features
+
+    rng = np.random.default_rng(1)
+    t = np.repeat(np.arange(40, dtype=np.float64) * 100.0, 2)
+    x = np.tile([100.0, 400.0], 40) + rng.normal(0, 1.0, 80)
+    y = np.tile([100.0, 400.0], 40) + rng.normal(0, 1.0, 80)
+    o = np.argsort(t, kind="stable")
+    tid = np.tile([7, 9], 40).astype(np.int16)[o]
+
+    gem = dict(t=t[o], x=x[o], y=y[o], p=np.ones(80, np.uint8))
+    cfg = SolveCfg(io=IO(), neighborhood=Neighborhood(alpha=10_000, r_max=5.0,
+                                                      geom="cylinder"),
+                   pairs=PairSampling(), training=Training(),
+                   solver=Solver(backend="cc"),
+                   selection=Selection(split="train", run_nr=1),
+                   window=Window(t0=0, dt=10_000),
+                   compute=Compute(device="cpu", cost_batch=1_000_000))
+    modell, mu, sig = EdgeMLP(n_features("dr"), 4), torch.zeros(2), torch.ones(2)
+
+    mit = Fenster(**gem, track_id=tid, status=np.zeros(80, np.uint8))
+    _, info = solve_window(cfg, mit, modell, mu, sig, "dr", verbose=False)
+    assert "edge_ja_frac" in info and "t_edges" in info
+
+    ohne = Fenster(**gem)
+    _, info2 = solve_window(cfg, ohne, modell, mu, sig, "dr", verbose=False)
+    assert "edge_ja_frac" not in info2

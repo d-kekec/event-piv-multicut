@@ -318,17 +318,19 @@ def lade_fenster(sel, win, gt_path=None) -> Fenster:
 
 
 def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
-                 feature_mode, verbose=True, on_edges=None):
+                 feature_mode, verbose=True):
     """Ein GELADENES Zeitfenster loesen. Rueckgabe: (labels, info).
 
     Laedt nichts. Das Fenster kommt fertig herein (lade_fenster), und
     damit ist die Funktion frei von Pfaden und I/O -- pruefbar auf
     vorgerechneten Arrays, ohne Datensatz.
 
-    on_edges : optional Callable(i, j, t, x, y) -> dict. Die Kanten
-        existieren nur hier; die Senke bekommt sie zusammen mit den
-        Koordinaten und gibt kleine Kennzahlen zurueck. Nichts Grosses
-        verlaesst die Funktion. Dieselbe Loesung wie on_epoch im Training.
+    Die Kantenstatistik gegen die GT wird hier gerechnet, wenn das Fenster
+    eine traegt. Frueher kam sie ueber eine Senke herein, weil solve_window
+    die GT nicht kannte -- diese Bedingung traegt jetzt das Fenster selbst
+    (hat_gt), und eine Senke mit genau einer moeglichen Implementierung
+    waere Umweg ohne Wahl. Die Funktion laeuft weiterhin auf Fenstern ohne
+    GT, also auf echten Messdaten.
 
     Nimmt die Konfiguration statt zwoelf Einzelargumenten entgegen; gelesen
     werden window, neighborhood, solver und compute. Geschrieben wird NIE
@@ -370,13 +372,14 @@ def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
                                            mode=sv.mode)
     t_rama = time.time() - tic
 
-    # Aufgerufen NACH dem RAMA-Lauf: die Statistik legt CPU-Arrays in
+    # NACH dem Solve gerechnet: die Statistik legt CPU-Arrays in
     # Kantengroesse an, die nicht waehrend des Solves im Speicher liegen
-    # sollen.
+    # sollen. Die Reihenfolge ist der Grund, nicht der Aufrufer.
     kanten = {}
-    if on_edges is not None:
+    if fenster.hat_gt:
         tic = time.time()
-        kanten = on_edges(i, j, t, x, y) or {}
+        kanten = edge_gt_stats(i, j, t, x, y,
+                               fenster.track_id, fenster.status)
         kanten["t_edges"] = time.time() - tic
         if verbose and "edge_ja_frac" in kanten:
             print(f"  Kanten gegen GT: {kanten['edge_ja_frac']*100:.2f}% "
@@ -466,14 +469,8 @@ def solve_and_evaluate(cfg: SolveCfg, verbose=True) -> dict:
 
     fenster = lade_fenster(sel, win, gt_path)
 
-    def kantensenke(i, j, t, x, y):
-        """Misst die Kanten gegen die bereits ausgerichtete GT."""
-        return edge_gt_stats(i, j, t, x, y,
-                             fenster.track_id, fenster.status)
-
-    labels, info = solve_window(
-        cfg, fenster, model, mu, sig, feature_mode, verbose,
-        on_edges=kantensenke if fenster.hat_gt else None)
+    labels, info = solve_window(cfg, fenster, model, mu, sig, feature_mode,
+                                verbose)
     info["run"] = sel.run_nr
 
     if labels is None:
