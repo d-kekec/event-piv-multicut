@@ -150,36 +150,33 @@ class Neighborhood(_Typed):
 @dataclass
 class PairSampling(_Typed):
     """Identitaet des Paar-Datensatzes. `split` ist hier die QUELLE der Paare
-    -- nicht zu verwechseln mit Selection.split (was geloest wird)."""
+    -- nicht zu verwechseln mit Selection.split (was geloest wird).
+
+    `runs` sind AUSSCHLIESSLICH Overlap-Runs. Saubere Runs liefern
+    physikalisch null NEIN, und die Overlap-Runs tragen selbst reichlich JA
+    (gemessen 263:1 bis 1785:1). Beide Klassen stammen damit aus DENSELBEN
+    Fenstern -- nur so sieht das Netz eine Eingangsverteilung und nicht zwei.
+
+    `ja_frac` ist keine Feinabstimmung, sondern die Speicherbedingung: ein
+    Run liefert bei voller Abdeckung ueber eine Milliarde JA-Paare. NEIN
+    wird vollstaendig behalten, es ist die knappe Klasse.
+
+    KEIN Sammelfenster mehr: gesammelt wird in anstossenden Fenstern der
+    Laenge `neighborhood.alpha` ueber den ganzen Run -- genau die Fenster,
+    die Stufe 1 im Einsatz bildet. Und keine Schrittweite: die NEIN-Paare
+    sitzen in wenigen Fenstern (Median 29 je Fenster gegen Maximum 91 172
+    auf run61), ein Auslassen waere nicht Stichprobe, sondern Verzerrung.
+    """
     split: str = "train"
-    clean_runs: list[int] = field(
-        default_factory=lambda: [3, 40, 43, 48, 81])
-    overlap_runs: list[int] = field(
+    runs: list[int] = field(
         default_factory=lambda: [2, 11, 19, 30, 32, 35, 44, 59, 61, 76])
-    win_dt: int | None = None       # None -> aus alpha/r_max abgeleitet
-    win_dt_yes: int | None = None   # None -> WIN_DT_YES_DEFAULT
-    win_offsets: list[int] = field(
-        default_factory=lambda: [1_500_000, 3_500_000, 5_500_000])
-    slab_dt: int = 10_000           # ergebnisNEUTRALE Zerlegung, reiner
-                                    # RAM-Schutz. NICHT das Tracklet-Fenster:
-                                    # der rechte Rand ist hier um alpha
-                                    # erweitert, dort waere er ein harter
-                                    # Schnitt.
+    ja_frac: float = 5e-3
     max_yes: int = 2_000_000
     max_no: int = 2_000_000
     seed: int = 0
 
     def short(self) -> str:
-        # Engstelle: slug() ruft short() IMMER auf. Ein unaufgeloestes win_dt
-        # ergaebe sonst still einen anderen Hash fuer denselben Datensatz.
-        # identity_meta bleibt ungeprueft -- dort steht None sichtbar in der
-        # JSON, hier verschwaende es im Hash.
-        if self.win_dt is None or self.win_dt_yes is None:
-            raise RuntimeError(
-                "PairSampling ist unaufgeloest (win_dt/win_dt_yes = None). "
-                "runconfig.resolve(nb, ps) laeuft normalerweise in "
-                "scripts/_cli.to_cfg -- bei direkter Konstruktion selbst rufen.")
-        return f"{self.split}_c{len(self.clean_runs)}_o{len(self.overlap_runs)}"
+        return f"{self.split}_r{len(self.runs)}"
 
 
 @dataclass
@@ -492,10 +489,13 @@ def resolve(nb: Neighborhood, ps: PairSampling) -> PairSampling:
     `is None` statt `or`: win_dt=0 ist ein gueltiger (wenn auch unsinniger)
     Wert und darf nicht still durch den Default ersetzt werden.
     """
-    if ps.win_dt is None:
-        ps.win_dt = win_dt_for(nb.alpha, nb.r_max)
-    if ps.win_dt_yes is None:
-        ps.win_dt_yes = WIN_DT_YES_DEFAULT
+    # Derzeit wird nichts abgeleitet: `win_dt`/`win_dt_yes` sind mit dem
+    # Sammelfenster entfallen. Die Funktion bleibt bis Schritt 3.3 als
+    # Haken stehen, damit dieser Commit nicht zusaetzlich `_Derivable`,
+    # `win_dt_for`, `WIN_DT_YES_DEFAULT`, den hasattr-Waechter in
+    # `_cli.to_cfg`, alle drei Stufen-Konfigurationen und vier Testdateien
+    # anfasst -- der Diff waere dann nicht mehr pruefbar. Sie wird dort
+    # samt `_Derivable` geloescht.
     return ps
 
 

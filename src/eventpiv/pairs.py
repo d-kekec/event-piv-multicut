@@ -11,19 +11,28 @@ Erzeugt Trainingspaare aus gelabelten Runs. Jedes Paar:
   - beide Events SAUBER (status == 0), sonst kein verlaessliches Label
   - Label 1 = gleiche track_id (JA), 0 = verschieden (NEIN)
 
-STRATEGIE gegen Imbalance schon beim Sammeln:
-  JA   aus SAUBEREN, weit getrennten Runs (dort sind ~alle Paare JA)
-  NEIN aus OVERLAP-Runs -- die EINZIGE Quelle; weit getrennte Partikel
-       erzeugen zwischen sich ueberhaupt keine Paare, also PHYSIKALISCH
-       null NEIN.
-Gespeichert wird ROH (beide Klassen, ungewichtet) plus die Rohgroessen
-(dt, dx, dy, ti, xi, yi). Das Balancing passiert erst im Training, damit der
-Datensatz neutral bleibt und beide Strategien ohne Neuerzeugung testbar sind.
+GESAMMELT WIRD IN DEN FENSTERN DES EINSATZES: anstossende Fenster der
+Laenge `neighborhood.alpha` ueber den ganzen Run, harter Schnitt, keine
+Ueberlappung. Ein Paar ueber eine Fenstergrenze hinweg kann in Stufe 1
+nicht entstehen, also darf es hier nicht gelernt werden. Die Konsistenz
+zwischen Training und Einsatz ist damit auch beim FENSTERN strukturell und
+nicht nur bei der Paargeometrie.
 
-RAM: die volle Nachbarschaft ohne k-NN materialisiert zig Millionen Paare
-auf einmal -> slab-weise verarbeiten (Scheiben der Breite slab_dt, rechter
-Rand um alpha erweitert, Paar der Slab des FRUEHEREN Events zugeordnet ->
-kein Doppelzaehlen).
+BEIDE KLASSEN aus DENSELBEN Fenstern, ausschliesslich aus Overlap-Runs.
+Saubere Runs liefern physikalisch null NEIN, und die Overlap-Runs tragen
+selbst reichlich JA (gemessen 263:1 auf run32, 1785:1 auf run61). JA
+zusaetzlich aus sauberen Runs zu holen ergaebe zwei Eingangsverteilungen --
+und ein konstanter Versatz kann eine Verschiebung korrigieren, nicht zwei
+verschiedene Quellen.
+
+AUCH FENSTER OHNE NEIN gehoeren dazu. Ihre JA-Paare sind Teil der
+Einsatzverteilung; sie wegzulassen zeigte dem Netz nur die JA aus
+Begegnungsregionen.
+
+RAM: ein Run liefert bei voller Abdeckung ueber eine Milliarde JA-Paare.
+Deshalb wird IM Fenster geduennt (`ja_frac`), nicht hinterher -- NEIN
+vollstaendig, es ist die knappe Klasse. Die ROHEN Klassenzahlen werden
+mitgezaehlt: ohne sie waere die Einsatzverteilung nicht rekonstruierbar.
 """
 from __future__ import annotations
 
@@ -47,113 +56,141 @@ FIELDS = ("dt", "dx", "dy", "ti", "xi", "yi", "label", "run")
 
 
 
-def collect_pairs(t, x, y, track_id, status, *, alpha, r_max,
-                  win_offsets, win_dt, slab_dt, want_label, geom):
-    """Sammelt Paare aus EINEM Run. Reine Funktion -- Arrays rein, Arrays raus.
+def collect_pairs(t, x, y, track_id, status, *, alpha, r_max, geom,
+                  ja_frac, rng):
+    """Schreitet EINEN Run in anstossenden Fenstern der Laenge alpha ab.
 
-    t, x, y      : Eventkoordinaten (float64)
-    track_id     : GT je Event, -1 wo nicht sauber
-    status       : 0/1/2 (labels.STATUS_*)
-    want_label   : 1 = nur JA behalten, 0 = nur NEIN, None = beide
+    Die Fenster sind genau die, die Stufe 1 im Einsatz bildet: harter
+    Schnitt, keine Ueberlappung, keine Erweiterung des rechten Randes. Damit
+    sieht das Netz im Training dieselben Kanten wie im Einsatz -- ein Paar
+    ueber eine Fenstergrenze hinweg kann dort nicht entstehen, also darf es
+    hier nicht gelernt werden.
 
-    Rueckgabe: dict mit dt, dx, dy, ti, xi, yi, label (ohne 'run').
+    Das unterscheidet die Schleife vom frueheren Slab-Raster: eine Slab
+    erweiterte ihren rechten Rand um alpha, damit ein Paar ueber die
+    Slabgrenze hinweg trotzdem genau einmal entsteht. Gleiche Mechanik,
+    umgekehrte Bedeutung.
+
+    ja_frac : Anteil der JA-Paare, der je Fenster gezogen wird. NEIN wird
+        VOLLSTAENDIG behalten -- es ist die knappe Klasse (gemessen 263:1
+        bis 1785:1). Gezogen wird IM Fenster und nicht hinterher: ein
+        ungeduennter Run traegt ueber eine Milliarde Paare, die nirgends
+        hinpassen.
+
+    rng : der Aufrufer reicht ihn herein, damit die ganze Sammlung an EINEM
+        Seed haengt.
+
+    Rueckgabe: (data, zaehler). data hat dt, dx, dy, ti, xi, yi, label
+    (ohne 'run'); zaehler traegt die ROHEN Klassenzahlen vor dem Ziehen --
+    ohne sie waere das Einsatzverhaeltnis nicht mehr rekonstruierbar.
     """
     t = np.asarray(t, dtype=np.float64)
     x = np.asarray(x, dtype=np.float64)
     y = np.asarray(y, dtype=np.float64)
 
     if len(t) > 1 and not (np.diff(t) >= 0).all():
-        # t[0] und die Slab-Kanten ab tw[0] verankern Fenster und Raster --
-        # bei unsortiertem t fielen alle Events davor in gar keine Slab.
+        # Die Fenstergrenzen entstehen ueber searchsorted -- bei
+        # unsortiertem t schnitte das an beliebigen Stellen.
         # neighborhood_pairs braucht die Sortierung NICHT, deshalb faellt es
         # sonst nirgends auf.
         raise ValueError("collect_pairs erwartet aufsteigend sortierte t")
 
-    offs = sorted(win_offsets)
-    if any(b - a < win_dt for a, b in zip(offs, offs[1:])):
-        # Ueberlappende Fenster sammelten dieselben Paare zweimal. Die
-        # Slab-Zuordnung schuetzt nur INNERHALB eines Fensters.
-        raise ValueError(
-            f"win_offsets ueberlappen bei win_dt={win_dt}: {offs}. "
-            "Ueberlappende Fenster sammeln Paare doppelt.")
-
     acc = {k: [] for k in FIELDS if k != "run"}
-    if len(t) == 0:
-        return {k: np.empty(0, np.float32) for k in acc} | {
-            "label": np.empty(0, np.int8)}
+    zaehler = {"n_roh_ja": 0, "n_roh_nein": 0, "n_fenster": 0,
+               "n_fenster_ohne_nein": 0}
+    if len(t) < 2:
+        leer = {k: np.empty(0, np.float32) for k in acc}
+        leer["label"] = np.empty(0, np.int8)
+        return leer, zaehler
 
-    t_run0 = t[0]
-    for off in win_offsets:
-        w0 = t_run0 + off
-        win = (t >= w0) & (t < w0 + win_dt)
-        if not win.any():
+    # Anstossende Fenster ab dem ERSTEN Event. searchsorted statt Masken:
+    # ein Schnittindex je Grenze statt einer Maske ueber alle Events je
+    # Fenster -- bei 800 Fenstern und 17 Mio. Events ist das der Unterschied
+    # zwischen Sekunden und Minuten.
+    grenzen = np.searchsorted(t, np.arange(t[0], t[-1], alpha))
+    grenzen = np.append(grenzen, len(t))
+
+    for lo, hi in zip(grenzen[:-1], grenzen[1:]):
+        if hi - lo < 2:
             continue
-        tw, xw, yw = t[win], x[win], y[win]
-        tidw, staw = track_id[win], status[win]
+        zaehler["n_fenster"] += 1
+        tw, xw, yw = t[lo:hi], x[lo:hi], y[lo:hi]
+        tidw, staw = track_id[lo:hi], status[lo:hi]
 
-        # Slab-Raster ab dem ERSTEN Event des Fensters, nicht ab w0: sonst
-        # laege die erste Slab teilweise vor allen Daten.
-        edges = np.arange(tw[0], tw[0] + win_dt + slab_dt, slab_dt)
-        for a in edges:
-            if not ((tw >= a) & (tw < a + slab_dt)).any():
-                continue
-            # Slab + rechter Rand alpha: Partner eines Kern-Events koennen
-            # bis zu alpha spaeter liegen.
-            ext = np.flatnonzero((tw >= a) & (tw < a + slab_dt + alpha))
-            ts, xs, ys = tw[ext], xw[ext], yw[ext]
-            tids, stas = tidw[ext], staw[ext]
+        i, j = neighborhood_pairs(tw, xw, yw, alpha, r_max, geom=geom)
+        if len(i) == 0:
+            # Auch DAS ist ein Fenster ohne NEIN. Wuerde es hier nicht
+            # gezaehlt, waere n_fenster_ohne_nein systematisch zu klein.
+            zaehler["n_fenster_ohne_nein"] += 1
+            continue
 
-            i, j = neighborhood_pairs(ts, xs, ys, alpha, r_max, geom=geom)
-            if len(i) == 0:
-                continue
+        # beide Events sauber -> verlaessliches Label
+        keep = (staw[i] == STATUS_CLEAN) & (staw[j] == STATUS_CLEAN)
+        i, j = i[keep], j[keep]
+        if len(i) == 0:
+            zaehler["n_fenster_ohne_nein"] += 1
+            continue
 
-            # Paar der Slab zuordnen, in der das FRUEHERE Event liegt
-            # (graph garantiert t[i] <= t[j]) -> jedes Paar genau einmal.
-            keep = (ts[i] >= a) & (ts[i] < a + slab_dt)
-            # beide Events sauber -> verlaessliches Label
-            keep &= (stas[i] == STATUS_CLEAN) & (stas[j] == STATUS_CLEAN)
-            i, j = i[keep], j[keep]
-            if len(i) == 0:
-                continue
+        ja = tidw[i] == tidw[j]
+        n_ja, n_nein = int(ja.sum()), int((~ja).sum())
+        zaehler["n_roh_ja"] += n_ja
+        zaehler["n_roh_nein"] += n_nein
+        if n_nein == 0:
+            zaehler["n_fenster_ohne_nein"] += 1
 
-            lab = (tids[i] == tids[j]).astype(np.int8)
-            if want_label is not None:
-                sel = lab == want_label
-                if not sel.any():
-                    continue
-                i, j, lab = i[sel], j[sel], lab[sel]
+        # NEIN vollstaendig, JA anteilig. Bernoulli statt fester Anzahl:
+        # eine feste Zahl je Fenster ueberginge, dass die Fenster
+        # verschieden viele Paare tragen (Median 2,7 Mio., Maximum 11,4).
+        idx_ja = np.flatnonzero(ja)
+        gezogen = idx_ja[rng.random(len(idx_ja)) < ja_frac]
+        sel = np.concatenate([np.flatnonzero(~ja), gezogen])
+        if len(sel) == 0:
+            continue
+        sel.sort()
+        i, j, lab = i[sel], j[sel], ja[sel].astype(np.int8)
 
-            acc["dt"].append((ts[j] - ts[i]).astype(np.float32))   # >= 0
-            acc["dx"].append((xs[j] - xs[i]).astype(np.float32))
-            acc["dy"].append((ys[j] - ys[i]).astype(np.float32))
-            # Absolutkoordinaten des FRUEHEREN Events (fuer raw6-Features);
-            # das spaetere ergibt sich als (ti+dt, xi+dx, yi+dy).
-            acc["ti"].append(ts[i].astype(np.float32))
-            acc["xi"].append(xs[i].astype(np.float32))
-            acc["yi"].append(ys[i].astype(np.float32))
-            acc["label"].append(lab)
+        acc["dt"].append((tw[j] - tw[i]).astype(np.float32))   # >= 0
+        acc["dx"].append((xw[j] - xw[i]).astype(np.float32))
+        acc["dy"].append((yw[j] - yw[i]).astype(np.float32))
+        # Absolutkoordinaten des FRUEHEREN Events (fuer raw6-Features);
+        # das spaetere ergibt sich als (ti+dt, xi+dx, yi+dy).
+        acc["ti"].append(tw[i].astype(np.float32))
+        acc["xi"].append(xw[i].astype(np.float32))
+        acc["yi"].append(yw[i].astype(np.float32))
+        acc["label"].append(lab)
 
     if not acc["dt"]:
         out = {k: np.empty(0, np.float32) for k in acc}
         out["label"] = np.empty(0, np.int8)
-        return out
-    return {k: np.concatenate(v) for k, v in acc.items()}
+        return out, zaehler
+    return {k: np.concatenate(v) for k, v in acc.items()}, zaehler
 
 
-def cap_arrays(data: dict, n_max, rng) -> dict:
-    """Zufaellige Teilstichprobe auf n_max Paare (alle Felder gleich indiziert)."""
-    n = len(data["label"])
-    if n_max is None or n <= n_max:
-        return data
-    sel = rng.choice(n, n_max, replace=False)
+def cap_per_class(data: dict, max_ja, max_nein, rng) -> dict:
+    """Deckelt JE KLASSE, nicht ueber beide zusammen.
+
+    Frueher lief der Deckel ueber einen Sammelgang, der nur eine Klasse
+    enthielt -- da war die Trennung gratis. Jetzt liefert ein Gang beide,
+    und ein gemeinsamer Deckel zoege blind aus dem Gemisch: das
+    Klassenverhaeltnis waere danach eine Folge des Deckels und nicht der
+    Daten, und zwar unbemerkt.
+    """
+    lab = data["label"]
+    ja = np.flatnonzero(lab == 1)
+    nein = np.flatnonzero(lab == 0)
+    if max_ja is not None and len(ja) > max_ja:
+        ja = rng.choice(ja, max_ja, replace=False)
+    if max_nein is not None and len(nein) > max_nein:
+        nein = rng.choice(nein, max_nein, replace=False)
+    sel = np.concatenate([ja, nein])
+    sel.sort()
     return {k: v[sel] for k, v in data.items()}
 
 
-def build_pairs_for_run(cfg: PairCfg, run_nr, want_label, win_dt):
+def build_pairs_for_run(cfg: PairCfg, run_nr, rng):
     """Laedt die Label-Datei eines Runs und sammelt daraus Paare.
 
-    win_dt explizit, weil die beiden Klassen verschiedene Sammelfenster
-    haben (cfg.pairs.win_dt_yes bzw. .win_dt) -- der Aufrufer entscheidet.
+    Ein Gang je Run, beide Klassen. Rueckgabe: (data, zaehler).
     """
     nb, ps = cfg.neighborhood, cfg.pairs
     path = (Path(cfg.io.label_dir) / f"run{run_nr}_eventlabels.npz"
@@ -169,8 +206,7 @@ def build_pairs_for_run(cfg: PairCfg, run_nr, want_label, win_dt):
         return collect_pairs(d["t"][m], d["x"][m], d["y"][m],
                              d["track_id"][m], d["status"][m],
                              alpha=nb.alpha, r_max=nb.r_max, geom=nb.geom,
-                             win_offsets=tuple(ps.win_offsets), win_dt=win_dt,
-                             slab_dt=ps.slab_dt, want_label=want_label)
+                             ja_frac=ps.ja_frac, rng=rng)
 
 
 def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
@@ -185,47 +221,60 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
     kommen aus identity_meta statt aus einer handgepflegten Feldliste, die
     schon einmal ein Feld vergessen hat.
 
-    EIN rng fuer alle Deckel, in fester Reihenfolge (erst clean, dann
-    overlap) -> reproduzierbar bei gleichem seed.
+    EIN rng fuer Ziehen UND Deckeln, Runs in der Reihenfolge von ps.runs
+    -> reproduzierbar bei gleichem seed.
     """
     nb, ps = cfg.neighborhood, cfg.pairs
-    if ps.win_dt is None or ps.win_dt_yes is None:
-        raise ValueError(
-            "win_dt/win_dt_yes nicht aufgeloest. cfg.resolve_derived() laeuft "
-            "normalerweise in scripts/_cli.to_cfg -- bei direktem Aufruf aus "
-            "Code oder Test vorher selbst aufrufen.")
 
     rng = np.random.default_rng(ps.seed)
     t_start = time.time()
     teile = []
     je_run = []
+    roh_ja = roh_nein = n_fenster = 0
 
-    def sammle(runs, want_label, n_max, kind, wdt):
-        print(f"{kind}-Paare aus {len(runs)} Run(s) (win_dt={wdt/1000:.0f}ms):")
-        for r in runs:
-            tic = time.time()
-            roh = build_pairs_for_run(cfg, r, want_label, wdt)
-            n_roh = int(len(roh["label"]))
-            d = cap_arrays(roh, n_max, rng)
-            n_behalten = int(len(d["label"]))
-            d["run"] = np.full(n_behalten, r, np.int16)
-            teile.append(d)
-            # ROH und BEHALTEN getrennt: cap_arrays schneidet still ab. Erst
-            # die Differenz sagt, ob das Klassenverhaeltnis eine Eigenschaft
-            # der DATEN ist oder eine Folge von max_yes/max_no.
-            je_run.append({"run": int(r), "kind": kind, "n_roh": n_roh,
-                           "n_behalten": n_behalten,
-                           "gedeckelt": bool(n_max is not None
-                                             and n_roh > n_max),
-                           "sec": round(time.time() - tic, 2)})
-            deckel = "  (gedeckelt)" if je_run[-1]["gedeckelt"] else ""
-            print(f"  run{r:<3d}: {n_behalten:>10,} {kind}-Paare "
-                  f"von {n_roh:,} roh{deckel}")
-            
-    # Das breite Fenster ist auf die NEIN-Ausbeute geeicht. Saubere Runs
-    # liefern physikalisch NULL NEIN-Paare -- dort kostet es nur Zeit.
-    sammle(ps.clean_runs, 1, ps.max_yes, "JA", ps.win_dt_yes)
-    sammle(ps.overlap_runs, 0, ps.max_no, "NEIN", ps.win_dt)
+    print(f"Paare aus {len(ps.runs)} Run(s), Fenster {nb.alpha/1000:.0f}ms, "
+          f"ja_frac={ps.ja_frac:g}:")
+    for r in ps.runs:
+        tic = time.time()
+        roh, z = build_pairs_for_run(cfg, r, rng)
+        # VOR dem Deckel zaehlen: n_roh_ja ist die Zahl vor dem ZIEHEN, also
+        # immer groesser. Ohne diese Zwischenzahl waere ein greifender
+        # max_yes nicht von der ja_frac-Duennung zu unterscheiden und bliebe
+        # unsichtbar -- genau das, was die Roh/Behalten-Trennung verhindern soll.
+        vor_deckel = roh["label"]
+        n_gezogen_ja = int((vor_deckel == 1).sum())
+        n_gezogen_nein = int((vor_deckel == 0).sum())
+
+        d = cap_per_class(roh, ps.max_yes, ps.max_no, rng)
+        lab = d["label"]
+        n_ja, n_nein = int((lab == 1).sum()), int((lab == 0).sum())
+        d["run"] = np.full(len(lab), r, np.int16)
+        teile.append(d)
+
+        roh_ja += z["n_roh_ja"]
+        roh_nein += z["n_roh_nein"]
+        n_fenster += z["n_fenster"]
+        # ROH und BEHALTEN getrennt: JA wird beim Sammeln gezogen und
+        # danach ggf. gedeckelt. Erst die rohen Zahlen sagen, welches
+        # Klassenverhaeltnis das Netz im EINSATZ vorfindet -- ohne sie ist
+        # der Betriebspunkt nicht mehr rekonstruierbar.
+        je_run.append({
+            "run": int(r), "n_fenster": z["n_fenster"],
+            "n_fenster_ohne_nein": z["n_fenster_ohne_nein"],
+            "n_roh_ja": z["n_roh_ja"], "n_roh_nein": z["n_roh_nein"],
+            "n_gezogen_ja": n_gezogen_ja, "n_gezogen_nein": n_gezogen_nein,
+            "n_ja": n_ja, "n_nein": n_nein,
+            "gedeckelt_ja": bool(n_ja < n_gezogen_ja),
+            "gedeckelt_nein": bool(n_nein < n_gezogen_nein),
+            "sec": round(time.time() - tic, 2)})
+        z_ = je_run[-1]
+        deckel = "".join([
+            "  (JA gedeckelt)" if z_["gedeckelt_ja"] else "",
+            "  (NEIN gedeckelt)" if z_["gedeckelt_nein"] else ""])
+        print(f"  run{r:<3d}: {n_ja:>9,} JA / {n_nein:>9,} NEIN behalten "
+              f"aus {z['n_roh_ja']:,} / {z['n_roh_nein']:,} roh "
+              f"({z['n_fenster']} Fenster, {z['n_fenster_ohne_nein']} ohne "
+              f"NEIN){deckel}")
 
     # Feldweise zusammenfuegen und die Teile SOFORT freigeben. Sonst liegen
     # am Ende alle Teile UND das Ergebnis gleichzeitig im RAM (Faktor 2).
@@ -239,8 +288,9 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
     n_yes = int((data["label"] == 1).sum())
     n_no = int((data["label"] == 0).sum())
 
-    leer = [z["run"] for z in je_run if z["n_behalten"] == 0]
-    gedeckelt = [z["run"] for z in je_run if z["gedeckelt"]]
+    leer = [z["run"] for z in je_run if z["n_ja"] + z["n_nein"] == 0]
+    gedeckelt = [z["run"] for z in je_run
+                 if z["gedeckelt_ja"] or z["gedeckelt_nein"]]
 
     print("=" * 52)
     print(f"Datensatz gesamt: {len(data['label']):,} Paare")
@@ -268,7 +318,15 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
         "n_runs": len(je_run),
         "n_runs_leer": len(leer),
         "n_runs_gedeckelt": len(gedeckelt),
-        "win_dt": ps.win_dt, "win_dt_yes": ps.win_dt_yes,
+        "n_roh_ja": roh_ja, "n_roh_nein": roh_nein,
+        # Der Logit der ROHEN Klassenverteilung -- die Verteilung, die das
+        # Netz im Einsatz vorfindet. DIAGNOSE, kein Sollwert: die Schwelle
+        # setzt bereits das Untersampeln im Training, und ein Versatz auf
+        # diesen Wert hin machte praktisch jede Kante positiv.
+        "logit_prior_roh": (float(np.log(roh_ja / roh_nein))
+                            if roh_ja and roh_nein else float("nan")),
+        "n_fenster": n_fenster,
+        "covered_ms": round(n_fenster * nb.alpha / 1000.0, 1),
         "out_path": str(out_path),
         "diag": {
             "sec_total": round(time.time() - t_start, 1),

@@ -8,8 +8,8 @@ Rechnung benutzen. Genau deshalb muss sie geprueft sein.
 """
 import pytest
 
-from eventpiv.runconfig import (Neighborhood, PairSampling, canonical,
-                                resolve, same_neighborhood, slug, win_dt_for)
+from eventpiv.runconfig import (Neighborhood, canonical, same_neighborhood,
+                                slug, win_dt_for)
 
 
 def test_win_dt_am_referenzpunkt():
@@ -40,19 +40,6 @@ def test_v_max_gehoert_zur_identitaet():
     assert slug(a) != slug(b)
 
 
-def test_resolve_ueberschreibt_null_nicht():
-    """`is None` statt `or`: win_dt=0 ist gueltig (wenn auch unsinnig) und
-    darf nicht still durch den Default ersetzt werden."""
-    ps = resolve(Neighborhood(), PairSampling(win_dt=0, win_dt_yes=0))
-    assert ps.win_dt == 0 and ps.win_dt_yes == 0
-
-
-def test_resolve_leitet_ab():
-    nb = Neighborhood(alpha=10_000, r_max=7.06)
-    ps = resolve(nb, PairSampling())
-    assert ps.win_dt == 40_000 and ps.win_dt_yes == 40_000
-
-
 def test_unbekannte_auswahlwerte_fallen_zur_konfigurationszeit_auf():
     """Frueher fiel das erst tief im Lauf auf -- da stand der Slug schon und
     ein Verzeichnis hiess danach."""
@@ -67,13 +54,6 @@ def test_unbekannte_auswahlwerte_fallen_zur_konfigurationszeit_auf():
 
 
 # --- _Derivable: die Aufloesung folgt den vorhandenen Gruppen ----------
-
-def test_derivable_loest_pairs_weiterhin_auf():
-    from eventpiv.runconfig import PairCfg
-
-    cfg = PairCfg()
-    cfg.resolve_derived()
-    assert cfg.pairs.win_dt is not None and cfg.pairs.win_dt_yes is not None
 
 
 def test_derivable_ohne_abgeleitete_gruppe_bricht_ab():

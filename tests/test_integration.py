@@ -44,24 +44,18 @@ from eventpiv.train import train_edge_nn
 # Stufe 1.
 NB = dict(alpha=10_000, r_max=5.0, geom="cylinder")
 
-# Die Kreuzung sitzt bei t = 500 ms. Der mittlere Versatz MUSS sie
-# treffen, sonst liefert die Fixture null NEIN-Paare, und
-# split_runs_stratified bricht mit "Nur 0 Run(s) in einer Klasse" ab.
-# Die Versaetze duerfen sich bei win_dt = 100 ms nicht ueberlappen.
-WIN_OFFSETS = [100_000, 450_000, 800_000]
-
-# Gemessen an der Fixture: JA 59 689 / 65 364, NEIN 429 / 355.
-MIND_JA, MIND_NEIN = 10_000, 100
+# Nur die Kreuzungs-Runs: saubere liefern physikalisch null NEIN, und die
+# Kreuzungs-Runs tragen selbst reichlich JA. Zwei Runs sind das Minimum
+# fuer einen run-getrennten Holdout.
+# Schwellen grob, nicht scharf: sie fangen "gar nichts gesammelt", nicht
+# eine Abweichung um zehn Prozent.
+MIND_JA, MIND_NEIN = 1_000, 200
 
 
 def _gruppen(mini_datensatz):
     nb = Neighborhood(**NB)
-    ps = PairSampling(split="train",
-                      clean_runs=list(mini_datensatz.sauber),
-                      overlap_runs=list(mini_datensatz.kreuzung),
-                      win_dt=100_000, win_dt_yes=40_000,
-                      win_offsets=WIN_OFFSETS, slab_dt=10_000,
-                      max_yes=200_000, max_no=200_000, seed=0)
+    ps = PairSampling(split="train", runs=list(mini_datensatz.kreuzung),
+                      ja_frac=0.02, max_yes=200_000, max_no=200_000, seed=0)
     tr = Training(feature_mode="dr", imbalance="sample", sample_ratio=3.0,
                   hidden=4, epochs=3, batch=4096, val_frac=0.2, seed=0)
     return nb, ps, tr
@@ -109,7 +103,9 @@ def test_kette_labels_paare_training_solve(mini_datensatz):
     assert len(gesehen) == 1
     k = gesehen[0]
     assert k["n_ja"] > MIND_JA and k["n_nein"] > MIND_NEIN
-    assert {z["run"] for z in k["per_run"]} == {1, 2, 3, 4}
+    # Labels entstehen fuer alle vier Runs, Paare nur aus den beiden
+    # Kreuzungs-Runs: saubere Runs liefern physikalisch null NEIN.
+    assert {z["run"] for z in k["per_run"]} == set(mini_datensatz.kreuzung)
 
     with np.load(ppath) as d:
         assert int((d["label"] == 1).sum()) == k["n_ja"]
@@ -137,7 +133,9 @@ def test_kette_labels_paare_training_solve(mini_datensatz):
     # Der Holdout ist run-getrennt und stratifiziert -- beide Klassen
     # muessen drin sein, sonst waeren AUC und TPR NaN.
     assert not np.isnan(kennzahlen["holdout"]["auc"])
-    assert len(start[0]["holdout_runs"]) == 2
+    # Zwei Runs, val_frac=0.2 -> genau einer in den Holdout, einer bleibt
+    # im Training. split_runs prueft, dass beide Seiten beide Klassen haben.
+    assert len(start[0]["holdout_runs"]) == 1
 
     metrics = mpath.with_suffix(".metrics.json")
     assert metrics.exists()

@@ -145,36 +145,46 @@ def _json_default(o):
 
 
 
-def split_runs_stratified(label, run_arr, val_frac, rng):
-    """Val-Runs so waehlen, dass BEIDE Klassen vertreten sind.
+def split_runs(label, run_arr, val_frac, rng):
+    """Run-getrennter Holdout, mit Pruefung auf beide Klassen.
 
-    Ein Run ist eine JA- oder eine NEIN-Quelle (so wurde gesammelt); aus
-    jeder Gruppe wandert val_frac in die Validierung.
+    Getrennt nach RUNS und nicht nach Paaren: Paare desselben Runs sind
+    stark korreliert (dieselben Partikel, dieselbe Wolke), ein zufaelliger
+    Paar-Split maesse Auswendiglernen statt Verallgemeinerung.
+
+    Frueher war ein Run eine JA- ODER eine NEIN-Quelle, und die Auswahl
+    schichtete danach. Jetzt traegt JEDER Run beide Klassen -- beide stammen
+    aus denselben Fenstern -- und es gibt nichts mehr zu schichten. An die
+    Stelle der Schichtung tritt die Pruefung des Ergebnisses: ein Run kann
+    sehr wenige NEIN tragen, und dann ist die Frage nicht, WIE gewaehlt
+    wurde, sondern OB es gereicht hat.
+
+    min(len-1, ...): mindestens EIN Run bleibt im Training. Ohne diese
+    Schranke landeten bei zwei Runs beide im Holdout, der Trainingssatz
+    waere leer und die Schleife braeche mit ZeroDivisionError ab.
     """
-    ist_ja = {r: (label[run_arr == r].mean() >= 0.5)
-              for r in np.unique(run_arr)}
-    ja = np.array([r for r, v in ist_ja.items() if v])
-    nein = np.array([r for r, v in ist_ja.items() if not v])
-    rng.shuffle(ja)
-    rng.shuffle(nein)
+    runs = np.unique(run_arr)
+    if len(runs) < 2:
+        raise ValueError(
+            f"Nur {len(runs)} Run(s) im Datensatz. Ein run-getrennter "
+            "Holdout braucht mindestens zwei -- sonst ist entweder das "
+            "Training oder die Validierung leer. pairs.runs erweitern.")
 
-    def nimm(runs):
-        # max(1, ...): mindestens EIN Run je Klasse in die Validierung,
-        # sonst fehlt dort eine Klasse und AUC/TPR werden NaN.
-        # min(len-1, ...): mindestens EIN Run je Klasse bleibt im TRAINING.
-        # Ohne diese Schranke landeten beide im Holdout, der Trainingssatz
-        # war leer und die Schleife brach mit ZeroDivisionError ab.
-        if len(runs) < 2:
+    perm = runs.copy()
+    rng.shuffle(perm)
+    k = min(len(perm) - 1, max(1, int(round(len(perm) * val_frac))))
+    val_runs = set(perm[:k].tolist())
+    is_val = np.array([r in val_runs for r in run_arr])
+
+    for name, m in (("Holdout", is_val), ("Training", ~is_val)):
+        vorhanden = np.unique(label[m])
+        if len(vorhanden) < 2:
             raise ValueError(
-                f"Nur {len(runs)} Run(s) in einer Klasse. Ein run-getrennter "
-                "Holdout braucht mindestens zwei je Klasse -- sonst ist "
-                "entweder das Training oder die Validierung leer. "
-                "clean_runs bzw. overlap_runs erweitern.")
-        k = min(len(runs) - 1, max(1, int(round(len(runs) * val_frac)))) 
-        return set(runs[:k].tolist())
-
-    val_runs = nimm(ja) | nimm(nein)
-    return val_runs, np.array([r in val_runs for r in run_arr])
+                f"{name} enthaelt nur die Klasse(n) {vorhanden.tolist()}. "
+                f"Gewaehlte Val-Runs: {sorted(val_runs)}. AUC und TPR waeren "
+                "dort NaN. Mehr Runs in pairs.runs, oder Runs mit zu wenig "
+                "NEIN aussortieren.")
+    return val_runs, is_val
 
 
 def evaluate(model, X, y, mu, sig, symmetric=True, loss_fn=None) -> dict:
@@ -265,7 +275,7 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
               f"{feature_names(tr.feature_mode)} "
               f"({'symmetrisch' if sym else 'NICHT symm. -> Mittelung'})")
 
-    val_runs, is_val = split_runs_stratified(label, run_arr, tr.val_frac, rng)
+    val_runs, is_val = split_runs(label, run_arr, tr.val_frac, rng)
     tr_idx = np.flatnonzero(~is_val)
     val_idx = np.flatnonzero(is_val)
 
