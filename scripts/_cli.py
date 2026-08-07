@@ -40,13 +40,8 @@ def to_cfg(cfg: DictConfig) -> Any:
             f"Unbekannte Konfigurationsschluessel: {sorted(fremd)}\n"
             "Mit '+' angehaengt? Parameter gehoeren in ihre Gruppe "
             "(neighborhood.alpha=..., nicht alpha=...).")
-    
-    # Abgeleitete Defaults einsetzen, BEVOR irgendein Slug berechnet wird --
-    # sonst bekaeme derselbe Datensatz zwei Identitaeten.
-    if hasattr(obj, "resolve_derived"):
-        obj.resolve_derived()
-        
     return obj
+
 
 def konfusionstabelle(cm: dict):
     """Die 2x2-Matrix als W&B-Tabelle.

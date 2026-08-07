@@ -91,7 +91,6 @@ def test_kette_labels_paare_training_solve(mini_datensatz):
     # [2] Paar-Datensatz
     # ---------------------------------------------------------------
     pcfg = PairCfg(io=IO(), neighborhood=nb, pairs=ps, compute=cp)
-    pcfg.resolve_derived()          # das tut sonst scripts/_cli.to_cfg
 
     gesehen = []
     ppath, daten = build_pair_dataset(pcfg, verbose=False,
@@ -120,7 +119,6 @@ def test_kette_labels_paare_training_solve(mini_datensatz):
     # ---------------------------------------------------------------
     tcfg = TrainCfg(io=IO(), neighborhood=nb, pairs=ps, training=tr,
                     compute=cp)
-    tcfg.resolve_derived()
 
     start, epochen = [], []
     mpath, kennzahlen = train_edge_nn(tcfg, verbose=False,
@@ -151,7 +149,6 @@ def test_kette_labels_paare_training_solve(mini_datensatz):
     sv = Solver(mode="P", backend="cc")
     scfg = SolveCfg(io=IO(), neighborhood=nb, pairs=ps, training=tr,
                     solver=sv, selection=sel, window=win, compute=cp)
-    scfg.resolve_derived()
 
     info = solve_and_evaluate(scfg, verbose=False)
 
@@ -204,11 +201,9 @@ def test_falsche_nachbarschaft_faellt_beim_solve_auf(mini_datensatz):
     build_labels(LabelCfg(io=IO(), labeling=Labeling(),
                           selection=Selection(split="train")), verbose=False)
     pcfg = PairCfg(io=IO(), neighborhood=nb, pairs=ps, compute=cp)
-    pcfg.resolve_derived()
     build_pair_dataset(pcfg, verbose=False)
     tcfg = TrainCfg(io=IO(), neighborhood=nb, pairs=ps, training=tr,
                     compute=cp)
-    tcfg.resolve_derived()
     mpath, _ = train_edge_nn(tcfg, verbose=False)
 
     anders = Neighborhood(**{**NB, "alpha": NB["alpha"] * 2})
@@ -216,7 +211,6 @@ def test_falsche_nachbarschaft_faellt_beim_solve_auf(mini_datensatz):
                     pairs=ps, training=tr, solver=Solver(backend="cc"),
                     selection=Selection(split="train", run_nr=1),
                     window=Window(t0=450_000, dt=20_000), compute=cp)
-    scfg.resolve_derived()
 
     with pytest.raises(ValueError, match="inkonsistent"):
         solve_and_evaluate(scfg, verbose=False)

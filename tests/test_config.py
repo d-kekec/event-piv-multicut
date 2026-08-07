@@ -5,14 +5,12 @@ import pytest
 
 from eventpiv import config
 from eventpiv.runconfig import (Neighborhood, PairSampling, Selection, Solver,
-                                Training, Window, resolve)
+                                Training, Window)
 
 
 @pytest.fixture
 def gruppen():
-    nb, ps, tr = Neighborhood(), PairSampling(), Training()
-    resolve(nb, ps)                      # sonst wirft PairSampling.short()
-    return nb, ps, tr
+    return Neighborhood(), PairSampling(), Training()
 
 
 def test_pfadfunktionen_legen_nichts_an(tmp_path, monkeypatch, gruppen):

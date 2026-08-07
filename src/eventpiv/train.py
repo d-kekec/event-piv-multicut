@@ -181,7 +181,7 @@ def split_runs(label, run_arr, val_frac, rng):
     return val_runs, is_val
 
 
-def evaluate(model, X, y, mu, sig, loss_fn=None) -> dict:
+def evaluate(model, X, y, loss_fn=None) -> dict:
     """Kennzahlen auf einem Datensatz. Rueckgabe: FLACHES dict.
 
     Ein dict und kein Tupel, weil die Kennzahlen unveraendert an eine
@@ -195,6 +195,11 @@ def evaluate(model, X, y, mu, sig, loss_fn=None) -> dict:
     20 Laeufe: unter 1.3e-7. Korrektheit im Prinzip, keine Fehlerbehebung
     mit messbarer Folge -- die Uebereinstimmung mit dem Solver ist dafuer
     exakt.
+
+    X kommt STANDARDISIERT herein. mu/sig standen frueher in der Signatur,
+    weil ein unsymmetrischer Merkmalsmodus daraus die Rohgroessen
+    zurueckrechnete, um ueber den Spaltentausch zu mitteln. Den Modus gibt
+    es nicht mehr, und rueckwaerts rechnen muss diese Funktion nie.
 
     loss_fn : optional. Mit derselben Verlustfunktion wie im Training
         aufgerufen, damit train/loss und holdout/loss vergleichbar sind.
@@ -375,8 +380,8 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
         # Laufzeit -- der Preis dafuer, Ueberanpassung in JEDER Kennzahl zu
         # sehen statt nur im Verlust, und dafuer, dass es die
         # Konfusionsmatrix fuer beide Mengen gibt.
-        hold = evaluate(model, Xva, yva, mu_t, sig_t, loss_fn)
-        trn = evaluate(model, Xtr, ytr, mu_t, sig_t, loss_fn)
+        hold = evaluate(model, Xva, yva, loss_fn)
+        trn = evaluate(model, Xtr, ytr, loss_fn)
         zeile = _epochenzeile(ep, tot / n, trn, hold,
                               time.perf_counter() - t_ep)
         historie.append(zeile)
@@ -489,7 +494,7 @@ def evaluate_pairs_on_dataset(cfg: TrainCfg, verbose=True) -> dict:
 
     X = (torch.tensor(feats) - mu_t) / sig_t
     y = torch.tensor(label).unsqueeze(1)
-    m = evaluate(model, X, y, mu_t, sig_t)
+    m = evaluate(model, X, y)
 
     kennzahlen = {"split": split, "metrics": _mit_cm(m),
                   "data": {**class_balance(label),

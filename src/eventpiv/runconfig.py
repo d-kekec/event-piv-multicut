@@ -22,8 +22,6 @@ import hashlib
 import json
 from dataclasses import asdict, dataclass, field, fields
 
-WIN_DT_YES_DEFAULT = 40_000     # µs, Sammelfenster der JA-Seite
-
 BOX_W = 11.0                    # px, Kantenlaenge der quadratischen
                                 # GT-Bounding-Box. Konstante des Datensatzes.
 
@@ -60,37 +58,6 @@ class _Typed:
                     "Wahrheitswert uebergeben.")
             setattr(self, f.name, cast(v))
 
-class _Derivable:
-    """resolve_derived fuer alle Stufen mit abgeleiteten Gruppenfeldern.
-
-    Aufgerufen von scripts/_cli.to_cfg, genau einmal. Ohne diesen Aufruf
-    traegt win_dt noch None, und derselbe Datensatz bekaeme zwei
-    verschiedene Identitaeten.
-
-    Die Zuordnung laeuft ueber die VORHANDENEN Gruppen, nicht ueber eine
-    feste Liste: welche Gruppen eine Stufe zusammensetzt, ist ihre Aussage
-    darueber, wovon sie abhaengt -- und daraus folgt, was aufzuloesen ist.
-    Derzeit ist das nur `pairs`. Alle abgeleiteten Werte haengen an
-    `neighborhood`; sie ist deshalb Pflicht, und die Abhaengigkeit zeigt
-    immer in dieselbe Richtung. Eine Gruppe, aus der `Neighborhood`
-    seinerseits Werte zoege, waere ein Vertrag, dessen Inhalt aus einer
-    nicht verglichenen Gruppe stammt.
-
-    Der Abbruch am Ende faengt eine umbenannte oder vergessene Gruppe: ohne
-    ihn liefe resolve_derived still ins Leere, und short() braeche erst
-    Stufen spaeter mit einer Meldung ueber ein unaufgeloestes Feld.
-
-    Kein @dataclass: die Klasse hat keine Felder, sie steuert nur Verhalten
-    bei -- genauso wie _Typed.
-    """
-
-    def resolve_derived(self) -> None:
-        if not hasattr(self, "pairs"):
-            raise RuntimeError(
-                f"{type(self).__name__} erbt von _Derivable, traegt aber "
-                "keine Gruppe mit abgeleiteten Feldern. Entweder ist die "
-                "Vererbung ueberfluessig oder eine Gruppe wurde umbenannt.")
-        resolve(self.neighborhood, self.pairs)
 
 # ============================================================
 # Gruppen
@@ -384,7 +351,7 @@ class LabelCfg:
 
 
 @dataclass
-class PairCfg(_Derivable):
+class PairCfg:
     io: IO = field(default_factory=IO)
     neighborhood: Neighborhood = field(default_factory=Neighborhood)
     pairs:        PairSampling = field(default_factory=PairSampling)
@@ -392,7 +359,7 @@ class PairCfg(_Derivable):
 
 
 @dataclass
-class TrainCfg(_Derivable):
+class TrainCfg:
     """neighborhood und pairs werden NICHT gerechnet -- sie leiten den
     EINGABEpfad ab (config.pairs_file). Die Nachbarschaft bleibt trotzdem
     eine Eigenschaft des DATENSATZES: train.py liest sie aus der .npz und
@@ -406,7 +373,7 @@ class TrainCfg(_Derivable):
 
 
 @dataclass
-class SolveCfg(_Derivable):
+class SolveCfg:
     """pairs und training werden nicht gerechnet, sondern gebraucht, um den
     Modellpfad ABZULEITEN statt ihn zu tippen."""
     io: IO = field(default_factory=IO)
@@ -420,7 +387,7 @@ class SolveCfg(_Derivable):
 
 
 @dataclass
-class ReportCfg(_Derivable):
+class ReportCfg:
     """Liest nur -- rechnet nichts. Braucht neighborhood/pairs/training, um
     das solves/-Verzeichnis zu FINDEN, und solver/window, weil beide im
     Dateinamen stehen."""
@@ -449,7 +416,7 @@ class AnimRunCfg:
 
 
 @dataclass
-class AnimClustersCfg(_Derivable):
+class AnimClustersCfg:
     """Wie SolveCfg, plus Darstellung: die Animation LOEST das Fenster selbst."""
     io:           IO           = field(default_factory=IO)
     neighborhood: Neighborhood = field(default_factory=Neighborhood)
@@ -460,43 +427,6 @@ class AnimClustersCfg(_Derivable):
     window:       Window       = field(default_factory=Window)
     compute:      Compute      = field(default_factory=Compute)
     anim:         AnimClusters = field(default_factory=AnimClusters)
-
-
-# ============================================================
-# Abgeleitete Defaults
-# ============================================================
-
-def win_dt_for(alpha, r_max, *, ref_alpha=10_000, ref_r_max=7.06,
-               ref_win_dt=40_000, cap=300_000) -> int:
-    """Sammelfenster so waehlen, dass die NEIN-Ausbeute konstant bleibt.
-
-    NEIN-Paare ~ Nachbarschaftsvolumen ~ r_max^2 * alpha; kleinere
-    Nachbarschaft ueber ein breiteres Sammelfenster kompensieren.
-    Geeicht am ELLIPSOID -- fuer Zylinder/Hyperboloid konservativ, nicht falsch.
-    Nur fuers SAMMELN; das Solve-Fenster (Window.dt) bleibt klein.
-    """
-    v = int(ref_win_dt * (ref_r_max ** 2 * ref_alpha) / (r_max ** 2 * alpha))
-    return min(v, cap)
-
-
-def resolve(nb: Neighborhood, ps: PairSampling) -> PairSampling:
-    """Abgeleitete Defaults einsetzen. MUSS vor canonical()/slug() laufen --
-    sonst bekaemen ein unaufgeloestes und ein aufgeloestes PairSampling
-    verschiedene Slugs, obwohl sie denselben Datensatz beschreiben.
-
-    Veraendert ps AN ORT UND STELLE und gibt es zusaetzlich zurueck.
-
-    `is None` statt `or`: win_dt=0 ist ein gueltiger (wenn auch unsinniger)
-    Wert und darf nicht still durch den Default ersetzt werden.
-    """
-    # Derzeit wird nichts abgeleitet: `win_dt`/`win_dt_yes` sind mit dem
-    # Sammelfenster entfallen. Die Funktion bleibt bis Schritt 3.3 als
-    # Haken stehen, damit dieser Commit nicht zusaetzlich `_Derivable`,
-    # `win_dt_for`, `WIN_DT_YES_DEFAULT`, den hasattr-Waechter in
-    # `_cli.to_cfg`, alle drei Stufen-Konfigurationen und vier Testdateien
-    # anfasst -- der Diff waere dann nicht mehr pruefbar. Sie wird dort
-    # samt `_Derivable` geloescht.
-    return ps
 
 
 # ============================================================
