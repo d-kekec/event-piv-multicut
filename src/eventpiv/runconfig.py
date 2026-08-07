@@ -70,10 +70,11 @@ class _Derivable:
     Die Zuordnung laeuft ueber die VORHANDENEN Gruppen, nicht ueber eine
     feste Liste: welche Gruppen eine Stufe zusammensetzt, ist ihre Aussage
     darueber, wovon sie abhaengt -- und daraus folgt, was aufzuloesen ist.
-    Alle abgeleiteten Werte haengen an `neighborhood`; sie ist deshalb
-    Pflicht, und die Abhaengigkeit zeigt immer in dieselbe Richtung. Eine
-    Gruppe, aus der `Neighborhood` seinerseits Werte zoege, waere ein
-    Vertrag, dessen Inhalt aus einer nicht verglichenen Gruppe stammt.
+    Derzeit ist das nur `pairs`. Alle abgeleiteten Werte haengen an
+    `neighborhood`; sie ist deshalb Pflicht, und die Abhaengigkeit zeigt
+    immer in dieselbe Richtung. Eine Gruppe, aus der `Neighborhood`
+    seinerseits Werte zoege, waere ein Vertrag, dessen Inhalt aus einer
+    nicht verglichenen Gruppe stammt.
 
     Der Abbruch am Ende faengt eine umbenannte oder vergessene Gruppe: ohne
     ihn liefe resolve_derived still ins Leere, und short() braeche erst
@@ -84,18 +85,12 @@ class _Derivable:
     """
 
     def resolve_derived(self) -> None:
-        getan = False
-        if hasattr(self, "pairs"):
-            resolve(self.neighborhood, self.pairs)
-            getan = True
-        if hasattr(self, "tracklets"):
-            resolve_tracklets(self.neighborhood, self.tracklets)
-            getan = True
-        if not getan:
+        if not hasattr(self, "pairs"):
             raise RuntimeError(
                 f"{type(self).__name__} erbt von _Derivable, traegt aber "
                 "keine Gruppe mit abgeleiteten Feldern. Entweder ist die "
                 "Vererbung ueberfluessig oder eine Gruppe wurde umbenannt.")
+        resolve(self.neighborhood, self.pairs)
 
 # ============================================================
 # Gruppen
@@ -166,8 +161,10 @@ class PairSampling(_Typed):
     win_offsets: list[int] = field(
         default_factory=lambda: [1_500_000, 3_500_000, 5_500_000])
     slab_dt: int = 10_000           # ergebnisNEUTRALE Zerlegung, reiner
-                                    # RAM-Schutz -- NICHT das Tracklet-
-                                    # Fenster, siehe Tracklets
+                                    # RAM-Schutz. NICHT das Tracklet-Fenster:
+                                    # der rechte Rand ist hier um alpha
+                                    # erweitert, dort waere er ein harter
+                                    # Schnitt.
     max_yes: int = 2_000_000
     max_no: int = 2_000_000
     seed: int = 0
@@ -275,7 +272,8 @@ class Window(_Typed):
     verwechselt:
       PairSampling.win_dt   Sammelfenster, breit, fuer TRAININGSPAARE
       PairSampling.slab_dt  ergebnisneutrale Zerlegung, reiner RAM-Schutz
-      Tracklets.dt          harter Schnitt je Tracklet in Stufe 1
+      Neighborhood.alpha    zugleich die Laenge eines Tracklet-Fensters in
+                            Stufe 1 -- dort ein HARTER Schnitt
       Window                dieser Ausschnitt, fuer Einzelsolve und Animation
 
     None heisst "ab Anfang" bzw. "ganzer Run" -- load_events kennt das
@@ -287,44 +285,6 @@ class Window(_Typed):
 
     def short(self) -> str:
         return f"t{self.t0}_dt{self.dt}"
-
-
-@dataclass
-class Tracklets(_Typed):
-    """Stufe 1: das Fenster, in dem ein Tracklet entsteht.
-
-    DER GEGENSATZ ZU slab_dt. `slab_dt` erweitert den rechten Rand um
-    alpha, damit Paare ueber die Slabgrenze hinweg trotzdem entstehen --
-    genau einmal. Es aendert das Ergebnis nicht, es schuetzt nur den
-    Speicher. `Tracklets.dt` ist ein HARTER SCHNITT: ueber ihn hinweg darf
-    keine Kante entstehen, weil ein Event nie in zwei Tracklets liegen
-    darf. Gleiche Mechanik, umgekehrte Bedeutung.
-
-    Die Fenster stossen an und ueberlappen nicht. Deshalb gibt es keinen
-    Schrittweiten-Parameter: eine Ueberlappung waere nicht eine andere
-    Einstellung, sondern ein anderes Verfahren.
-
-    dt = None heisst alpha. Damit existiert die Zahl an EINER Stelle, und
-    die Konvention alpha = tracklet_dt ist ein Vorgabewert statt einer
-    Regel, an die sich jemand erinnern muss. Ein abweichendes Verhaeltnis
-    bleibt moeglich, kostet aber einen sichtbaren Override.
-
-    Was hier NICHT steht -- Mindestgroesse eines Tracklets, Grenzen des
-    Abschreitens, Deckel auf die Fensterzahl -- haengt am Treiber und wird
-    mit ihm entschieden.
-    """
-    dt: int | None = None           # None -> neighborhood.alpha
-
-    def short(self) -> str:
-        # Engstelle wie bei PairSampling: slug() ruft short() IMMER auf.
-        # Ein unaufgeloestes dt ergaebe still einen anderen Hash fuer
-        # denselben Arbeitspunkt.
-        if self.dt is None:
-            raise RuntimeError(
-                "Tracklets ist unaufgeloest (dt = None). "
-                "runconfig.resolve_tracklets(nb, tk) laeuft normalerweise in "
-                "scripts/_cli.to_cfg -- bei direkter Konstruktion selbst rufen.")
-        return f"dt{self.dt}"
 
 
 @dataclass
@@ -537,21 +497,6 @@ def resolve(nb: Neighborhood, ps: PairSampling) -> PairSampling:
     if ps.win_dt_yes is None:
         ps.win_dt_yes = WIN_DT_YES_DEFAULT
     return ps
-
-
-def resolve_tracklets(nb: Neighborhood, tk: Tracklets) -> Tracklets:
-    """Abgeleitete Defaults der Tracklet-Gruppe. MUSS vor slug() laufen.
-
-    Veraendert tk AN ORT UND STELLE und gibt es zusaetzlich zurueck --
-    dieselbe Form wie resolve, damit beide gleich benutzt werden.
-
-    `is None` statt `or`: dt = 0 ist ein ungueltiger, aber ANGEGEBENER
-    Wert und darf nicht still durch alpha ersetzt werden. Er faellt dann
-    dort auf, wo er wirkt, statt hier verdeckt zu werden.
-    """
-    if tk.dt is None:
-        tk.dt = nb.alpha
-    return tk
 
 
 # ============================================================
