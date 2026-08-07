@@ -42,7 +42,7 @@ from eventpiv import config
 from eventpiv.data import load_events
 from eventpiv.evaluate import align_gt_window, cluster_metrics, edge_gt_stats
 from eventpiv.graph import edge_deltas, neighborhood_pairs, polarity_mask
-from eventpiv.model import SWAP_RAW6, build_features, is_symmetric
+from eventpiv.model import build_features
 from eventpiv.runconfig import Neighborhood, SolveCfg, identity_meta
 
 
@@ -77,21 +77,14 @@ def edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, cp):
         # Stelle (graph.py), auch wenn hier nur ein Stapel gerechnet wird.
         dt, dx, dy = (zu(a) for a in edge_deltas(t, x, y, ii, jj))
 
-        extra = {}
-        if feature_mode == "raw6":
-            extra = {"ti": zu(t[ii]), "xi": zu(x[ii]), "yi": zu(y[ii])}
-
-        feats = build_features(dt, dx, dy, mode=feature_mode, xp=torch, **extra)
+        feats = build_features(dt, dx, dy, mode=feature_mode, xp=torch)
         feats = (feats - mu) / sig
 
         with torch.no_grad():
-            logit = model(feats).squeeze(1)
-            if not is_symmetric(feature_mode):
-                # c_ij muss gleich c_ji sein -> ueber den Tausch mitteln
-                roh = feats * sig + mu
-                getauscht = (roh[:, SWAP_RAW6] - mu) / sig
-                logit = 0.5 * (logit + model(getauscht).squeeze(1))
-        out[sl] = logit
+            # Keine Mittelung ueber den Tausch: c_ij == c_ji folgt aus den
+            # Merkmalen selbst (|dx|, |dy|, dr invariant, dt >= 0 per
+            # graph.py-Kontrakt).
+            out[sl] = model(feats).squeeze(1)
 
     return out
 

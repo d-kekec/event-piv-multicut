@@ -19,15 +19,12 @@ Dasselbe Argument wie bei graph.neighborhood_pairs.
 FEATURE-MODI, gemessen:
   "dr"    (dt, dr)            AUC 0.792 -- Arbeitspunkt
   "absxy" (dt, |dx|, |dy|)    AUC 0.788 -- gleichauf
-  "raw6"  (ti,xi,yi,tj,xj,yj) AUC 0.29-0.39 -- WIDERLEGT: memoriert
-          Trainingspositionen (TNR ~0.02) und bricht auf ungesehenen Runs
-          ein. Bleibt fuer die Ablation, ist kein Arbeitspunkt.
 
-SYMMETRIE c_ij == c_ji ist bei dr und absxy eine Eigenschaft der MERKMALE:
-|dx|, |dy| und dr sind invariant unter i<->j, dt >= 0 garantiert der
-graph.py-Kontrakt. Nur raw6 ist unsymmetrisch und braucht die Mittelung
-ueber den Tausch -- die einzige Stelle, an der Symmetrie ein Laufzeitthema
-ist.
+SYMMETRIE c_ij == c_ji ist eine Eigenschaft der MERKMALE, kein Laufzeit-
+thema: |dx|, |dy| und dr sind invariant unter i<->j, und dt >= 0
+garantiert der graph.py-Kontrakt. Multicut setzt diese Symmetrie voraus --
+eine Kante hat EINEN Preis, unabhaengig davon, welches Ende man zuerst
+nennt.
 """
 from __future__ import annotations
 
@@ -42,11 +39,7 @@ from eventpiv.runconfig import FEATURE_MODES
 _FEATURE_NAMES = {
     "dr":    ("dt", "dr"),
     "absxy": ("dt", "|dx|", "|dy|"),
-    "raw6":  ("ti", "xi", "yi", "tj", "xj", "yj"),
 }
-
-# Spaltenpermutation, die (i,j) -> (j,i) entspricht. Nur fuer raw6 noetig.
-SWAP_RAW6 = [3, 4, 5, 0, 1, 2]
 
 
 def check_mode(mode: str) -> str:
@@ -64,31 +57,19 @@ def n_features(mode: str) -> int:
     return len(_FEATURE_NAMES[check_mode(mode)])
 
 
-def is_symmetric(mode: str) -> bool:
-    """False nur fuer raw6 -- dort muss ueber den Tausch gemittelt werden."""
-    return check_mode(mode) != "raw6"
-
-
-def build_features(dt, dx, dy, *, mode, ti=None, xi=None, yi=None, xp=np):
+def build_features(dt, dx, dy, *, mode, xp=np):
     """Baut die Feature-Matrix (n, n_in) aus den Kanten-Deltas.
 
     dt, dx, dy : 1D-Arrays/Tensoren, dt >= 0 (graph.py-Kontrakt)
-    ti, xi, yi : Absolutkoordinaten des FRUEHEREN Events, nur fuer raw6
     xp         : Backend -- numpy (Training) oder torch (Einsatz auf GPU).
-                 Beide bieten abs/sqrt/stack gleich an; die Achse muss
-                 POSITIONAL uebergeben werden (np: axis, torch: dim).
 
     Rueckgabe: Matrix im dtype der Eingaben (Caller castet auf float32).
     """
     check_mode(mode)
     if mode == "dr":
         cols = [dt, xp.sqrt(dx * dx + dy * dy)]
-    elif mode == "absxy":
+    else:                                    # absxy
         cols = [dt, xp.abs(dx), xp.abs(dy)]
-    else:                                    # raw6
-        if ti is None or xi is None or yi is None:
-            raise ValueError("feature_mode 'raw6' braucht ti, xi, yi")
-        cols = [ti, xi, yi, ti + dt, xi + dx, yi + dy]
     return xp.stack(cols, 1)
 
 

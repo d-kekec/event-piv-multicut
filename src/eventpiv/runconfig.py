@@ -101,7 +101,7 @@ class _Derivable:
 # greifen, BEVOR der Slug existiert.
 NEIGHBORHOOD_GEOMS = ("ellipsoid", "cylinder", "hyperboloid")
 POLARITIES = ("on", "both")
-FEATURE_MODES = ("dr", "absxy", "raw6")
+FEATURE_MODES = ("dr", "absxy")
 IMBALANCE_MODES = ("sample", "weight")
 SOLVER_BACKENDS = ("rama", "cc")
 

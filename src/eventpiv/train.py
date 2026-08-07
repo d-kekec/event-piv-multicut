@@ -29,8 +29,8 @@ from pathlib import Path
 
 from eventpiv import config
 from eventpiv.metrics import class_balance, pair_report
-from eventpiv.model import (EdgeMLP, SWAP_RAW6, build_features, check_mode,
-                            feature_names, is_symmetric, load_checkpoint,
+from eventpiv.model import (EdgeMLP, build_features, check_mode,
+                            feature_names, load_checkpoint,
                             n_features, save_checkpoint)
 from eventpiv.runconfig import TrainCfg, identity_meta
 
@@ -79,16 +79,10 @@ def load_features(path, feature_mode: str):
             "lassen (gleiche neighborhood/pairs-Gruppe).")
     
     with np.load(path, allow_pickle=False) as d:
-        kwargs = {}
-        if feature_mode == "raw6":
-            kwargs = {"ti": d["ti"].astype(np.float32),
-                      "xi": d["xi"].astype(np.float32),
-                      "yi": d["yi"].astype(np.float32)}
         feats = build_features(d["dt"].astype(np.float32),
                                d["dx"].astype(np.float32),
                                d["dy"].astype(np.float32),
-                               mode=feature_mode, xp=np,
-                               **kwargs).astype(np.float32)
+                               mode=feature_mode, xp=np).astype(np.float32)
         return (feats, d["label"].astype(np.float32), d["run"],
                 json.loads(str(d["meta"])))
 
@@ -187,7 +181,7 @@ def split_runs(label, run_arr, val_frac, rng):
     return val_runs, is_val
 
 
-def evaluate(model, X, y, mu, sig, symmetric=True, loss_fn=None) -> dict:
+def evaluate(model, X, y, mu, sig, loss_fn=None) -> dict:
     """Kennzahlen auf einem Datensatz. Rueckgabe: FLACHES dict.
 
     Ein dict und kein Tupel, weil die Kennzahlen unveraendert an eine
@@ -212,10 +206,6 @@ def evaluate(model, X, y, mu, sig, symmetric=True, loss_fn=None) -> dict:
     model.eval()
     with torch.no_grad():
         logit = model(X)
-        if not symmetric:
-            roh = X * sig + mu                      # zurueck in Rohgroessen
-            getauscht = (roh[:, SWAP_RAW6] - mu) / sig
-            logit = 0.5 * (logit + model(getauscht))
         out = {"loss": loss_fn(logit, y).item()} if loss_fn is not None else {}
         # squeeze(1) statt squeeze(): bei genau einem Paar wuerde squeeze()
         # einen 0-dimensionalen Tensor liefern und die Kennzahlen brechen.
@@ -264,7 +254,6 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
                  else config.pairs_file(nb, ps, create=False))
     feats, label, run_arr, ds_meta = load_features(data_path, tr.feature_mode)
     check_dataset_neighborhood(ds_meta, nb, data_path.name)
-    sym = is_symmetric(tr.feature_mode)
 
     if verbose:
         print(f"Datensatz: {data_path}")
@@ -272,8 +261,7 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
               f"(JA {int(label.sum()):,} / NEIN {int((label == 0).sum()):,})")
         print(f"  alpha={nb.alpha}, r_max={nb.r_max}, geom={nb.geom}")
         print(f"Feature-Modus '{tr.feature_mode}': "
-              f"{feature_names(tr.feature_mode)} "
-              f"({'symmetrisch' if sym else 'NICHT symm. -> Mittelung'})")
+              f"{feature_names(tr.feature_mode)}")
 
     val_runs, is_val = split_runs(label, run_arr, tr.val_frac, rng)
     tr_idx = np.flatnonzero(~is_val)
@@ -387,8 +375,8 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
         # Laufzeit -- der Preis dafuer, Ueberanpassung in JEDER Kennzahl zu
         # sehen statt nur im Verlust, und dafuer, dass es die
         # Konfusionsmatrix fuer beide Mengen gibt.
-        hold = evaluate(model, Xva, yva, mu_t, sig_t, sym, loss_fn)
-        trn = evaluate(model, Xtr, ytr, mu_t, sig_t, sym, loss_fn)
+        hold = evaluate(model, Xva, yva, mu_t, sig_t, loss_fn)
+        trn = evaluate(model, Xtr, ytr, mu_t, sig_t, loss_fn)
         zeile = _epochenzeile(ep, tot / n, trn, hold,
                               time.perf_counter() - t_ep)
         historie.append(zeile)
@@ -501,7 +489,7 @@ def evaluate_pairs_on_dataset(cfg: TrainCfg, verbose=True) -> dict:
 
     X = (torch.tensor(feats) - mu_t) / sig_t
     y = torch.tensor(label).unsqueeze(1)
-    m = evaluate(model, X, y, mu_t, sig_t, is_symmetric(feature_mode))
+    m = evaluate(model, X, y, mu_t, sig_t)
 
     kennzahlen = {"split": split, "metrics": _mit_cm(m),
                   "data": {**class_balance(label),

@@ -59,29 +59,6 @@ def test_dt_nicht_negativ(szene):
     assert (d["dt"] >= 0).all()
 
 
-def test_nur_saubere_events(szene):
-    """Kein Paar darf ein mehrdeutiges oder verrauschtes Event enthalten."""
-    t, x, y, tid, sta = szene
-    d, _ = collect_pairs(t, x, y, tid, sta, **PARAMS)
-    # Die unsauberen Events liegen bei t=600 (P1) und t=900 (P2). Partner mit
-    # demselben t sind erlaubt, solange sie vom sauberen Partikel stammen --
-    # deshalb ueber die Positionen pruefen statt ueber die Zeit:
-    assert d["label"].size > 0
-    for ti, xi, dt, dx in zip(d["ti"], d["xi"], d["dt"], d["dx"]):
-        for tt, xx in ((ti, xi), (ti + dt, xi + dx)):
-            treffer = np.flatnonzero((t == tt) & (np.isclose(x, xx)))
-            assert (sta[treffer] == STATUS_CLEAN).any()
-
-
-def test_kein_doppelzaehlen(szene):
-    """Jedes Paar genau einmal. Frueher leistete das die Slab-Zuordnung
-    ueber das fruehere Event; jetzt folgt es daraus, dass die Fenster
-    disjunkt sind und der rechte Rand NICHT erweitert wird."""
-    t, x, y, tid, sta = szene
-    d, _ = collect_pairs(t, x, y, tid, sta, **PARAMS)
-    schluessel = list(zip(d["ti"], d["xi"], d["dt"], d["dx"], d["dy"]))
-    assert len(set(schluessel)) == len(schluessel)
-
 
 def test_saubere_szene_liefert_keine_nein_paare():
     """Physikalisch: weit getrennte Partikel liegen ausserhalb von r_max und
@@ -149,9 +126,11 @@ def test_keine_kante_ueber_die_fenstergrenze():
     tid = np.array([1, 1, 1, 1], dtype=np.int16)
     sta = np.zeros(4, np.uint8)
     d, _ = collect_pairs(t, x, y, tid, sta, **PARAMS)   # alpha = 1000
-    paare = set(zip(d["ti"].tolist(), (d["ti"] + d["dt"]).tolist()))
-    assert (999.0, 1001.0) not in paare
-    assert (0.0, 999.0) in paare, "Paar INNERHALB des Fensters fehlt"
+    # Die dt-Werte identifizieren die Paare hier eindeutig: 2 waere das
+    # Paar ueber die Grenze, 999 das innerhalb des ersten Fensters.
+    dts = set(d["dt"].tolist())
+    assert 2.0 not in dts
+    assert 999.0 in dts, "Paar INNERHALB des Fensters fehlt"
 
 
 def test_ja_frac_null_laesst_nur_nein_uebrig(szene):
@@ -178,3 +157,50 @@ def test_fenster_werden_gezaehlt(szene):
     """Die Szene laeuft ueber 1,5 ms bei alpha = 1 ms -> zwei Fenster."""
     _, z = collect_pairs(*szene, **PARAMS)
     assert z["n_fenster"] == 2
+
+
+def _bruteforce(t, x, y, tid, sta, *, alpha, r_max):
+    """O(n^2)-Referenz: welche Paare MUESSEN herauskommen.
+
+    Unabhaengig von collect_pairs aufgebaut -- Fenster als Zeitmaske statt
+    ueber searchsorted, Nachbarschaft als Ellipsoid von Hand. Prueft damit
+    Fenstergrenzen, Sauberkeitsfilter und Doppelzaehlung in einem Zug.
+
+    Rueckgabe: sortierte Liste von (dt, dx, dy, label), i = frueheres Event.
+    """
+    s = r_max / alpha
+    out = []
+    for w0 in np.arange(t[0], t[-1], alpha):
+        m = np.flatnonzero((t >= w0) & (t < w0 + alpha))
+        for pos_a in range(len(m)):
+            for pos_b in range(pos_a + 1, len(m)):
+                a, b = m[pos_a], m[pos_b]
+                if sta[a] != STATUS_CLEAN or sta[b] != STATUS_CLEAN:
+                    continue
+                dt = abs(t[a] - t[b])
+                dr2 = (x[a] - x[b]) ** 2 + (y[a] - y[b]) ** 2
+                if dr2 + (s * dt) ** 2 > r_max ** 2:
+                    continue
+                lo, hi = (a, b) if t[a] <= t[b] else (b, a)
+                out.append((t[hi] - t[lo], x[hi] - x[lo], y[hi] - y[lo],
+                            int(tid[lo] == tid[hi])))
+    return sorted(out)
+
+
+def test_gegen_bruteforce(szene):
+    """Die vollstaendige Paarmenge gegen eine offensichtlich korrekte
+    Referenz -- absolut, nicht relativ zu einer Referenzdatei.
+
+    Ersetzt die frueheren Tests auf "nur saubere Events" und "kein
+    Doppelzaehlen": beide identifizierten Paare ueber ihre
+    Absolutkoordinaten, und die stehen nicht mehr im Datensatz. Ein
+    Vergleich der ganzen Menge braucht sie nicht und deckt zugleich mehr ab.
+    """
+    t, x, y, tid, sta = szene
+    d, _ = collect_pairs(t, x, y, tid, sta, **PARAMS)
+    ist = sorted(zip(d["dt"].tolist(), d["dx"].tolist(),
+                     d["dy"].tolist(), d["label"].tolist()))
+    soll = _bruteforce(t, x, y, tid, sta,
+                       alpha=PARAMS["alpha"], r_max=PARAMS["r_max"])
+    assert len(ist) == len(soll) > 0
+    np.testing.assert_allclose(np.array(ist), np.array(soll), atol=1e-5)

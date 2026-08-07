@@ -52,7 +52,7 @@ from eventpiv.runconfig import PairCfg, identity_meta
 # fuehrten dazu, dass train.py den Datensatzpfad ohne geom neu baute und
 # still den falschen Datensatz lud.
 
-FIELDS = ("dt", "dx", "dy", "ti", "xi", "yi", "label", "run")
+FIELDS = ("dt", "dx", "dy", "label", "run")
 
 
 
@@ -152,11 +152,6 @@ def collect_pairs(t, x, y, track_id, status, *, alpha, r_max, geom,
         acc["dt"].append((tw[j] - tw[i]).astype(np.float32))   # >= 0
         acc["dx"].append((xw[j] - xw[i]).astype(np.float32))
         acc["dy"].append((yw[j] - yw[i]).astype(np.float32))
-        # Absolutkoordinaten des FRUEHEREN Events (fuer raw6-Features);
-        # das spaetere ergibt sich als (ti+dt, xi+dx, yi+dy).
-        acc["ti"].append(tw[i].astype(np.float32))
-        acc["xi"].append(xw[i].astype(np.float32))
-        acc["yi"].append(yw[i].astype(np.float32))
         acc["label"].append(lab)
 
     if not acc["dt"]:
