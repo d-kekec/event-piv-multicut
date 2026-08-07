@@ -88,11 +88,14 @@ class Neighborhood(_Typed):
     gemischtpolar; ohne dieses Feld wuerde ein mit beiden Polaritaeten
     gebauter Datensatz still fuer einen ON-only-Einsatz weiterverwendet.
     """
-    alpha: int = 20_000
-    r_max: float = 3.0
+    # Arbeitspunkt von Stufe 1. alpha ist zugleich die Laenge eines
+    # Tracklet-Fensters -- ein Regler fuer Kantenreichweite UND
+    # Tracklet-Laenge, siehe Code_Guide §1.
+    alpha: int = 10_000
+    r_max: float = 5.0
     geom: str = "cylinder"
     v_max: float = 1.02e-4
-    polarity: str = "both"
+    polarity: str = "on"
 
     def short(self) -> str:
         # polarity IMMER im Kern, nicht nur bei Abweichung: das Feld aendert
@@ -137,9 +140,12 @@ class PairSampling(_Typed):
     split: str = "train"
     runs: list[int] = field(
         default_factory=lambda: [2, 11, 19, 30, 32, 35, 44, 59, 61, 76])
-    ja_frac: float = 5e-3
-    max_yes: int = 2_000_000
-    max_no: int = 2_000_000
+    # 1e-3 statt eines groesseren Werts, damit die Ausbeute je Run NAHE am
+    # Deckel landet statt weit darueber: bei 5e-3 rechnete run61 11,2 Mio.
+    # JA und warf neun davon wieder weg.
+    ja_frac: float = 1e-3
+    max_yes: int = 1_000_000
+    max_no: int = 1_000_000
     seed: int = 0
 
     def short(self) -> str:

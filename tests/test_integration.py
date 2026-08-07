@@ -42,14 +42,17 @@ from eventpiv.train import train_edge_nn
 # Nicht die Vorgabewerte: die sind auf 8-s-Runs geeicht, die Fixture ist
 # 1 s lang. r_max = 5 und alpha = 10 000 liegen zugleich im Zielregime von
 # Stufe 1.
-NB = dict(alpha=10_000, r_max=5.0, geom="cylinder")
+# Vollstaendig ausgeschrieben, auch wo es der Vorgabe entspricht: ein Test
+# soll sich nicht mitverschieben, wenn eine Vorgabe wandert.
+NB = dict(alpha=10_000, r_max=5.0, geom="cylinder", polarity="on")
 
 # Nur die Kreuzungs-Runs: saubere liefern physikalisch null NEIN, und die
 # Kreuzungs-Runs tragen selbst reichlich JA. Zwei Runs sind das Minimum
 # fuer einen run-getrennten Holdout.
-# Schwellen grob, nicht scharf: sie fangen "gar nichts gesammelt", nicht
-# eine Abweichung um zehn Prozent.
-MIND_JA, MIND_NEIN = 1_000, 200
+# ON-only halbiert die Knotenzahl der Fixture; die Ausbeute faellt
+# entsprechend. Grob, nicht scharf: die Schwellen fangen "gar nichts
+# gesammelt", nicht eine Abweichung um zehn Prozent.
+MIND_JA, MIND_NEIN = 300, 50
 
 
 def _gruppen(mini_datensatz):
