@@ -22,15 +22,18 @@ def ausbeute_tabelle(je_run):
     """Ausbeute je Run als W&B-Tabelle.
 
     Eine Tabelle und keine Kurve: die Runs haben keine Ordnung in der Zeit.
-    ROH neben BEHALTEN, damit sichtbar ist, welcher Run am Deckel haengt --
-    ein gedeckelter Run sieht im Ergebnis sonst aus wie einer, der zufaellig
-    so viel liefert.
+    ROH neben BEHALTEN je Klasse: JA wird schon beim Sammeln geduennt
+    (ja_frac), NEIN erst am Deckel. Erst beide Zahlen sagen, ob das
+    Klassenverhaeltnis aus den DATEN folgt oder aus max_yes/max_no.
     """
-    t = wandb.Table(columns=["run", "Klasse", "roh", "behalten",
-                             "gedeckelt", "Sekunden"])
+    t = wandb.Table(columns=["run", "Fenster", "ohne NEIN",
+                             "JA roh", "JA behalten", "NEIN roh",
+                             "NEIN behalten", "JA gedeckelt",
+                             "NEIN gedeckelt", "Sekunden"])
     for z in je_run:
-        t.add_data(z["run"], z["kind"], z["n_roh"], z["n_behalten"],
-                   z["gedeckelt"], z["sec"])
+        t.add_data(z["run"], z["n_fenster"], z["n_fenster_ohne_nein"],
+                   z["n_roh_ja"], z["n_ja"], z["n_roh_nein"], z["n_nein"],
+                   z["gedeckelt_ja"], z["gedeckelt_nein"], z["sec"])
     return t
 
 

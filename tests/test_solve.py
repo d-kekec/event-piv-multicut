@@ -257,3 +257,56 @@ def test_polarity_ist_pflicht():
     auf, also muss er beim Aufruf auffallen."""
     with pytest.raises(TypeError):
         lade_fenster(Selection(split="train", run_nr=1), Window())
+
+
+# -------------------------------------------------------------------------------
+
+
+def test_cost_offset_steht_im_dateinamen():
+    """Ohne Suffix ueberschriebe ein Sweep seine eigenen Ergebnisse."""
+    assert Solver().short() == "P"
+    assert Solver(cost_offset=-0.5).short() == "P_o-0.5"
+    assert Solver(cost_offset=1.0).short() == "P_o1"
+
+
+def test_negativer_versatz_schneidet_mehr():
+    """Der Versatz verschiebt die Schwelle, ohne die Rangfolge zu aendern --
+    er kann also nur MEHR Kanten negativ machen, nie andere."""
+    from eventpiv.model import EdgeMLP, n_features
+
+    rng = np.random.default_rng(3)
+    t = np.repeat(np.arange(40, dtype=np.float64) * 100.0, 2)
+    x = np.tile([100.0, 104.0], 40) + rng.normal(0, 1.0, 80)
+    y = np.tile([100.0, 104.0], 40) + rng.normal(0, 1.0, 80)
+    o = np.argsort(t, kind="stable")
+    f = Fenster(t=t[o], x=x[o], y=y[o], p=np.ones(80, np.uint8))
+
+    # EINMAL gebaut, nicht je Aufruf: EdgeMLP wird zufaellig initialisiert,
+    # und zwei Netze liefern verschiedene Kosten. Der Test vergliche sonst
+    # Netze statt Versaetze.
+    torch.manual_seed(0)
+    modell = EdgeMLP(n_features("dr"), 4)
+
+    def loese(offset):
+        cfg = SolveCfg(io=IO(),
+                       neighborhood=Neighborhood(alpha=10_000, r_max=5.0,
+                                                 geom="cylinder"),
+                       pairs=PairSampling(), training=Training(),
+                       solver=Solver(backend="cc", cost_offset=offset),
+                       selection=Selection(split="train", run_nr=1),
+                       window=Window(t0=0, dt=10_000),
+                       compute=Compute(device="cpu", cost_batch=1_000_000))
+        return solve_window(cfg, f, modell, torch.zeros(2), torch.ones(2),
+                            "dr", verbose=False)[1]
+
+    # Grenzwerte statt Zwischenwerte: welche Kosten ein UNTRAINIERTES Netz
+    # liefert, ist Zufall der Initialisierung -- ein Test darauf pruefte
+    # nicht den Versatz. Diese beiden Aussagen gelten fuer JEDE
+    # Kostenverteilung, und genau das ist die Mechanik des Versatzes.
+    ohne = loese(0.0)
+    assert loese(-1e6)["frac_neg"] == 1.0        # alles negativ
+    assert loese(+1e6)["frac_neg"] == 0.0        # nichts negativ
+    for offset in (-1e6, +1e6):
+        m = loese(offset)
+        assert m["frac_neg_roh"] == ohne["frac_neg_roh"]
+        assert m["cost_offset"] == offset

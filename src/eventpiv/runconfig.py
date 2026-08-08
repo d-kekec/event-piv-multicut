@@ -196,18 +196,38 @@ class Solver(_Typed):
 
     mode wirkt nur bei backend="rama"; ueberkonservativ im Namen zu
     bleiben ist billiger als eine bedingte Regel.
+
+    cost_offset ist der BETRIEBSPUNKT, kein Kalibrierwert. Er wird auf jede
+    Kante addiert und verschiebt damit die Schwelle zwischen Schneiden und
+    Verbinden, ohne die Rangfolge der Kanten zu aendern.
+
+    Denselben Effekt hat das Klassenverhaeltnis im Training -- Untersampeln
+    auf P(JA)=0.75 verschiebt jeden gelernten Logit gegenueber P(JA)=0.5 um
+    logit(0.75). Der Unterschied ist der Preis: das Verhaeltnis kostet ein
+    Neutraining, dieser Wert einen Override.
+
+    Erwartetes Vorzeichen NEGATIV: Verschmelzen ist in Stufe 1 der einzige
+    unumkehrbare Fehler, Zerschneiden kostet nur Knoten. Die Schwelle darf
+    deshalb zum Schneiden hin liegen. Ein Versatz auf den kalibrierten Wert
+    des Einsatzes (gemessen logit(P) = +5,6 bis +7,5 ueber ganze Runs)
+    machte praktisch jede Kante positiv und verschmoelze alles.
     """
     mode: str = "P"
     use_knn: bool = False
     k_max: int = 24
     backend: str = "rama"
+    cost_offset: float = 0.0
 
     def short(self) -> str:
         # Kein Suffix im Vorgabefall: bestehende solves/*.json behalten
         # ihren Namen, der Anker bleibt unter demselben Pfad erreichbar.
+        # cost_offset MUSS im Namen stehen, sobald er wirkt -- sonst
+        # ueberschriebe ein Sweep seine eigenen Ergebnisse.
         return (self.mode
                 + (f"_knn{self.k_max}" if self.use_knn else "")
-                + ("" if self.backend == "rama" else f"_{self.backend}"))
+                + ("" if self.backend == "rama" else f"_{self.backend}")
+                + ("" if self.cost_offset == 0.0
+                   else f"_o{self.cost_offset:g}"))
 
     def __post_init__(self) -> None:
         super().__post_init__()          # Typcast aus _Typed zuerst

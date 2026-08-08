@@ -369,10 +369,20 @@ def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
 
     tic = time.time()
     costs = edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, cp)
+    # NACH edge_costs und nicht darin: edge_costs sagt, was das NETZ
+    # rechnet, der Versatz ist eine Entscheidung des Solvers. Getrennt
+    # gehalten, damit beide Anteile getrennt protokolliert werden koennen.
+    frac_neg_roh = (costs < 0).float().mean().item()
+    if sv.cost_offset != 0.0:
+        costs += sv.cost_offset
     frac_neg = (costs < 0).float().mean().item()
     t_costs = time.time() - tic
     if verbose:
-        print(f"  NN-Kosten ({feature_mode}): {frac_neg*100:.1f}% negativ "
+        versatz = ("" if sv.cost_offset == 0.0
+                   else f", Versatz {sv.cost_offset:+g} "
+                        f"(roh {frac_neg_roh*100:.1f}%)")
+        print(f"  NN-Kosten ({feature_mode}): {frac_neg*100:.1f}% negativ"
+              f"{versatz} "
               f"[{t_costs:.1f}s]")
 
     tic = time.time()
@@ -418,6 +428,7 @@ def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
               f"[{t_rama:.1f}s, Torch-Peak {vram:.1f} GB]")
 
     info = {"n_events": n, "n_edges": int(len(i)), "frac_neg": frac_neg,
+            "frac_neg_roh": frac_neg_roh, "cost_offset": sv.cost_offset,
             "backend": sv.backend,
             "n_clusters_rama": n_clusters_rama,
             "n_nodes_unassigned": n_unassigned,

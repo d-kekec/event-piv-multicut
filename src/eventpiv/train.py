@@ -301,13 +301,28 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
         tr_lab = label[tr_idx]
         ja_i = tr_idx[tr_lab == 1]
         nein_i = tr_idx[tr_lab == 0]
-        n_keep = min(len(ja_i), int(len(nein_i) * tr.sample_ratio))
+        n_verlangt = int(len(nein_i) * tr.sample_ratio)
+        n_keep = min(len(ja_i), n_verlangt)
         tr_idx = np.concatenate([rng.choice(ja_i, n_keep, replace=False),
                                  nein_i])
         rng.shuffle(tr_idx)
+        # Das Klassenverhaeltnis SETZT die Entscheidungsschwelle des Netzes:
+        # bei 3:1 lernt es log-Odds gegen P(JA)=0.75, bei 1:1 gegen 0.5, und
+        # die Differenz verschiebt jeden Logit um logit(0.75)-logit(0.5).
+        # Reicht der Datensatz nicht, folgt die Schwelle also aus max_yes und
+        # ja_frac statt aus sample_ratio -- ein Betriebspunkt, den niemand
+        # gewaehlt hat. Das muss auffallen.
+        erreicht = n_keep >= n_verlangt
         if verbose:
             print(f"Sampling: JA {n_keep:,} : NEIN {len(nein_i):,} "
                   f"(~{n_keep / max(len(nein_i), 1):.1f}:1)")
+            if not erreicht:
+                print(f"  WARN: sample_ratio={tr.sample_ratio} verlangt "
+                      f"{n_verlangt:,} JA, vorhanden sind {len(ja_i):,}. Das "
+                      f"Verhaeltnis folgt damit aus dem DATENSATZ, nicht aus "
+                      f"sample_ratio -- pairs.ja_frac oder pairs.max_yes "
+                      f"erhoehen, sonst ist der Betriebspunkt geerbt statt "
+                      f"gewaehlt.")
     else:
         tr_lab = label[tr_idx]
         n_pos = (tr_lab == 1).sum()
@@ -319,6 +334,9 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
     # imbalance="weight" ist sie identisch mit train_split -- und dass man
     # das im Log sieht, ist der Punkt: die Gewichtung sampelt nicht.
     daten["imbalance"] = tr.imbalance
+    # Nur bei "sample" aussagekraeftig; bei "weight" wird nicht gezogen.
+    daten["sample_ratio_erreicht"] = (bool(erreicht)
+                                      if tr.imbalance == "sample" else None)
     daten["train_used"] = class_balance(label[tr_idx])
     daten["pos_weight"] = (float(pos_weight.item())
                            if pos_weight is not None else None)
