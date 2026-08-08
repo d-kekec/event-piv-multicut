@@ -165,6 +165,23 @@ def solve_file(nb, ps, tr, sel, win, sv, create: bool = False) -> Path:
     return d / f"{sel.split}_run{sel.run_nr}_{win.short()}_{sv.short()}.json"
 
 
+def tracklet_file(nb, ps, tr, sel, sv, create: bool = False) -> Path:
+    """Tracklets EINES Runs. Granularitaet Run, nicht Fenster.
+
+    Bei rund 800 Fenstern je Run und 100 Runs waeren fensterweise Artefakte
+    80 000 Dateien und ebenso viele W&B-Laeufe. Ein Fenster ist stattdessen
+    eine Zeile im Run-Artefakt.
+
+    Keine eigene Slug-Ebene: was zwei Tracklet-Artefakte desselben Netzes
+    unterscheidet, ist der SOLVER, und der steht wie bei solve_file im
+    Dateinamen. Das Fenster steht NICHT darin -- der Treiber schreitet den
+    ganzen Run ab.
+    """
+    d = _ensure(wp_dir(nb, create) / "pairs" / slug(ps) / slug(tr)
+                / "tracklets", create)
+    return d / f"{sel.split}_run{sel.run_nr}_{sv.short()}.npz"
+
+
 # ============================================================
 # Metadaten (Code-Prinzip: jede erzeugte Datei traegt ihre Herkunft)
 # ============================================================

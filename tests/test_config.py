@@ -29,6 +29,7 @@ def test_pfadfunktionen_legen_nichts_an(tmp_path, monkeypatch, gruppen):
         config.pairs_file(nb, ps),
         config.model_file(nb, ps, tr),
         config.solve_file(nb, ps, tr, sel, win, sv),
+        config.tracklet_file(nb, ps, tr, sel, sv),
         config.label_dir("train"),
         config.label_file("train", 3),
         config.results_dir(),

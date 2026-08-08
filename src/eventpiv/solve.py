@@ -10,7 +10,8 @@ Getrennte Zustaendigkeiten:
   edge_costs                Kosten je Kante   (hier)
   solve_multicut/solve_cc   Solver            (hier, ueber solver.backend)
   evaluate.cluster_metrics  GT-Abgleich       (eigenes Modul)
-  solve_and_evaluate        setzt es zusammen (hier)
+  solve_and_evaluate        setzt es fuer EIN Fenster zusammen (hier)
+  solve_run                 schreitet einen ganzen Run ab (hier)
 
 Nutzen: Auswertung und Visualisierung importieren die Teile einzeln, und
 solve_window laeuft ohne Ground Truth wie mit. Laden und Rechnen sind
@@ -28,6 +29,9 @@ Optimalitaetszertifikat. Bei Bedarf stichprobenartig ueber rama_cuda.
 """
 from __future__ import annotations
 
+import contextlib
+import os
+import sys
 import time
 import resource
 from dataclasses import dataclass
@@ -326,8 +330,13 @@ def lade_fenster(sel, win, *, polarity, gt_path=None) -> Fenster:
 
 
 def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
-                 feature_mode, verbose=True):
+                 feature_mode, verbose=True, dt_us=None):
     """Ein GELADENES Zeitfenster loesen. Rueckgabe: (labels, info).
+
+    dt_us : nominale Fensterlaenge in µs, nur fuer die Diagnosefelder
+        dt_ms und events_per_ms. None heisst cfg.window.dt. Der Treiber
+        reicht alpha herein: beim Abschreiten hat jedes Fenster diese
+        Laenge, und cfg.window beschreibt dann den ganzen Run.
 
     Laedt nichts. Das Fenster kommt fertig herein (lade_fenster), und
     damit ist die Funktion frei von Pfaden und I/O -- pruefbar auf
@@ -345,7 +354,7 @@ def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
     in cfg.
     """
     nb, sv, cp = cfg.neighborhood, cfg.solver, cfg.compute
-    win = cfg.window
+    _dt = cfg.window.dt if dt_us is None else dt_us
 
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
@@ -429,11 +438,11 @@ def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
 
     info = {"n_events": n, "n_edges": int(len(i)), "frac_neg": frac_neg,
             "frac_neg_roh": frac_neg_roh, "cost_offset": sv.cost_offset,
-            "backend": sv.backend,
+            "backend": sv.backend, "mode": sv.mode,
             "n_clusters_rama": n_clusters_rama,
             "n_nodes_unassigned": n_unassigned,
-            "dt_ms": win.dt / 1000.0 if win.dt else float("nan"),
-            "events_per_ms": n / (win.dt / 1000.0) if win.dt else float("nan"),
+            "dt_ms": _dt / 1000.0 if _dt else float("nan"),
+            "events_per_ms": n / (_dt / 1000.0) if _dt else float("nan"),
             "t_graph": t_graph, "t_costs": t_costs, "t_rama": t_rama,
             "vram_peak_gb": vram, "gpu_name": gpu_name,
             # Die Spitze liegt im KDTree, also im RAM, nicht auf der Karte.
@@ -525,3 +534,210 @@ def solve_and_evaluate(cfg: SolveCfg, verbose=True) -> dict:
               f"{info.get('gt_visible_ms_median', float('nan')):.2f} ms sichtbar")
     
     return info
+
+
+@contextlib.contextmanager
+def _stumm():
+    """Unterdrueckt Ausgaben auf Dateideskriptor 1.
+
+    RAMA meldet je Aufruf "Running purely primal solver"; bei 800 Fenstern
+    je Run ist das 800-mal dieselbe Zeile. Die Meldung kommt aus dem
+    C++-Teil, deshalb reicht contextlib.redirect_stdout nicht -- das ersetzt
+    nur sys.stdout, nicht den Deskriptor darunter.
+
+    stderr bleibt unberuehrt: Fehlermeldungen gehen dorthin und sollen
+    sichtbar bleiben. Was hier verloren geht, sind ausschliesslich
+    Statuszeilen auf stdout.
+    """
+    sys.stdout.flush()
+    sicherung = os.dup(1)
+    leer = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(leer, 1)
+        yield
+    finally:
+        os.dup2(sicherung, 1)
+        os.close(leer)
+        os.close(sicherung)
+
+
+def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
+              verbose=True, on_fenster=None, stumm=True):
+    """Schreitet EINEN Run in anstossenden Fenstern der Laenge alpha ab.
+
+    Das ist Stufe 1: je Fenster unabhaengig loesen, NICHT stitchen. Ein an
+    einer Fenstergrenze zerschnittenes Partikel ergibt zwei Tracklets --
+    das ist die beabsichtigte Ausgabe, nicht ein Fehler. Verbinden ist die
+    Aufgabe von Stufe 2.
+
+    EINMAL laden: lade_fenster mit t0=None/dt=None liefert den ganzen Run
+    samt ausgerichteter GT, danach zerlegt searchsorted ihn. Frueher oeffnete
+    jedes Fenster den PSEELoader neu und richtete die GT neu aus -- bei rund
+    800 Fenstern je Run kehrt sich diese Rechnung um.
+
+    TRACKLET-IDs SIND GLOBAL. RAMA nummeriert je Fenster ab 0; ohne Versatz
+    waeren Tracklet 3 aus Fenster 1 und aus Fenster 2 dasselbe. -1 bleibt
+    -1: kantenlose Knoten gehoeren zu keinem Tracklet.
+
+    on_fenster : optional Callable(zeile) je Fenster. Dieselbe Loesung wie
+        on_epoch im Training -- ein Test haengt an eine Liste an, das Skript
+        reicht wandb.log durch.
+    
+    stumm : RAMAs Statuszeilen unterdruecken. Bei 800 Fenstern je Run ist
+        dieselbe Meldung 800-mal keine Information. Zum Nachsehen, was der
+        Solver meldet, mit stumm=False aufrufen.
+
+    Rueckgabe: (tracklet_id, zeilen, lauf).
+      tracklet_id  int32 je ON-Event des Runs, in der Reihenfolge des
+                   gefilterten Stroms. -1 = keinem Tracklet zugeordnet.
+      zeilen       eine dict-Zeile je Fenster.
+      lauf         Kennzahlen ueber den ganzen Run.
+    """
+    from eventpiv.runconfig import Window
+
+    nb, sel = cfg.neighborhood, cfg.selection
+    gt_path = (Path(cfg.io.label_dir) / f"run{sel.run_nr}_eventlabels.npz"
+               if cfg.io.label_dir
+               else config.label_file(sel.split, sel.run_nr))
+
+    t_start = time.time()
+    ganz = lade_fenster(sel, Window(t0=None, dt=None),
+                        polarity=nb.polarity, gt_path=gt_path)
+    t_laden = time.time() - t_start
+    n_ev = len(ganz)
+    if verbose:
+        print(f"run{sel.run_nr} ({sel.split}): {n_ev:,} Events "
+              f"(polarity={nb.polarity}), GT "
+              f"{'ja' if ganz.hat_gt else 'nein'} [{t_laden:.1f}s]")
+    if n_ev < 2:
+        raise ValueError(f"run{sel.run_nr} hat {n_ev} Events -- nichts zu tun.")
+
+    grenzen = np.searchsorted(ganz.t, np.arange(ganz.t[0], ganz.t[-1], nb.alpha))
+    grenzen = np.append(grenzen, n_ev)
+
+    tracklet_id = np.full(n_ev, -1, np.int32)
+    versatz = 0
+    zeilen = []
+
+    for k, (lo, hi) in enumerate(zip(grenzen[:-1], grenzen[1:])):
+        if hi - lo < 2:
+            continue
+        teil = Fenster(
+            t=ganz.t[lo:hi], x=ganz.x[lo:hi], y=ganz.y[lo:hi],
+            p=ganz.p[lo:hi],
+            track_id=None if not ganz.hat_gt else ganz.track_id[lo:hi],
+            status=None if not ganz.hat_gt else ganz.status[lo:hi])
+
+        with (_stumm() if stumm else contextlib.nullcontext()):
+            labels, info = solve_window(cfg, teil, model, mu, sig,
+                                        feature_mode, verbose=False,
+                                        dt_us=nb.alpha)
+        info["fenster"] = k
+        info["t0"] = float(teil.t[0])
+
+        if labels is not None:
+            gueltig = labels >= 0
+            tracklet_id[lo:hi][gueltig] = labels[gueltig] + versatz
+            # max()+1 statt der Clusterzahl: RAMA garantiert keine
+            # luecklose Nummerierung, und verschenkte IDs kosten nichts.
+            versatz += int(labels.max()) + 1
+            if teil.hat_gt:
+                info.update(cluster_metrics(labels, teil.track_id,
+                                            teil.status, t=teil.t))
+
+        # Die Volkszaehlung der Begegnungen -- faellt ohne zusaetzliche
+        # Rechnung an und sagt, welche Fenster ueberhaupt eine Trennung
+        # verlangen. Grundlage der CROSSING/CLEAN-Trennung.
+        if "edge_ja_frac" in info:
+            info["n_nein"] = int(round((1.0 - info["edge_ja_frac"])
+                                       * info["edge_n_bewertbar"]))
+        zeilen.append(info)
+        if on_fenster is not None:
+            on_fenster(info)
+        if verbose and (k + 1) % 100 == 0:
+            print(f"  {k+1}/{len(grenzen)-1} Fenster, "
+                  f"{versatz:,} Tracklets bisher")
+
+    n_tracklets = int((np.unique(tracklet_id) >= 0).sum())
+    lauf = {
+        "run": sel.run_nr, "split": sel.split,
+        "n_events": n_ev,
+        "n_fenster": len(zeilen),
+        "n_fenster_ohne_nein": sum(1 for z in zeilen
+                                   if z.get("n_nein", 0) == 0),
+        "n_tracklets": n_tracklets,
+        "n_events_unassigned": int((tracklet_id < 0).sum()),
+        "tracklets_je_fenster": n_tracklets / max(len(zeilen), 1),
+        "events_je_tracklet": ((tracklet_id >= 0).sum()
+                               / max(n_tracklets, 1)),
+        "diag": {
+            "sec_laden": round(t_laden, 1),
+            "sec_total": round(time.time() - t_start, 1),
+            # EINMAL je Run: ru_maxrss ist eine Hochwassermarke des
+            # Prozesses und misst ab dem zweiten Fenster nichts mehr ueber
+            # dieses Fenster.
+            "max_rss_mb": round(
+                resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
+        },
+    }
+    if verbose:
+        print(f"  {lauf['n_fenster']} Fenster, {n_tracklets:,} Tracklets, "
+              f"{lauf['events_je_tracklet']:.0f} Events je Tracklet, "
+              f"{lauf['n_fenster_ohne_nein']} Fenster ohne NEIN "
+              f"[{lauf['diag']['sec_total']:.0f}s, "
+              f"{lauf['diag']['max_rss_mb']:.0f} MB]")
+    return tracklet_id, zeilen, lauf
+
+
+def _spalte(zeilen, key, default=0):
+    """Eine Kennzahl aus allen Fensterzeilen als Array."""
+    return np.array([z.get(key, default) for z in zeilen])
+
+
+def schreibe_tracklets(cfg: SolveCfg, tracklet_id, zeilen, lauf):
+    """Artefakt (A): Event -> Tracklet, eine Datei je Run.
+
+    INDIZIERUNG, und ohne diesen Satz ist die Datei unbrauchbar:
+    `tracklet_id` hat EINEN Eintrag je ON-Event des Runs, in der Reihenfolge
+    des polaritaetsgefilterten Label-Stroms. Ein Leser stellt die Zuordnung
+    so her:
+
+        with np.load(config.label_file(split, run)) as d:
+            m = polarity_mask(d["p"], nb.polarity)
+            t, x, y = d["t"][m], d["x"][m], d["y"][m]
+
+    Danach gehoert `t[k]` zu `tracklet_id[k]`. -1 heisst KEIN Tracklet
+    (kantenloser Knoten), nicht Tracklet 0.
+
+    Warum nicht ueber alle Events: OFF-Events sind keine Knoten und
+    bekaemen durchweg -1 -- das verdoppelte die Datei fuer nichts. Ihre
+    Zuordnung zu Tracklets ist eine eigene, noch offene Frage.
+
+    Daneben je Fenster fuenf Kennzahlen. `fenster_n_nein` ist die
+    Volkszaehlung der Begegnungen: sie sagt, welche Fenster ueberhaupt eine
+    Trennung verlangen, und ist die Grundlage der CROSSING/CLEAN-Trennung
+    bei der Bewertung. -1 heisst "keine GT, also nicht bestimmbar".
+
+    Komprimiert gespeichert: das Array ist ueberwiegend aus kurzen Laeufen
+    gleicher IDs aufgebaut und schrumpft dabei erheblich.
+    """
+    out = (Path(cfg.io.out_path) if cfg.io.out_path
+           else config.tracklet_file(cfg.neighborhood, cfg.pairs,
+                                     cfg.training, cfg.selection,
+                                     cfg.solver, create=True))
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        out,
+        tracklet_id=np.asarray(tracklet_id, np.int32),
+        fenster_t0=_spalte(zeilen, "t0", float("nan")).astype(np.float64),
+        fenster_n_events=_spalte(zeilen, "n_events").astype(np.int32),
+        fenster_n_edges=_spalte(zeilen, "n_edges").astype(np.int64),
+        fenster_n_nein=_spalte(zeilen, "n_nein", -1).astype(np.int64),
+        fenster_n_clusters=_spalte(zeilen, "n_clusters_rama", -1).astype(np.int32),
+        meta=config.meta_json(
+            stage="tracklets",
+            **identity_meta(neighborhood=cfg.neighborhood, pairs=cfg.pairs,
+                            training=cfg.training, solver=cfg.solver,
+                            selection=cfg.selection),
+            **lauf))
+    return Path(out)

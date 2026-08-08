@@ -310,3 +310,127 @@ def test_negativer_versatz_schneidet_mehr():
         m = loese(offset)
         assert m["frac_neg_roh"] == ohne["frac_neg_roh"]
         assert m["cost_offset"] == offset
+
+
+def test_solve_run_schreitet_ab(mini_datensatz):
+    """Der Treiber auf dem Mini-Datensatz: 1 s bei alpha = 10 ms sind
+    100 Fenster. Geprueft werden die Zusicherungen, nicht die Qualitaet."""
+    from eventpiv.labels import build_labels
+    from eventpiv.model import EdgeMLP, n_features
+    from eventpiv.runconfig import LabelCfg, Labeling
+    from eventpiv.solve import solve_run
+
+    build_labels(LabelCfg(io=IO(), labeling=Labeling(),
+                          selection=Selection(split="train")), verbose=False)
+
+    nb = Neighborhood(alpha=10_000, r_max=5.0, geom="cylinder", polarity="on")
+    cfg = SolveCfg(io=IO(), neighborhood=nb, pairs=PairSampling(),
+                   training=Training(), solver=Solver(backend="cc"),
+                   selection=Selection(split="train", run_nr=1),
+                   window=Window(t0=None, dt=None),
+                   compute=Compute(device="cpu", cost_batch=1_000_000))
+
+    torch.manual_seed(0)
+    gesehen = []
+    tid, zeilen, lauf = solve_run(cfg, EdgeMLP(n_features("dr"), 4),
+                                  torch.zeros(2), torch.ones(2), "dr",
+                                  verbose=False, on_fenster=gesehen.append)
+
+    assert len(gesehen) == len(zeilen) == lauf["n_fenster"] > 50
+    assert tid.dtype == np.int32 and len(tid) == lauf["n_events"]
+    # Globale IDs: jede vergebene ID gehoert zu genau EINEM Fenster.
+    for z in zeilen:
+        assert z["fenster"] >= 0
+    zugeordnet = tid[tid >= 0]
+    assert lauf["n_tracklets"] == len(np.unique(zugeordnet))
+    assert lauf["n_events_unassigned"] == int((tid < 0).sum())
+    # Die Volkszaehlung ist da, weil der Run eine GT hat.
+    assert all("n_nein" in z for z in zeilen)
+    assert sum(z["n_nein"] for z in zeilen) > 0, "Kreuzungs-Run ohne NEIN"
+
+
+def test_tracklet_ids_sind_global(mini_datensatz):
+    """Ein Tracklet darf nie ueber eine Fenstergrenze reichen, und zwei
+    Fenster duerfen sich keine ID teilen."""
+    from eventpiv.labels import build_labels
+    from eventpiv.model import EdgeMLP, n_features
+    from eventpiv.runconfig import LabelCfg, Labeling
+    from eventpiv.solve import solve_run
+
+    build_labels(LabelCfg(io=IO(), labeling=Labeling(),
+                          selection=Selection(split="train")), verbose=False)
+    nb = Neighborhood(alpha=10_000, r_max=5.0, geom="cylinder", polarity="on")
+    cfg = SolveCfg(io=IO(), neighborhood=nb, pairs=PairSampling(),
+                   training=Training(), solver=Solver(backend="cc"),
+                   selection=Selection(split="train", run_nr=1),
+                   window=Window(t0=None, dt=None),
+                   compute=Compute(device="cpu", cost_batch=1_000_000))
+    torch.manual_seed(0)
+    tid, _, _ = solve_run(cfg, EdgeMLP(n_features("dr"), 4), torch.zeros(2),
+                          torch.ones(2), "dr", verbose=False)
+
+    f = lade_fenster(cfg.selection, Window(t0=None, dt=None), polarity="on",
+                     gt_path=config.label_file("train", 1))
+    grenze = np.floor((f.t - f.t[0]) / nb.alpha).astype(np.int64)
+    m = tid >= 0
+    # Je Tracklet-ID darf es genau EINEN Fensterindex geben.
+    paare = set(zip(tid[m].tolist(), grenze[m].tolist()))
+    assert len(paare) == len(set(t for t, _ in paare))
+
+
+def test_tracklet_artefakt_rundreise(mini_datensatz):
+    """Die Indizierungszusicherung: ein Eintrag je ON-Event, in der
+    Reihenfolge des gefilterten Label-Stroms. Haelt sie nicht, ist die
+    Datei stumm unbrauchbar -- nichts wuerde abstuerzen."""
+    import json
+
+    from eventpiv.graph import polarity_mask
+    from eventpiv.labels import build_labels
+    from eventpiv.model import EdgeMLP, n_features
+    from eventpiv.runconfig import LabelCfg, Labeling
+    from eventpiv.solve import schreibe_tracklets, solve_run
+
+    build_labels(LabelCfg(io=IO(), labeling=Labeling(),
+                          selection=Selection(split="train")), verbose=False)
+
+    nb = Neighborhood(alpha=10_000, r_max=5.0, geom="cylinder", polarity="on")
+    sel, sv = Selection(split="train", run_nr=1), Solver(backend="cc")
+    cfg = SolveCfg(io=IO(), neighborhood=nb, pairs=PairSampling(),
+                   training=Training(), solver=sv, selection=sel,
+                   window=Window(t0=None, dt=None),
+                   compute=Compute(device="cpu", cost_batch=1_000_000))
+
+    torch.manual_seed(0)
+    tid, zeilen, lauf = solve_run(cfg, EdgeMLP(n_features("dr"), 4),
+                                  torch.zeros(2), torch.ones(2), "dr",
+                                  verbose=False)
+    pfad = schreibe_tracklets(cfg, tid, zeilen, lauf)
+
+    assert pfad == config.tracklet_file(nb, cfg.pairs, cfg.training, sel, sv)
+    assert pfad.exists()
+
+    with np.load(pfad) as d:
+        np.testing.assert_array_equal(d["tracklet_id"], tid)
+        for k in ("fenster_t0", "fenster_n_events", "fenster_n_edges",
+                  "fenster_n_nein", "fenster_n_clusters"):
+            assert len(d[k]) == len(zeilen)
+        meta = json.loads(str(d["meta"]))
+        assert meta["stage"] == "tracklets"
+        assert meta["neighborhood"]["polarity"] == "on"
+        assert meta["n_tracklets"] == lauf["n_tracklets"]
+
+    # Die Zusicherung selbst: Laenge = Zahl der ON-Events der Label-Datei.
+    with np.load(config.label_file("train", 1)) as g:
+        m = polarity_mask(g["p"], nb.polarity)
+    assert len(tid) == int(m.sum())
+
+
+def test_stumm_gibt_den_deskriptor_zurueck(capfd):
+    """Nach dem Block muss stdout wieder funktionieren -- ein verlorener
+    Deskriptor machte den Rest des Prozesses stumm, ohne abzustuerzen."""
+    from eventpiv.solve import _stumm
+
+    with _stumm():
+        print("das darf niemand sehen")
+    print("das schon")
+    assert "das schon" in capfd.readouterr().out
