@@ -44,7 +44,10 @@ from scipy.sparse.csgraph import connected_components
 
 from eventpiv import config
 from eventpiv.data import load_events
-from eventpiv.evaluate import align_gt_window, cluster_metrics, edge_gt_stats
+from eventpiv.labels import STATUS_AMBIG
+from eventpiv.evaluate import (NAH_PX, abstand_im_fenster, align_gt_window,
+                               cluster_metrics, edge_gt_stats, merge_metrics,
+                               min_abstand_je_partikel, nah_maske)
 from eventpiv.graph import edge_deltas, neighborhood_pairs, polarity_mask
 from eventpiv.model import build_features
 from eventpiv.runconfig import Neighborhood, SolveCfg, identity_meta
@@ -512,6 +515,9 @@ def solve_and_evaluate(cfg: SolveCfg, verbose=True) -> dict:
     tic = time.time()
     info.update(cluster_metrics(labels, fenster.track_id, fenster.status,
                                 t=fenster.t))
+    # Zweite Maske, bewusst verschieden: die Merge-Kennzahlen schliessen
+    # mehrdeutige Events ein, weil dort verschmolzen wird.
+    info.update(merge_metrics(labels, fenster.track_id, fenster.status))
     info["t_eval"] = time.time() - tic
 
     if verbose and "purity_cluster_mean" in info:
@@ -532,6 +538,16 @@ def solve_and_evaluate(cfg: SolveCfg, verbose=True) -> dict:
         print(f"    GT je Partikel: median "
               f"{info['gt_events_per_particle_median']:.0f} Events, "
               f"{info.get('gt_visible_ms_median', float('nan')):.2f} ms sichtbar")
+        if "merge_event_frac" in info:
+            print(f"    Merge ueber {info['merge_n_events']:,} Events "
+                  f"(saubere UND mehrdeutige; die Kennzahlen darueber "
+                  f"ruhen auf {info['n_events']:,} sauberen): "
+                  f"strikt {info['merge_frac_strikt']*100:.1f}%, "
+                  f"ab 10% {info['merge_frac_10']*100:.1f}%, "
+                  f"Events {info['merge_event_frac']*100:.2f}%")
+            print(f"    Groesstes Fragment je Partikel: median "
+                  f"{info['frag_groesster_anteil_median']*100:.0f}% "
+                  f"seiner Events")
     
     return info
 
@@ -559,6 +575,36 @@ def _stumm():
         os.dup2(sicherung, 1)
         os.close(leer)
         os.close(sicherung)
+
+
+def _nah_fern(zeilen):
+    """Fasst die Merge-Rate getrennt fuer nahe und ferne Partikel zusammen.
+
+    DIE Frage von Stufe 1: verschmilzt der Solver dort, wo Partikel sich
+    begegnen -- und laesst er die uebrigen in Ruhe?
+
+    Getrennt wird je PARTIKEL, nicht je Fenster. Ein Fenster mit 49 weit
+    getrennten Partikeln und einem nahen Paar ist weder das eine noch das
+    andere; ein Fenster-Etikett muesste sich fuer eine Seite entscheiden
+    und waere fuer beide falsch.
+
+    Aufsummiert werden absolute Zahlen, nicht Mittelwerte von Anteilen:
+    sonst zaehlte ein Fenster mit zwanzig bewertbaren Events so viel wie
+    eines mit zwanzigtausend.
+
+    `fern_merge_event_frac` ist zugleich die Kontrolle. Sie sollte nahe
+    null liegen -- verschmilzt dort etwas, sind zwei Partikel
+    zusammengefallen, zwischen denen es gar keine Kanten geben duerfte.
+    """
+    out = {"nah_schwelle_px": NAH_PX}
+    for pre in ("nah", "fern"):
+        ev = sum(z.get(f"{pre}_n_events", 0) for z in zeilen)
+        mi = sum(z.get(f"{pre}_n_minderheit", 0) for z in zeilen)
+        out[f"{pre}_n_events"] = ev
+        out[f"{pre}_merge_event_frac"] = (mi / ev) if ev else float("nan")
+    ges = out["nah_n_events"] + out["fern_n_events"]
+    out["nah_event_anteil"] = (out["nah_n_events"] / ges) if ges else float("nan")
+    return out
 
 
 def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
@@ -593,7 +639,6 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
       zeilen       eine dict-Zeile je Fenster.
       lauf         Kennzahlen ueber den ganzen Run.
     """
-    from eventpiv.runconfig import Window
 
     nb, sel = cfg.neighborhood, cfg.selection
     gt_path = (Path(cfg.io.label_dir) / f"run{sel.run_nr}_eventlabels.npz"
@@ -601,13 +646,19 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
                else config.label_file(sel.split, sel.run_nr))
 
     t_start = time.time()
-    ganz = lade_fenster(sel, Window(t0=None, dt=None),
-                        polarity=nb.polarity, gt_path=gt_path)
+    # cfg.window ist der AUSSCHNITT: None/None heisst ganzer Run (der
+    # Normalfall des Treibers), gesetzte Werte schneiden ihn ein. Die
+    # Fensterlaenge des Abschreitens ist davon unberuehrt -- die ist alpha.
+    ganz = lade_fenster(sel, cfg.window, polarity=nb.polarity,
+                        gt_path=gt_path)
     t_laden = time.time() - t_start
     n_ev = len(ganz)
     if verbose:
+        ausschnitt = ("ganzer Run" if cfg.window.t0 is None
+                      and cfg.window.dt is None
+                      else f"AUSSCHNITT {cfg.window.short()}")
         print(f"run{sel.run_nr} ({sel.split}): {n_ev:,} Events "
-              f"(polarity={nb.polarity}), GT "
+              f"(polarity={nb.polarity}, {ausschnitt}), GT "
               f"{'ja' if ganz.hat_gt else 'nein'} [{t_laden:.1f}s]")
     if n_ev < 2:
         raise ValueError(f"run{sel.run_nr} hat {n_ev} Events -- nichts zu tun.")
@@ -618,6 +669,12 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
     tracklet_id = np.full(n_ev, -1, np.int32)
     versatz = 0
     zeilen = []
+
+    raster_t = gt_ids = d_part = None
+    if ganz.hat_gt:
+        from eventpiv.data import load_bbox
+        raster_t, gt_ids, d_part = min_abstand_je_partikel(
+            load_bbox(sel.split, sel.run_nr))
 
     for k, (lo, hi) in enumerate(zip(grenzen[:-1], grenzen[1:])):
         if hi - lo < 2:
@@ -644,6 +701,21 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
             if teil.hat_gt:
                 info.update(cluster_metrics(labels, teil.track_id,
                                             teil.status, t=teil.t))
+                info.update(merge_metrics(labels, teil.track_id, teil.status))
+                # Getrennt fuer Partikel mit und ohne nahen Nachbarn. Die
+                # Cluster werden je Teilmenge neu gebildet; das ist
+                # unbedenklich, weil zwei verschmolzene Partikel einander
+                # per Definition nah sind und damit beide in derselben
+                # Teilmenge liegen.
+                nah = nah_maske(teil.track_id, gt_ids,
+                                abstand_im_fenster(raster_t, gt_ids, d_part,
+                                                   teil.t[0],
+                                                   teil.t[0] + nb.alpha))
+                for pre, m in (("nah", nah), ("fern", ~nah)):
+                    mm = merge_metrics(labels, teil.track_id, teil.status,
+                                       extra_maske=m)
+                    info[f"{pre}_n_events"] = mm.get("merge_n_events", 0)
+                    info[f"{pre}_n_minderheit"] = mm.get("merge_n_minderheit", 0)
 
         # Die Volkszaehlung der Begegnungen -- faellt ohne zusaetzliche
         # Rechnung an und sagt, welche Fenster ueberhaupt eine Trennung
@@ -651,6 +723,16 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
         if "edge_ja_frac" in info:
             info["n_nein"] = int(round((1.0 - info["edge_ja_frac"])
                                        * info["edge_n_bewertbar"]))
+        if teil.hat_gt:
+            # Das BESSERE Ueberlappungsmass. n_nein zaehlt KANTEN zwischen
+            # zwei Partikeln und waechst mit dem Produkt der lokalen
+            # Dichten -- quadratisch statt linear. Schlimmer: es zaehlt nur
+            # Kanten mit zwei SAUBEREN Endpunkten, und im Kern einer
+            # Ueberlappung werden die Events mehrdeutig und fallen heraus.
+            # n_nein faellt dort also wieder, wo die Ueberlappung am
+            # groessten ist. n_ambig steigt monoton mit ihrer Tiefe.
+            info["n_ambig"] = int((teil.status == STATUS_AMBIG).sum())
+            info["ambig_frac"] = info["n_ambig"] / len(teil)
         zeilen.append(info)
         if on_fenster is not None:
             on_fenster(info)
@@ -668,8 +750,10 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
         "n_tracklets": n_tracklets,
         "n_events_unassigned": int((tracklet_id < 0).sum()),
         "tracklets_je_fenster": n_tracklets / max(len(zeilen), 1),
+        "tracklets_je_fenster": n_tracklets / max(len(zeilen), 1),
         "events_je_tracklet": ((tracklet_id >= 0).sum()
                                / max(n_tracklets, 1)),
+        **_nah_fern(zeilen),
         "diag": {
             "sec_laden": round(t_laden, 1),
             "sec_total": round(time.time() - t_start, 1),
@@ -686,6 +770,12 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
               f"{lauf['n_fenster_ohne_nein']} Fenster ohne NEIN "
               f"[{lauf['diag']['sec_total']:.0f}s, "
               f"{lauf['diag']['max_rss_mb']:.0f} MB]")
+        if lauf.get("nah_n_events"):
+            print(f"  NAH (<{NAH_PX:.0f}px Nachbar, "
+                  f"{lauf['nah_event_anteil']*100:.0f}% der Events): "
+                  f"Merge {lauf['nah_merge_event_frac']*100:.2f}%   |   "
+                  f"FERN: Merge "
+                  f"{lauf['fern_merge_event_frac']*100:.2f}%")
     return tracklet_id, zeilen, lauf
 
 
@@ -733,6 +823,7 @@ def schreibe_tracklets(cfg: SolveCfg, tracklet_id, zeilen, lauf):
         fenster_n_events=_spalte(zeilen, "n_events").astype(np.int32),
         fenster_n_edges=_spalte(zeilen, "n_edges").astype(np.int64),
         fenster_n_nein=_spalte(zeilen, "n_nein", -1).astype(np.int64),
+        fenster_n_ambig=_spalte(zeilen, "n_ambig", -1).astype(np.int64),
         fenster_n_clusters=_spalte(zeilen, "n_clusters_rama", -1).astype(np.int32),
         meta=config.meta_json(
             stage="tracklets",

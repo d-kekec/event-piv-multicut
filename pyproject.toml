@@ -37,3 +37,9 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "anker: Regressionsanker auf dem ECHTEN Datensatz. Braucht $EVENTPIV_DATA, gebaute Label-Dateien und ein trainiertes Netz -- laeuft deshalb nicht in der normalen Suite.",
+]
+# Standardmaessig abgewaehlt. `pytest -m anker` waehlt sie wieder an: die
+# letzte -m-Angabe gewinnt.
+addopts = "-m 'not anker'"

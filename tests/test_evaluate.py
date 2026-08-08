@@ -9,7 +9,8 @@ test_graph.py. Zusaetzlich Faelle mit von Hand ausgerechnetem Ergebnis.
 import numpy as np
 import pytest
 
-from eventpiv.evaluate import align_gt_window, cluster_metrics, edge_gt_stats
+from eventpiv.evaluate import (align_gt_window, cluster_metrics,
+                               edge_gt_stats, merge_metrics)
 from eventpiv.labels import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
 
 
@@ -55,6 +56,9 @@ def cluster_metrics_naiv(labels, track_id, status, t=None):
            "n_singletons": int((groessen == 1).sum()),
            "frag_mean": float(frag.mean()),
            "frag_max": int(frag.max()),
+           "frag_groesster_anteil_median": float(np.median(
+               [max((lab[gt == p] == c).sum() for c in np.unique(lab[gt == p]))
+                / (gt == p).sum() for p in np.unique(gt)])),
            "gt_events_per_particle_median": float(np.median(gt_gr))}
     if tt is not None:
         sp = [tt[gt == p].max() - tt[gt == p].min() for p in np.unique(gt)]
@@ -270,3 +274,186 @@ def test_align_grenzfall_lauter_gleicher_zeitstempel():
     gt_t = np.full(8, 10)
     sl = align_gt_window(gt_t, gt_t[::2])
     assert sl == slice(0, 4)          # trifft Events 0-3 statt 0,2,4,6
+
+
+def merge_metrics_naiv(labels, track_id, status):
+    """Referenz fuer merge_metrics: direkte Schleifen, andere Maske."""
+    m = np.asarray(status) != STATUS_NOISE
+    lab = np.asarray(labels)[m]
+    gt = np.asarray(track_id)[m]
+    ok = lab >= 0
+    lab, gt = lab[ok], gt[ok]
+    if len(lab) == 0:
+        return {}
+    n_gt, minderheit, groessen, mind_abs = [], [], [], []
+    for c in np.unique(lab):
+        _, cnt = np.unique(gt[lab == c], return_counts=True)
+        n_gt.append(len(cnt))
+        minderheit.append(1.0 - cnt.max() / cnt.sum())
+        groessen.append(cnt.sum())
+        # Absolut gezaehlt, nicht aus dem Anteil zurueckgerechnet -- sonst
+        # pruefte die Referenz dieselbe Gleitkommarechnung noch einmal.
+        mind_abs.append(int(cnt.sum() - cnt.max()))
+    n_gt = np.array(n_gt)
+    minderheit, groessen = np.array(minderheit), np.array(groessen)
+    return {"merge_n_events": int(groessen.sum()),
+            "merge_n_clusters": int(len(np.unique(lab))),
+            "merge_n_gt": int(len(np.unique(gt))),
+            "merge_frac_strikt": float((n_gt >= 2).mean()),
+            "merge_frac_10": float((minderheit >= 0.10).mean()),
+            "merge_event_frac": float((minderheit * groessen).sum()
+                                      / groessen.sum()),
+            "merge_n_minderheit": int(sum(mind_abs)),
+            "merge_n_gt_max": int(n_gt.max())}
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_merge_gegen_naive_referenz(seed):
+    rng = np.random.default_rng(seed)
+    n = 400
+    lab = rng.integers(-1, 25, n)
+    gt = rng.integers(1, 12, n)
+    st = rng.choice([STATUS_CLEAN, STATUS_AMBIG, STATUS_NOISE], n,
+                    p=[0.85, 0.10, 0.05]).astype(np.uint8)
+    a = merge_metrics(lab, gt, st)
+    b = merge_metrics_naiv(lab, gt, st)
+    assert set(a) == set(b), "Feld ungeprueft: " + str(set(a) ^ set(b))
+    for k in b:
+        assert a[k] == pytest.approx(b[k]), f"Abweichung in {k}"
+
+
+def test_merge_sieht_mehrdeutige_events():
+    """DER Grund fuer die zweite Maske.
+
+    Ein Cluster aus vier Events: zwei saubere von Partikel 1, zwei
+    MEHRDEUTIGE von Partikel 2. cluster_metrics sieht nur die sauberen und
+    meldet perfekte Reinheit. merge_metrics sieht alle vier und meldet die
+    Verschmelzung -- genau die Lage, die im Ueberlappungskern entsteht.
+    """
+    lab = np.zeros(4, np.int64)
+    gt = np.array([1, 1, 2, 2])
+    st = np.array([STATUS_CLEAN, STATUS_CLEAN, STATUS_AMBIG, STATUS_AMBIG],
+                  dtype=np.uint8)
+
+    assert cluster_metrics(lab, gt, st)["purity_event_mean"] == 1.0
+    m = merge_metrics(lab, gt, st)
+    assert m["merge_frac_strikt"] == 1.0
+    assert m["merge_frac_10"] == 1.0
+    assert m["merge_event_frac"] == pytest.approx(0.5)
+    assert m["merge_n_events"] == 4 and m["merge_n_gt_max"] == 2
+
+
+def test_merge_ignoriert_rauschen():
+    """Rauschen traegt track_id -1 und gehoert zu keinem Partikel."""
+    lab = np.zeros(3, np.int64)
+    gt = np.array([1, 1, -1])
+    st = np.array([STATUS_CLEAN, STATUS_AMBIG, STATUS_NOISE], np.uint8)
+    m = merge_metrics(lab, gt, st)
+    assert m["merge_n_events"] == 2 and m["merge_frac_strikt"] == 0.0
+
+
+def test_strikt_und_zehn_prozent_laufen_auseinander():
+    """Der ABSTAND der beiden ist die Diagnose.
+
+    Ein Cluster mit 99 Events von Partikel 1 und einem von Partikel 2:
+    strikt zaehlt ihn als verschmolzen, die 10-%-Regel nicht. Ein einziges
+    fremdes Event ist ein Ausreisser, keine Verschmelzung.
+    """
+    lab = np.zeros(100, np.int64)
+    gt = np.array([1] * 99 + [2])
+    st = np.full(100, STATUS_CLEAN, np.uint8)
+    m = merge_metrics(lab, gt, st)
+    assert m["merge_frac_strikt"] == 1.0
+    assert m["merge_frac_10"] == 0.0
+    assert m["merge_event_frac"] == pytest.approx(0.01)
+
+
+def test_groesstes_fragment_unterscheidet_kruemel_von_teilung():
+    """frag_mean ist in beiden Faellen 3.0 -- der Anteil nicht.
+
+    A: 10 Events in drei gleiche Teile -> groesstes Fragment ~40 %
+    B: 10 Events als 8 + 1 + 1        -> groesstes Fragment 80 %
+    """
+    st = np.full(10, STATUS_CLEAN, np.uint8)
+    gt = np.ones(10, np.int64)
+    a = cluster_metrics(np.array([0, 0, 0, 0, 1, 1, 1, 2, 2, 2]), gt, st)
+    b = cluster_metrics(np.array([0] * 8 + [1, 2]), gt, st)
+    assert a["frag_mean"] == b["frag_mean"] == 3.0
+    assert a["frag_groesster_anteil_median"] == pytest.approx(0.4)
+    assert b["frag_groesster_anteil_median"] == pytest.approx(0.8)
+
+
+def test_merge_leer():
+    st = np.full(3, STATUS_NOISE, np.uint8)
+    assert merge_metrics(np.zeros(3), np.ones(3), st) == {}
+
+
+def _bbox_paar(t_und_positionen, box_w=11.0):
+    """Minimales bbox-Array aus (t, [(x_zentrum, y_zentrum), ...])."""
+    from conftest import BBOX_DTYPE
+    eintraege = [(t, cx - box_w / 2, cy - box_w / 2, k)
+                 for t, zentren in t_und_positionen
+                 for k, (cx, cy) in enumerate(zentren)]
+    b = np.zeros(len(eintraege), dtype=BBOX_DTYPE)
+    for i, (t, x, y, tid) in enumerate(eintraege):
+        b[i] = (t, x, y, box_w, box_w, 0, tid, 1.0)
+    return b
+
+
+def test_abstand_je_partikel_von_hand():
+    """Drei Partikel: zwei nah beieinander, eines weit weg. Das globale
+    Minimum waere 5 px fuer alle drei -- je Partikel ist es 5, 5 und 400."""
+    from eventpiv.evaluate import min_abstand_je_partikel
+
+    bbox = _bbox_paar([(1000, [(100.0, 100.0), (105.0, 100.0),
+                               (500.0, 100.0)])])
+    raster_t, ids, d = min_abstand_je_partikel(bbox)
+    np.testing.assert_array_equal(ids, [0, 1, 2])
+    assert d[0, 0] == pytest.approx(5.0)
+    assert d[0, 1] == pytest.approx(5.0)
+    assert d[0, 2] == pytest.approx(395.0)
+
+
+def test_einzelnes_partikel_ist_unendlich_weit():
+    from eventpiv.evaluate import min_abstand_je_partikel
+
+    _, _, d = min_abstand_je_partikel(_bbox_paar([(1000, [(100.0, 100.0)])]))
+    assert np.isinf(d[0, 0])
+
+
+def test_fenster_umschliesst_das_raster():
+    """DER Grund fuer die umschliessende statt filternde Auswahl: bei
+    16 667 µs Raster und 10 000 µs Fenster enthaelt [20 000, 30 000) keinen
+    einzigen Rasterpunkt."""
+    from eventpiv.evaluate import abstand_im_fenster
+
+    raster_t = np.array([0, 16667, 33334])
+    ids = np.array([0, 1])
+    d = np.array([[100.0, 100.0], [4.0, 4.0], [100.0, 100.0]])
+    np.testing.assert_allclose(
+        abstand_im_fenster(raster_t, ids, d, 20_000, 30_000), [4.0, 4.0])
+
+
+def test_nah_maske_je_event():
+    """Die Maske haengt am PARTIKEL des Events, nicht an seiner Position."""
+    from eventpiv.evaluate import nah_maske
+
+    ids = np.array([1, 2, 3])
+    d = np.array([5.0, 5.0, 400.0])          # 1 und 2 nah, 3 fern
+    track_id = np.array([1, 3, 2, -1, 3])
+    np.testing.assert_array_equal(
+        nah_maske(track_id, ids, d),
+        [True, False, True, False, False])   # -1 gehoert zu keinem Partikel
+
+
+def test_merge_metrics_mit_teilmenge():
+    """extra_maske bildet die Cluster nur ueber die Teilmenge."""
+    lab = np.zeros(4, np.int64)
+    gt = np.array([1, 1, 2, 2])
+    st = np.full(4, STATUS_CLEAN, np.uint8)
+    ganz = merge_metrics(lab, gt, st)
+    teil = merge_metrics(lab, gt, st, extra_maske=np.array([1, 1, 0, 0], bool))
+    assert ganz["merge_event_frac"] == pytest.approx(0.5)
+    assert teil["merge_event_frac"] == 0.0     # nur Partikel 1 uebrig
+    assert teil["merge_n_events"] == 2
+    assert ganz["merge_n_minderheit"] == 2

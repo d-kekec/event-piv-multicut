@@ -14,18 +14,144 @@ Warum zusammen: Reinheit allein ist trivial zu maximieren -- lauter
 Singletons sind perfekt rein. Genau das lieferte das dr_weight-Netz:
 Reinheit 0.999 bei Fragmentierung 5.38.
 
-EINSCHRAENKUNG: bewertet werden nur SAUBERE Events
-(status == 0). Mehrdeutige -- also genau die schweren Ueberlappungsfaelle --
-fliessen nicht ein. Die Bewertung ist damit OPTIMISTISCH. Fuer RELATIVE
-Vergleiche zwischen Konfigurationen unkritisch (die Verzerrung trifft alle
-gleich); die FINALE Zahl braucht eine ehrlichere Metrik.
+ZWEI MASKEN, und der Unterschied ist der Kern der Bewertung.
+
+Reinheit, Fragmentierung und die Clustergroessen laufen ueber SAUBERE
+Events (status == 0). Ein mehrdeutiges Event traegt zwar eine track_id,
+aber eine unsichere -- fuer eine Aussage ueber die Partitionsqualitaet
+waere das Rauschen im Massstab.
+
+Die MERGE-Kennzahlen laufen dagegen ueber alles ausser Rauschen. Sie
+muessen es: mehrdeutig ist ein Event genau dort, wo zwei Boxzentren nahe
+beieinander liegen, also im Kern einer Ueberlappung -- und dort verschmilzt
+der Solver. Eine Merge-Rate, die nur saubere Events sieht, misst am
+falschen Ort und faellt systematisch zu guenstig aus.
+
+Die Merge-Felder tragen deshalb das Praefix `merge_`, und
+`merge_event_frac` ist NICHT `1 - purity_event_mean`: die beiden rechnen
+ueber verschiedene Teilmengen.
+
+WARUM MERGE ZAEHLT: ein verschmolzenes Tracklet ist in Stufe 2 ein Knoten,
+und ein Knoten laesst sich nicht halbieren. Zerschneiden ist das, was
+Stufe 2 rueckgaengig machen soll. Die Fehler sind nicht gleich teuer.
 """
 from __future__ import annotations
 
 import numpy as np
 
 from eventpiv.graph import edge_deltas
-from eventpiv.labels import STATUS_CLEAN
+from eventpiv.labels import STATUS_CLEAN, STATUS_NOISE
+
+# px. Unterhalb dieses Zentrumsabstands beruehren sich die Eventwolken
+# zweier Partikel: die Wolken streuen bis etwa 6 px um ihr Zentrum, dazu
+# die Reichweite r_max. Erst hier KANN der Solver verschmelzen -- oberhalb
+# gibt es zwischen den beiden gar keine Kanten.
+NAH_PX = 19.0
+
+def _kreuztabelle(labels, track_id, maske):
+    """Cluster x GT-Kreuztabelle fuer eine Teilmenge der Events.
+
+    Die eine Rechnung, aus der beide Kennzahlensaetze fallen -- einmal auf
+    den sauberen Events, einmal auf allem ausser Rauschen. Zwei Fassungen
+    dieser Zaehlung waeren zwei Wahrheiten ueber dieselbe Frage.
+
+    Kantenlose Knoten (label < 0) fallen heraus: sie gehoeren zu keinem
+    Cluster.
+
+    Rueckgabe: None, wenn nichts bewertbar ist. Sonst ein dict mit
+      groessen         Eventzahl je Cluster
+      groesste         groesste GT-Gruppe je Cluster
+      n_gt_je_cluster  Zahl verschiedener GT-Partikel je Cluster
+      frag             Zahl verschiedener Cluster je GT-Partikel
+      gt_groessen      Eventzahl je GT-Partikel
+      gt_groesster     groesstes Fragment je GT-Partikel
+      lab_u, gt_u, gt_idx, tt   fuer die abgeleiteten Felder
+    """
+    labels = np.asarray(labels)
+    lab = labels[maske]
+    gt = np.asarray(track_id)[maske]
+
+    gueltig = lab >= 0
+    lab, gt = lab[gueltig], gt[gueltig]
+    if len(lab) == 0:
+        return None
+
+    lab_u, lab_idx = np.unique(lab, return_inverse=True)
+    gt_u, gt_idx = np.unique(gt, return_inverse=True)
+
+    # (Cluster, GT)-Kombinationen zaehlen
+    key = lab_idx.astype(np.int64) * len(gt_u) + gt_idx
+    kombi, anzahl = np.unique(key, return_counts=True)
+    k_lab = kombi // len(gt_u)
+    k_gt = kombi % len(gt_u)
+
+    groesste = np.zeros(len(lab_u), dtype=np.int64)
+    np.maximum.at(groesste, k_lab, anzahl)
+    # Groesstes FRAGMENT je GT-Partikel -- das Gegenstueck zu groesste.
+    # Erst diese Zahl unterscheidet "in drei gleiche Teile zerlegt" von
+    # "ein grosses Stueck plus Kruemel".
+    gt_groesster = np.zeros(len(gt_u), dtype=np.int64)
+    np.maximum.at(gt_groesster, k_gt, anzahl)
+
+    return {
+        "gueltig": gueltig,
+        "groessen": np.bincount(lab_idx, minlength=len(lab_u)),
+        "groesste": groesste,
+        "n_gt_je_cluster": np.bincount(k_lab, minlength=len(lab_u)),
+        "frag": np.bincount(k_gt, minlength=len(gt_u)),
+        "gt_groessen": np.bincount(gt_idx, minlength=len(gt_u)),
+        "gt_groesster": gt_groesster,
+        "lab_u": lab_u, "gt_u": gt_u, "gt_idx": gt_idx,
+    }
+
+
+def merge_metrics(labels, track_id, status, extra_maske=None) -> dict:
+    """Wie oft verschmilzt der Solver zwei Partikel? Reine Funktion.
+
+    Ueber alles AUSSER Rauschen -- mehrdeutige Events eingeschlossen. Das
+    ist der Unterschied zu cluster_metrics, und er ist der Punkt: mehrdeutig
+    ist ein Event im Kern einer Ueberlappung, und dort verschmilzt der
+    Solver.
+
+    DREI ZAHLEN AUS EINER RECHNUNG, und ihr ABSTAND ist die Diagnose:
+      merge_frac_strikt  Anteil der Cluster mit >= 2 GT-Partikeln.
+                         Pessimistisch: ein einziges fremdes Event genuegt.
+      merge_frac_10      Anteil der Cluster, deren Minderheit >= 10 %
+                         ausmacht -- "echt verschmolzen".
+      merge_event_frac   Anteil der EVENTS, die in ihrem Cluster nicht zur
+                         Mehrheit gehoeren.
+    Liegen die ersten beiden weit auseinander, sind es Ausreisser; liegen
+    sie gleichauf, ist die Verschmelzung echt.
+
+    extra_maske : zusaetzliche Einschraenkung der Events, etwa auf die
+        Partikel mit einem nahen Nachbarn. Die Cluster werden dann nur ueber
+        diese Teilmenge gebildet -- unbedenklich fuer die NAH/FERN-Trennung:
+        verschmelzen zwei Partikel, sind sie einander nah, also liegen beide
+        in derselben Teilmenge.
+
+    Rueckgabe: flaches dict mit `merge_`-Praefix. Leer, wenn nichts
+    bewertbar ist.
+    """
+    maske = np.asarray(status) != STATUS_NOISE
+    if extra_maske is not None:
+        maske = maske & np.asarray(extra_maske)
+    kt = _kreuztabelle(labels, track_id, maske)
+    if kt is None:
+        return {}
+    groessen, groesste = kt["groessen"], kt["groesste"]
+    minderheit = 1.0 - groesste / groessen
+    return {
+        "merge_n_events": int(groessen.sum()),
+        "merge_n_clusters": int(len(kt["lab_u"])),
+        "merge_n_gt": int(len(kt["gt_u"])),
+        "merge_frac_strikt": float((kt["n_gt_je_cluster"] >= 2).mean()),
+        "merge_frac_10": float((minderheit >= 0.10).mean()),
+        "merge_event_frac": float(1.0 - groesste.sum() / groessen.sum()),
+        # Absolut, nicht nur als Anteil: nur so lassen sich Fenster ohne
+        # Gewichtungsfehler zu einem Run aufsummieren.
+        "merge_n_minderheit": int(groessen.sum() - groesste.sum()),
+        "merge_n_gt_max": int(kt["n_gt_je_cluster"].max()),
+    }
 
 
 def cluster_metrics(labels, track_id, status, t=None) -> dict:
@@ -59,40 +185,22 @@ def cluster_metrics(labels, track_id, status, t=None) -> dict:
     Ausrichtung duplizieren, und genau dort liegt die Falle
     (align_gt_window).
     """
-    labels = np.asarray(labels)
     clean = np.asarray(status) == STATUS_CLEAN
-    lab = labels[clean]
-    gt = np.asarray(track_id)[clean]
-    tt = np.asarray(t)[clean] if t is not None else None
-
-    gueltig = lab >= 0            # RAMA vergibt -1 fuer kantenlose Knoten
-    lab, gt = lab[gueltig], gt[gueltig]
-    if tt is not None:
-        tt = tt[gueltig]
-    if len(lab) == 0:
+    kt = _kreuztabelle(labels, track_id, clean)
+    if kt is None:
         return {}
 
-    lab_u, lab_idx = np.unique(lab, return_inverse=True)
-    gt_u, gt_idx = np.unique(gt, return_inverse=True)
+    tt = None
+    if t is not None:
+        tt = np.asarray(t)[clean][kt["gueltig"]]
 
-    # (Cluster, GT)-Kombinationen zaehlen
-    key = lab_idx.astype(np.int64) * len(gt_u) + gt_idx
-    kombi, anzahl = np.unique(key, return_counts=True)
-    k_lab = kombi // len(gt_u)
-    k_gt = kombi % len(gt_u)
-
-    # Reinheit: groesste GT-Gruppe je Cluster / Clustergroesse
-    groesste = np.zeros(len(lab_u), dtype=np.int64)
-    np.maximum.at(groesste, k_lab, anzahl)
-    groessen = np.bincount(lab_idx, minlength=len(lab_u))
+    lab_u, gt_u, gt_idx, gueltig = kt["lab_u"], kt["gt_u"], kt["gt_idx"], kt["gueltig"]
+    groessen, groesste = kt["groessen"], kt["groesste"]
     reinheit = groesste / groessen
-
-    # Fragmentierung: Zahl verschiedener Cluster je GT-Partikel
-    frag = np.bincount(k_gt, minlength=len(gt_u))
-    gt_groessen = np.bincount(gt_idx, minlength=len(gt_u))
+    frag, gt_groessen = kt["frag"], kt["gt_groessen"]
 
     out = {
-        "n_events": int(len(lab)),
+        "n_events": int(groessen.sum()),
         "n_clusters": int(len(lab_u)),
         "n_gt": int(len(gt_u)),
         "purity_cluster_mean": float(reinheit.mean()),
@@ -105,6 +213,13 @@ def cluster_metrics(labels, track_id, status, t=None) -> dict:
         "n_singletons": int((groessen == 1).sum()),
         "frag_mean": float(frag.mean()),
         "frag_max": int(frag.max()),
+        # Anteil der Events eines GT-Partikels im GROESSTEN seiner
+        # Fragmente. 1.0 = ungeteilt. frag_mean allein sagt nicht, ob ein
+        # Partikel in drei gleiche Teile zerfaellt oder in ein grosses plus
+        # Kruemel -- und fuer die Zentroidgenauigkeit ist das der
+        # Unterschied.
+        "frag_groesster_anteil_median": float(
+            np.median(kt["gt_groesster"] / gt_groessen)),
         "gt_events_per_particle_median": float(np.median(gt_groessen)),
     }
     if tt is not None:
@@ -194,3 +309,73 @@ def edge_gt_stats(i, j, t, x, y, track_id, status) -> dict:
         out["edge_ja_frac"] = float(
             (tid[i[beide]] == tid[j[beide]]).mean())
     return out
+
+
+def min_abstand_je_partikel(bbox, box_w=11.0):
+    """Kleinster Abstand JE PARTIKEL zu irgendeinem anderen, je Rasterpunkt.
+
+    Nicht das globale Minimum ueber alle Paare: bei rund 50 Partikeln im
+    Bild liegt IRGENDEIN Paar praktisch immer naeher als NAH_PX, und ein
+    Fenster waere dann immer "Begegnung". Die Frage ist ohnehin eine je
+    Partikel -- verschmilzt DIESES Partikel, wenn es einen nahen Nachbarn
+    hat.
+
+    Rueckgabe: (raster_t, ids, d). `ids` sind die track_ids in aufsteigender
+    Ordnung, `d` hat die Form (Rasterpunkte, Partikel). inf steht dort, wo
+    ein Partikel zu diesem Zeitpunkt nicht sichtbar ist oder allein im Bild
+    -- beides heisst "kann sich mit niemandem begegnen".
+    """
+    raster_t = np.unique(bbox["t"])
+    ids = np.unique(bbox["track_id"]).astype(np.int64)
+    pos = {t: k for k, t in enumerate(ids)}
+    d = np.full((len(raster_t), len(ids)), np.inf)
+
+    for k, tt in enumerate(raster_t):
+        m = bbox["t"] == tt
+        cx = bbox["x"][m].astype(np.float64) + box_w / 2.0
+        cy = bbox["y"][m].astype(np.float64) + box_w / 2.0
+        tid = bbox["track_id"][m].astype(np.int64)
+        if len(cx) < 2:
+            continue
+        dd = np.hypot(cx[:, None] - cx[None, :], cy[:, None] - cy[None, :])
+        np.fill_diagonal(dd, np.inf)
+        d[k, [pos[int(a)] for a in tid]] = dd.min(axis=1)
+    return raster_t, ids, d
+
+
+def abstand_im_fenster(raster_t, ids, d, t_lo, t_hi):
+    """Kleinster Nachbarabstand je Partikel im Zeitraum [t_lo, t_hi).
+
+    UMSCHLIESSEND, nicht filternd: das Raster hat 16,67 ms Abstand, ein
+    Tracklet-Fenster 10 ms -- rund vier von zehn Fenstern enthalten gar
+    keinen Rasterpunkt. Eine Filterung lieferte dort inf und meldete "keine
+    Begegnung", wo in Wahrheit nur nicht gemessen wurde.
+
+    Genommen werden deshalb die Rasterpunkte VOM letzten bei oder vor t_lo
+    BIS zum ersten bei oder nach t_hi. Das ueberschaetzt die Spanne um
+    hoechstens eine Rasterperiode und unterschaetzt damit den Abstand -- die
+    sichere Richtung: ein Partikel faelschlich als NAH zu zaehlen kostet
+    Trennschaerfe, es zu verfehlen verdeckt einen Merge.
+
+    Rueckgabe: Array der Laenge len(ids), parallel zu ids.
+    """
+    if len(raster_t) == 0:
+        return np.full(len(ids), np.inf)
+    lo = max(int(np.searchsorted(raster_t, t_lo, side="right")) - 1, 0)
+    hi = min(int(np.searchsorted(raster_t, t_hi, side="left")) + 1,
+             len(raster_t))
+    if hi <= lo:
+        return np.full(len(ids), np.inf)
+    return d[lo:hi].min(axis=0)
+
+
+def nah_maske(track_id, ids, d_fenster, schwelle=NAH_PX):
+    """Boolesche Maske je EVENT: hat sein Partikel einen nahen Nachbarn?
+
+    Events ohne Partikel (Rauschen, track_id = -1) sind nie nah -- sie
+    gehoeren zu keinem.
+    """
+    track_id = np.asarray(track_id)
+    k = np.clip(np.searchsorted(ids, track_id), 0, max(len(ids) - 1, 0))
+    treffer = (len(ids) > 0) & (ids[k] == track_id)
+    return treffer & (d_fenster[k] < schwelle)

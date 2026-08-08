@@ -47,7 +47,8 @@ def senke(run):
     return on_fenster
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="solve")
+@hydra.main(version_base="1.3", config_path="../configs",
+            config_name="tracklets")
 def main(dcfg: DictConfig) -> None:
     cfg: SolveCfg = to_cfg(dcfg)
 

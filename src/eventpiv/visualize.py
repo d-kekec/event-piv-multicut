@@ -15,6 +15,12 @@ Zwei Anwendungsfaelle:
                           Zweck: Reinheit und Fragmentierung SEHEN statt nur
                           als Zahl lesen.
 
+  [C] animate_tracklets() MEHRERE anstossende Tracklet-Fenster hintereinander.
+                          Zweck: sehen, was Stufe 2 vorfindet -- an jeder
+                          Fenstergrenze wechseln ALLE Farben, weil dort neue
+                          Tracklets beginnen. Genau diese Unstetigkeit muss
+                          Stufe 2 ueberbruecken.
+
 FARBWAHL (wichtig fuer die Interpretation!):
   color_by="cluster"  jeder RAMA-Cluster bekommt eine eigene Farbe.
       -> FRAGMENTIERUNG wird sichtbar: ein Partikel in mehreren Farben.
@@ -366,3 +372,123 @@ def animate_clusters(cfg: AnimClustersCfg):
             f"{cfg.training.short()}_{an.color_by}.gif")
     pfad = save_gif(frames, out_dir / name, max(an.frame_ms * 20, 60))
     return pfad, info
+
+
+# ============================================================
+# [C] mehrere Tracklet-Fenster hintereinander
+# ============================================================
+
+def animate_tracklets(cfg: AnimClustersCfg):
+    """Schreitet einen Ausschnitt in Tracklet-Fenstern ab und animiert ihn.
+
+    Der Unterschied zu animate_clusters ist nicht kosmetisch: dort wird EIN
+    Fenster geloest, hier mehrere anstossende. An jeder Fenstergrenze
+    wechseln saemtliche Farben, weil dort neue Tracklets beginnen -- und
+    genau das ist die Ausgabe von Stufe 1. Ein Partikel, das ueber drei
+    Fenster laeuft, ist drei Tracklets, und sie zu verbinden ist die
+    Aufgabe von Stufe 2.
+
+    Die Farben trennen sich VON SELBST: solve_run vergibt globale IDs, zwei
+    Fenster koennen sich also keine teilen.
+
+    window.t0/window.dt schneiden den Ausschnitt; die Laenge eines
+    Tracklet-Fensters ist neighborhood.alpha und nicht waehlbar. Ein ganzer
+    Run waere hier sinnlos -- 800 Fenster ergaeben ein GIF von Stunden.
+
+    Rueckgabe: (gif_pfad, lauf).
+    """
+    from eventpiv.model import load_checkpoint
+    from eventpiv.solve import check_consistency, lade_fenster, solve_run
+
+    sel, win, an = cfg.selection, cfg.window, cfg.anim
+    split, run_nr = sel.split, sel.run_nr
+
+    if run_nr is None:
+        raise SystemExit("selection.run_nr fehlt -- z.B. selection.run_nr=76")
+    if win.t0 is None or win.dt is None:
+        raise SystemExit(
+            "window.t0/window.dt muessen gesetzt sein -- ein ganzer Run "
+            "ergaebe 800 Fenster und ein GIF von Stunden.")
+    if win.dt < 2 * cfg.neighborhood.alpha:
+        raise SystemExit(
+            f"window.dt={win.dt} deckt weniger als zwei Tracklet-Fenster ab "
+            f"(alpha={cfg.neighborhood.alpha}). Dann zeigt die Animation "
+            "keine Fenstergrenze, und animate_clusters ist das richtige "
+            "Werkzeug.")
+
+    mpath = (Path(cfg.io.model_path) if cfg.io.model_path
+             else config.model_file(cfg.neighborhood, cfg.pairs,
+                                    cfg.training, create=False))
+    model, mu, sig, feature_mode, ckpt = load_checkpoint(
+        mpath, device=cfg.compute.device)
+    check_consistency(ckpt, cfg.neighborhood, strict=cfg.io.strict)
+
+    print(f"run{run_nr} ({split}), Ausschnitt [{win.t0/1000:.0f}ms "
+          f"+{win.dt/1000:.0f}ms], Fenster "
+          f"{cfg.neighborhood.alpha/1000:.0f}ms, Netz {mpath.name}")
+
+    tracklet_id, zeilen, lauf = solve_run(cfg, model, mu, sig, feature_mode)
+
+    # Zweites Laden statt einer weiteren Rueckgabe von solve_run: dieselben
+    # Argumente, also dieselben Arrays, und bei einem Ausschnitt kostet es
+    # Sekundenbruchteile. Die Signatur des Treibers bleibt dafuer, wie sie
+    # ist -- an ihr haengen das Skript und drei Tests.
+    gt_pfad = (config.label_file(split, run_nr) if cfg.io.label_dir is None
+               else Path(cfg.io.label_dir) / f"run{run_nr}_eventlabels.npz")
+    f = lade_fenster(sel, win, polarity=cfg.neighborhood.polarity,
+                     gt_path=gt_pfad)
+    t = f.t
+    x = f.x.astype(np.int64)
+    y = f.y.astype(np.int64)
+
+    # Farben: eine je Tracklet. Weil die IDs global sind, teilen sich zwei
+    # Fenster keine -- der Farbwechsel an der Grenze entsteht von selbst.
+    uniq, farben = color_lookup(tracklet_id, min_size=an.min_size)
+    tracklet_farben = farben[np.searchsorted(uniq, tracklet_id)]
+    roh_farben = np.tile(np.array([70, 70, 70], np.uint8), (len(t), 1))
+
+    show_gt = an.show_gt and f.hat_gt
+    gt_farben = None
+    if show_gt:
+        schluessel = np.where(f.status == STATUS_CLEAN, f.track_id, -1)
+        gt_uniq, gt_colors = color_lookup(schluessel, min_size=1)
+        gt_farben = gt_colors[np.searchsorted(gt_uniq, schluessel)]
+
+    shape = (SENSOR_H // an.downscale, SENSOR_W // an.downscale)
+    zuschnitt = _crop_box(x, y, an.downscale, shape) if an.crop else None
+
+    schritt = an.frame_ms * 1000.0
+    starts = np.arange(t[0], t[-1] + schritt, schritt)
+    print(f"{len(starts)} Frames à {an.frame_ms:.2f} ms, "
+          f"{lauf['n_fenster']} Tracklet-Fenster, "
+          f"{lauf['n_tracklets']:,} Tracklets")
+
+    frames = []
+    for s in starts:
+        # KEIN trail ueber Fenstergrenzen: ein Nachleuchten zoege Events
+        # des vorigen Tracklet-Fensters ins naechste und verwischte genau
+        # die Grenze, die gezeigt werden soll. Innerhalb eines Fensters ist
+        # es zulaessig.
+        fenster_nr = int((s - t[0]) // cfg.neighborhood.alpha)
+        f_start = t[0] + fenster_nr * cfg.neighborhood.alpha
+        m = (((t >= f_start) & (t < s + schritt)) if an.trail
+             else ((t >= s) & (t < s + schritt)))
+
+        gem = dict(shape=shape, downscale=an.downscale, point=an.point,
+                   crop=zuschnitt)
+        panels = [render_panel(x, y, roh_farben, m, **gem),
+                  render_panel(x, y, tracklet_farben, m, **gem)]
+        titel = ["Rohevents", f"Tracklets (grau: < {an.min_size} Events)"]
+        if show_gt:
+            panels.append(render_panel(x, y, gt_farben, m, **gem))
+            titel.append("Ground Truth (grau: kein sauberes Label)")
+        frames.append(compose(
+            panels, titel,
+            f"F{fenster_nr}  {(s - t[0])/1000:.2f}ms"))
+
+    out_dir = (config.results_dir() / "animations" if cfg.io.out_path is None
+               else Path(cfg.io.out_path))
+    name = (f"tracklets_{split}_run{run_nr}_t{win.t0}_dt{win.dt}_"
+            f"{slug(cfg.neighborhood)}_{cfg.solver.short()}.gif")
+    pfad = save_gif(frames, out_dir / name, max(an.frame_ms * 20, 60))
+    return pfad, lauf
