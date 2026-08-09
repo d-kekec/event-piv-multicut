@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
+r"""
 solve.py -- BAUSTEIN [4]: NN-Kantenkosten -> RAMA -> Cluster.
 
 lade_fenster        Events + ausgerichtete GT, polaritaetsgefiltert
@@ -559,16 +559,42 @@ def _nah_fern(zeilen):
     `fern_merge_event_frac` ist zugleich die Kontrolle. Sie sollte nahe
     null liegen -- verschmilzt dort etwas, sind zwei Partikel
     zusammengefallen, zwischen denen es gar keine Kanten geben duerfte.
+
+    merge_event_frac ist dieselbe Rechnung ohne Trennung. Sie steht daneben,
+    weil NAH und FERN allein nicht sagen, wie gross der Fehler insgesamt
+    ist -- 8 % auf 7 % der Events sind etwas anderes als 8 % auf allen.
     """
     out = {"nah_schwelle_px": NAH_PX}
+    mi_ges = 0
     for pre in ("nah", "fern"):
         ev = sum(z.get(f"{pre}_n_events", 0) for z in zeilen)
         mi = sum(z.get(f"{pre}_n_minderheit", 0) for z in zeilen)
+        mi_ges += mi
         out[f"{pre}_n_events"] = ev
         out[f"{pre}_merge_event_frac"] = (mi / ev) if ev else float("nan")
     ges = out["nah_n_events"] + out["fern_n_events"]
     out["nah_event_anteil"] = (out["nah_n_events"] / ges) if ges else float("nan")
+    # Die ungetrennte Zahl, aus denselben Summen -- exakt, nicht gemittelt.
+    out["merge_event_frac"] = (mi_ges / ges) if ges else float("nan")
     return out
+
+
+def _gewichtet(zeilen, key, gewicht):
+    """Einen Anteil ueber die Fenster eines Runs mitteln, GEWICHTET.
+
+    Ein Mittel von Anteilen zaehlte ein Fenster mit zwanzig Kanten so viel
+    wie eines mit zwanzig Millionen -- dieselbe Begruendung wie in
+    _nah_fern. Dort liegen die Zaehler vor und die Summe ist exakt; hier
+    liegt nur der Anteil vor, also wird er mit seinem Nenner
+    zurueckgewichtet.
+
+    Fenster ohne den Schluessel bleiben aussen vor. Fehlt er ueberall, ist
+    das Ergebnis nan -- eine 0 sahe wie eine Messung aus.
+    """
+    paare = [(z[key], z[gewicht]) for z in zeilen
+             if key in z and gewicht in z]
+    g = sum(w for _, w in paare)
+    return (sum(v * w for v, w in paare) / g) if g else float("nan")
 
 
 def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
@@ -692,14 +718,19 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
         "run": sel.run_nr, "split": sel.split,
         "n_events": n_ev,
         "n_fenster": len(zeilen),
+        # Default -1 wie im Artefakt: ohne GT ist n_nein NICHT bestimmbar,
+        # und "nicht bestimmbar" darf nicht als "null Begegnungen" zaehlen.
         "n_fenster_ohne_nein": sum(1 for z in zeilen
-                                   if z.get("n_nein", 0) == 0),
+                                   if z.get("n_nein", -1) == 0),
         "n_tracklets": n_tracklets,
         "n_events_unassigned": int((tracklet_id < 0).sum()),
         "tracklets_je_fenster": n_tracklets / max(len(zeilen), 1),
-        "tracklets_je_fenster": n_tracklets / max(len(zeilen), 1),
         "events_je_tracklet": ((tracklet_id >= 0).sum()
                                / max(n_tracklets, 1)),
+        # Der Betriebspunkt, wie der Solver ihn sieht -- invariant gegen
+        # ein Neutraining, anders als cost_offset. In W&B steht unter
+        # solve/frac_neg nur das LETZTE Fenster.
+        "frac_neg": _gewichtet(zeilen, "frac_neg", "n_edges"),
         **_nah_fern(zeilen),
         "diag": {
             "sec_laden": round(t_laden, 1),

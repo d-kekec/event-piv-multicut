@@ -7,6 +7,9 @@ History-Schritt -- bei rund 800 Fenstern je Run waeren fensterweise Laeufe
 unbrauchbar.
 
 Das Netz wird EINMAL geladen und ueber alle Runs benutzt: es ist dasselbe.
+
+Beispielaufruf:
+    python scripts/build_tracklets.py selection.split=train selection.runs=[32]
 """
 from dataclasses import asdict, replace
 

@@ -14,6 +14,9 @@ unhandlich.
   # Momentaufnahmen, Farbe nach GT-Mehrheit: zeigt Verschmelzungen
   python scripts/animate_tracklets.py selection.split=train \\
       selection.run_nr=32 anim.frame_ms=0.5 anim.trail=false anim.color_by=gt
+
+  Beispielaufruf: 
+  WANDB_MODE=disabled python scripts/animate_tracklets.py selection.split=train selection.run_nr=76 window.t0=2700000 window.dt=50000 anim.frame_ms=0.5 anim.crop=true
 """
 import hydra
 from hydra.core.config_store import ConfigStore
