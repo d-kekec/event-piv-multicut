@@ -3,21 +3,17 @@
 """
 solve.py -- BAUSTEIN [4]: NN-Kantenkosten -> RAMA -> Cluster.
 
-Getrennte Zustaendigkeiten:
+lade_fenster        Events + ausgerichtete GT, polaritaetsgefiltert
+  edge_costs          Kosten je Kante aus dem Netz
+  solve_multicut      RAMA          \  ueber solver.backend
+  solve_cc            CC-Baseline   /
+  solve_window        EIN geladenes Fenster loesen
+  solve_and_evaluate  ein Fenster laden, loesen, bewerten
+  solve_run           einen ganzen Run in Tracklet-Fenstern abschreiten
 
-  lade_fenster              Events + ausgerichtete GT, gefiltert (hier)
-  graph.neighborhood_pairs  Kanten            (eigenes Modul, mit pairs geteilt)
-  edge_costs                Kosten je Kante   (hier)
-  solve_multicut/solve_cc   Solver            (hier, ueber solver.backend)
-  evaluate.cluster_metrics  GT-Abgleich       (eigenes Modul)
-  solve_and_evaluate        setzt es fuer EIN Fenster zusammen (hier)
-  solve_run                 schreitet einen ganzen Run ab (hier)
-
-Nutzen: Auswertung und Visualisierung importieren die Teile einzeln, und
-solve_window laeuft ohne Ground Truth wie mit. Laden und Rechnen sind
-getrennt -- solve_window bekommt ein fertiges Fenster und ist damit frei
-von Pfaden. Die Prozess-Isolation gegen VRAM-Abstuerze liegt in den
-sbatch-Skripten (ein Python-Prozess je Lauf), nicht im Python-Code.
+solve_window laedt nichts und laeuft ohne Ground Truth wie mit -- also
+auch auf echten Messdaten. Die Prozess-Isolation gegen VRAM-Abstuerze
+liegt in den sbatch-Skripten, nicht hier.
 
 POINTER-PFAD-REGELN, hart:
   i,j int32 | costs float32 | node_labels int32-PUFFER selbst anlegen
@@ -80,17 +76,12 @@ def edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, cp):
 
         zu = lambda a: torch.as_tensor(np.ascontiguousarray(a, np.float32),
                                        device=device)
-        # edge_deltas statt inline: die Delta-Vorschrift bleibt an EINER
-        # Stelle (graph.py), auch wenn hier nur ein Stapel gerechnet wird.
         dt, dx, dy = (zu(a) for a in edge_deltas(t, x, y, ii, jj))
 
         feats = build_features(dt, dx, dy, mode=feature_mode, xp=torch)
         feats = (feats - mu) / sig
 
         with torch.no_grad():
-            # Keine Mittelung ueber den Tausch: c_ij == c_ji folgt aus den
-            # Merkmalen selbst (|dx|, |dy|, dr invariant, dt >= 0 per
-            # graph.py-Kontrakt).
             out[sl] = model(feats).squeeze(1)
 
     return out
@@ -116,10 +107,8 @@ def solve_multicut(i, j, costs_gpu, num_nodes, cp, mode="PD"):
     j_t = torch.as_tensor(np.ascontiguousarray(j, np.int32), device=cp.device)
     c_t = costs_gpu.contiguous().to(torch.float32)
     
-    # Mit -1 vorbelegen, nicht mit 0: 0 ist eine gueltige Cluster-ID. Schreibt
-    # RAMA kantenlose Knoten nicht (sanitize_graph entfernt sie), landeten sie
-    # sonst still in Cluster 0. -1 heisst "keinem Cluster zugeordnet" und wird
-    # von cluster_metrics korrekt herausgefiltert.
+    # -1 statt 0 vorbelegen: 0 ist eine gueltige Cluster-ID. Kantenlose
+    # Knoten schreibt RAMA nicht und landeten sonst still in Cluster 0.
     node_labels = torch.full((num_nodes,), -1, device=cp.device,
                              dtype=torch.int32).contiguous()
 
@@ -127,10 +116,9 @@ def solve_multicut(i, j, costs_gpu, num_nodes, cp, mode="PD"):
     opts.sanitize_graph = True      # lueckenhafte Indizes / Doppelkanten erlaubt
     opts.verbose = False
 
-    # PyTorchs Caching-Allocator gibt freigegebenen Speicher NICHT an CUDA
-    # zurueck. RAMA allokiert per cudaMalloc und sieht den Cache nicht --
-    # ohne diese Zeile scheitert es mit bad_alloc auf einer rechnerisch
-    # halbleeren Karte.
+    # PyTorchs Caching-Allocator gibt Speicher nicht an CUDA zurueck, und
+    # RAMA allokiert per cudaMalloc: ohne diese Zeile bad_alloc auf einer
+    # rechnerisch halbleeren Karte.
     torch.cuda.empty_cache()
 
     torch.cuda.synchronize()
@@ -149,28 +137,23 @@ def solve_cc(i, j, costs, num_nodes, cp=None, mode=None):
     Aufrufer tauscht die Funktion, nicht seinen Code. cp und mode werden
     ignoriert und stehen nur da, damit die Signaturen austauschbar bleiben.
 
-    VERFAHREN: alle Kanten mit NEGATIVEN Kosten loeschen, vom Rest die
-    Zusammenhangskomponenten. Kosten von exakt 0 bleiben also erhalten --
-    dieselbe Lesart wie solve/frac_neg, das 0 als nicht-negativ zaehlt.
+    Alle Kanten mit NEGATIVEN Kosten loeschen, vom Rest die
+    Zusammenhangskomponenten. Kosten von exakt 0 bleiben erhalten, wie bei
+    solve/frac_neg.
 
-    Was CC nicht kann: die Zyklusbedingung. Multicut darf eine positive
-    Kante schneiden, wenn die Bilanz es verlangt; CC nie. Zwei Wolken
-    verschmelzen hier deshalb, sobald EINE Kante zwischen ihnen positiv
-    ist. Genau das ist der Fehler, den Stufe 1 nicht machen darf, und
-    deshalb ist diese Funktion ein Ergebnis und kein Hilfsmittel.
+    CC kennt die Zyklusbedingung nicht und darf deshalb nie eine positive
+    Kante schneiden: zwei Wolken verschmelzen, sobald EINE Kante zwischen
+    ihnen positiv ist. Der Abstand zu RAMA ist damit die Zahl, die den
+    Solver rechtfertigt -- diese Funktion ist ein Ergebnis, kein
+    Hilfsmittel.
 
-    Kantenlose Knoten bekommen -1 wie bei RAMA (dort ueber
-    sanitize_graph). Ohne diese Angleichung waeren n_clusters_rama und
-    n_nodes_unassigned zwischen den beiden Solvern nicht vergleichbar --
-    und der Vergleich ist der ganze Zweck. Ein Knoten, der Kanten hat, aber
-    nur negative, bekommt dagegen eine echte eigene Cluster-ID: er ist
-    zugeordnet, nur allein.
+    Kantenlose Knoten bekommen -1 wie bei RAMA, sonst waeren
+    n_clusters_rama und n_nodes_unassigned nicht vergleichbar. Ein Knoten
+    mit ausschliesslich negativen Kanten bekommt dagegen eine eigene
+    Cluster-ID: er ist zugeordnet, nur allein.
 
-    scipy statt eigenem Union-Find: dieselbe Rechnung, aber in C. Eine
-    Python-Schleife ueber 12,5 Mio. Kanten waere Minuten.
-
-    Laeuft auf der CPU und braucht weder GPU noch RAMA. Rueckgabe:
-    node_labels (numpy int32) der Laenge num_nodes.
+    Laeuft auf der CPU, braucht weder GPU noch RAMA. Rueckgabe:
+    node_labels (int32) der Laenge num_nodes.
     """
     c = costs.detach().cpu().numpy() if hasattr(costs, "detach") else np.asarray(costs)
     i, j = np.asarray(i), np.asarray(j)
@@ -190,9 +173,6 @@ def solve_cc(i, j, costs, num_nodes, cp=None, mode=None):
     return labels
 
 
-# Die eine Stelle, an der aus solver.backend eine Funktion wird. Als Tabelle
-# und nicht als if-Kette: ein dritter Solver kostet eine Zeile, und die
-# Pruefung des Werts sitzt schon in Solver.__post_init__.
 SOLVER_FUNKTIONEN = {"rama": solve_multicut, "cc": solve_cc}
 
 
@@ -291,22 +271,16 @@ class Fenster:
 def lade_fenster(sel, win, *, polarity, gt_path=None) -> Fenster:
     """Laedt ein Zeitfenster eines Runs und richtet die GT darauf aus.
 
-    Vom Loesen getrennt, weil beides verschiedene Kosten hat: Laden ist
-    I/O ueber NFS, Loesen ist Rechnen. solve_window ist dadurch frei von
-    Pfaden und laesst sich auf vorgerechneten Arrays pruefen.
+    Vom Loesen getrennt: Laden ist I/O ueber NFS, Loesen ist Rechnen.
+    solve_window ist dadurch frei von Pfaden und auf vorgerechneten Arrays
+    pruefbar.
 
-    Die GT wird EINMAL geladen und sofort geschnitten. Die vollen Arrays
-    (rund 190 MB je Run) leben nur innerhalb des with-Blocks; was das
-    Fenster behaelt, ist fenstergross. Vorher geschah dasselbe zweimal --
-    einmal fuer die Kantenstatistik, einmal fuer den Cluster-Abgleich.
+    Die vollen GT-Arrays (rund 190 MB je Run) leben nur innerhalb des
+    with-Blocks; was das Fenster behaelt, ist fenstergross.
 
-    Die Spitze im Speicher aendert sich dadurch NICHT: ru_maxrss ist ein
-    Hoechststand, und die GT-Spitze lag vorher nur hinter der des KDTrees
-    statt davor.
-
-    polarity ist Pflicht und ohne Vorgabewert: ein stillschweigend
-    vergessener Filter waere im Einsatz eine andere Knotenmenge als im
-    Training, und das faellt an keiner Kennzahl auf.
+    polarity ist Pflicht und ohne Vorgabewert: ein vergessener Filter waere
+    im Einsatz eine andere Knotenmenge als im Training, und das faellt an
+    keiner Kennzahl auf.
 
     gt_path = None oder eine fehlende Datei heisst: keine GT. Kein Fehler.
     """
@@ -315,10 +289,8 @@ def lade_fenster(sel, win, *, polarity, gt_path=None) -> Fenster:
     x = ev["x"].astype(np.float64)
     y = ev["y"].astype(np.float64)
 
-    # REIHENFOLGE, und sie ist nicht beliebig: erst auf dem UNGEFILTERTEN
-    # Strom ausrichten, dann dieselbe Maske auf beide Seiten. Umgekehrt
-    # bekaeme align_gt_window eine Teilfolge, die Positionen liefen sofort
-    # auseinander, und die Meldung zeigte auf die falsche Ursache.
+    # Erst auf dem UNGEFILTERTEN Strom ausrichten, dann dieselbe Maske auf
+    # beide Seiten -- umgekehrt bekaeme align_gt_window eine Teilfolge.
     tid = sta = None
     if gt_path is not None and Path(gt_path).exists():
         with np.load(gt_path) as g:
@@ -381,9 +353,8 @@ def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
 
     tic = time.time()
     costs = edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, cp)
-    # NACH edge_costs und nicht darin: edge_costs sagt, was das NETZ
-    # rechnet, der Versatz ist eine Entscheidung des Solvers. Getrennt
-    # gehalten, damit beide Anteile getrennt protokolliert werden koennen.
+    # Getrennt von edge_costs: dort steht, was das Netz rechnet, hier die
+    # Entscheidung des Solvers. Beide Anteile werden protokolliert.
     frac_neg_roh = (costs < 0).float().mean().item()
     if sv.cost_offset != 0.0:
         costs += sv.cost_offset
@@ -402,9 +373,7 @@ def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
                                            mode=sv.mode)
     t_rama = time.time() - tic
 
-    # NACH dem Solve gerechnet: die Statistik legt CPU-Arrays in
-    # Kantengroesse an, die nicht waehrend des Solves im Speicher liegen
-    # sollen. Die Reihenfolge ist der Grund, nicht der Aufrufer.
+    # NACH dem Solve: die Statistik legt CPU-Arrays in Kantengroesse an.
     kanten = {}
     if fenster.hat_gt:
         tic = time.time()
@@ -421,11 +390,8 @@ def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
     # DREI Clusterzahlen, drei Fragen -- die Luecke dazwischen ist gross:
     #   n_clusters_rama       wie viele Cluster hat der Solver gebildet
     #   n_nodes_unassigned    wie viele Knoten hatten gar keine Kante
-    #   n_clusters (spaeter aus cluster_metrics)
-    #                         wie viele davon enthalten ein SAUBERES Event
-    # np.unique(labels) zaehlte frueher den -1-Eimer als Cluster mit, also um
-    # genau eins zu hoch, sobald es kantenlose Knoten gibt -- und die gibt es
-    # zu Tausenden.
+    #   n_clusters (spaeter)  wie viele davon enthalten ein SAUBERES Event
+    # np.unique(labels) zaehlte den -1-Eimer mit, also um eins zu hoch.
     zugeordnet = labels >= 0
     n_clusters_rama = int(len(np.unique(labels[zugeordnet])))
     n_unassigned = int((~zugeordnet).sum())
@@ -448,9 +414,8 @@ def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
             "events_per_ms": n / (_dt / 1000.0) if _dt else float("nan"),
             "t_graph": t_graph, "t_costs": t_costs, "t_rama": t_rama,
             "vram_peak_gb": vram, "gpu_name": gpu_name,
-            # Die Spitze liegt im KDTree, also im RAM, nicht auf der Karte.
-            # ru_maxrss ist unter Linux KILObytes; SLURM buchhaltet Speicher
-            # auf diesem Cluster nicht.
+            # ru_maxrss ist unter Linux KILObytes. Die Spitze liegt im
+            # KDTree, also im RAM, nicht auf der Karte.
             "max_rss_mb": round(
                 resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
             **kanten}
@@ -478,9 +443,8 @@ def solve_and_evaluate(cfg: SolveCfg, verbose=True) -> dict:
         mpath, device=cfg.compute.device)
     check_consistency(ckpt, cfg.neighborhood, strict=cfg.io.strict)
 
-    # feature_mode steht im Checkpoint UND in der Konfiguration. Weichen sie
-    # ab, behauptet der abgeleitete Modellpfad etwas anderes, als gerechnet
-    # wird.
+    # feature_mode steht im Checkpoint UND in der Konfiguration: weichen
+    # sie ab, behauptet der Modellpfad etwas anderes, als gerechnet wird.
     if feature_mode != cfg.training.feature_mode:
         text = (f"Checkpoint hat feature_mode={feature_mode!r}, Konfiguration "
                 f"{cfg.training.feature_mode!r} -- Pfad passt nicht zum Modell.")
@@ -611,19 +575,15 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
               verbose=True, on_fenster=None, stumm=True):
     """Schreitet EINEN Run in anstossenden Fenstern der Laenge alpha ab.
 
-    Das ist Stufe 1: je Fenster unabhaengig loesen, NICHT stitchen. Ein an
-    einer Fenstergrenze zerschnittenes Partikel ergibt zwei Tracklets --
-    das ist die beabsichtigte Ausgabe, nicht ein Fehler. Verbinden ist die
-    Aufgabe von Stufe 2.
+    Je Fenster unabhaengig geloest, NICHT gestitcht: ein an einer
+    Fenstergrenze zerschnittenes Partikel ergibt zwei Tracklets, und das
+    ist die beabsichtigte Ausgabe. Verbinden ist Aufgabe von Stufe 2.
 
-    EINMAL laden: lade_fenster mit t0=None/dt=None liefert den ganzen Run
-    samt ausgerichteter GT, danach zerlegt searchsorted ihn. Frueher oeffnete
-    jedes Fenster den PSEELoader neu und richtete die GT neu aus -- bei rund
-    800 Fenstern je Run kehrt sich diese Rechnung um.
+    EINMAL geladen, danach mit searchsorted zerlegt -- bei rund 800
+    Fenstern je Run traegt das die Laufzeit.
 
-    TRACKLET-IDs SIND GLOBAL. RAMA nummeriert je Fenster ab 0; ohne Versatz
-    waeren Tracklet 3 aus Fenster 1 und aus Fenster 2 dasselbe. -1 bleibt
-    -1: kantenlose Knoten gehoeren zu keinem Tracklet.
+    TRACKLET-IDs SIND GLOBAL: RAMA nummeriert je Fenster ab 0, der Treiber
+    addiert einen Versatz. -1 bleibt -1.
 
     on_fenster : optional Callable(zeile) je Fenster. Dieselbe Loesung wie
         on_epoch im Training -- ein Test haengt an eine Liste an, das Skript
@@ -646,9 +606,8 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
                else config.label_file(sel.split, sel.run_nr))
 
     t_start = time.time()
-    # cfg.window ist der AUSSCHNITT: None/None heisst ganzer Run (der
-    # Normalfall des Treibers), gesetzte Werte schneiden ihn ein. Die
-    # Fensterlaenge des Abschreitens ist davon unberuehrt -- die ist alpha.
+    # cfg.window ist der AUSSCHNITT (None/None = ganzer Run). Die
+    # Fensterlaenge des Abschreitens ist davon unberuehrt: die ist alpha.
     ganz = lade_fenster(sel, cfg.window, polarity=nb.polarity,
                         gt_path=gt_path)
     t_laden = time.time() - t_start
@@ -702,11 +661,9 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
                 info.update(cluster_metrics(labels, teil.track_id,
                                             teil.status, t=teil.t))
                 info.update(merge_metrics(labels, teil.track_id, teil.status))
-                # Getrennt fuer Partikel mit und ohne nahen Nachbarn. Die
-                # Cluster werden je Teilmenge neu gebildet; das ist
-                # unbedenklich, weil zwei verschmolzene Partikel einander
-                # per Definition nah sind und damit beide in derselben
-                # Teilmenge liegen.
+                # Cluster werden je Teilmenge neu gebildet -- unbedenklich,
+                # weil zwei verschmolzene Partikel einander per Definition
+                # nah sind, also beide in derselben Teilmenge liegen.
                 nah = nah_maske(teil.track_id, gt_ids,
                                 abstand_im_fenster(raster_t, gt_ids, d_part,
                                                    teil.t[0],
@@ -717,20 +674,10 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
                     info[f"{pre}_n_events"] = mm.get("merge_n_events", 0)
                     info[f"{pre}_n_minderheit"] = mm.get("merge_n_minderheit", 0)
 
-        # Die Volkszaehlung der Begegnungen -- faellt ohne zusaetzliche
-        # Rechnung an und sagt, welche Fenster ueberhaupt eine Trennung
-        # verlangen. Grundlage der CROSSING/CLEAN-Trennung.
         if "edge_ja_frac" in info:
             info["n_nein"] = int(round((1.0 - info["edge_ja_frac"])
                                        * info["edge_n_bewertbar"]))
         if teil.hat_gt:
-            # Das BESSERE Ueberlappungsmass. n_nein zaehlt KANTEN zwischen
-            # zwei Partikeln und waechst mit dem Produkt der lokalen
-            # Dichten -- quadratisch statt linear. Schlimmer: es zaehlt nur
-            # Kanten mit zwei SAUBEREN Endpunkten, und im Kern einer
-            # Ueberlappung werden die Events mehrdeutig und fallen heraus.
-            # n_nein faellt dort also wieder, wo die Ueberlappung am
-            # groessten ist. n_ambig steigt monoton mit ihrer Tiefe.
             info["n_ambig"] = int((teil.status == STATUS_AMBIG).sum())
             info["ambig_frac"] = info["n_ambig"] / len(teil)
         zeilen.append(info)
@@ -758,8 +705,7 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
             "sec_laden": round(t_laden, 1),
             "sec_total": round(time.time() - t_start, 1),
             # EINMAL je Run: ru_maxrss ist eine Hochwassermarke des
-            # Prozesses und misst ab dem zweiten Fenster nichts mehr ueber
-            # dieses Fenster.
+            # Prozesses, je Fenster saehe man nur das Maximum bisher.
             "max_rss_mb": round(
                 resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
         },

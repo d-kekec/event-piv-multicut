@@ -11,10 +11,8 @@ was zwischen zwei Stufen gleich sein MUSS. Nur `Neighborhood` muss das, und
 nur sie wird verglichen.
 
 KEIN frozen=True -- OmegaConf macht den Container dann read-only und jeder
-Hydra-Override scheitert. GEMESSEN, nicht hergeleitet: bei einem OmegaConf-
-Wechsel neu pruefen. Der Schutz kommt statt dessen aus der Struktur:
-scripts/_cli.to_cfg laeuft genau einmal und loest dabei die abgeleiteten
-Defaults auf. DANACH schreibt kein Modul mehr in cfg.
+Hydra-Override scheitert. GEMESSEN, bei einem OmegaConf-Wechsel neu
+pruefen.
 """
 from __future__ import annotations
 
@@ -98,9 +96,8 @@ class Neighborhood(_Typed):
     polarity: str = "on"
 
     def short(self) -> str:
-        # polarity IMMER im Kern, nicht nur bei Abweichung: das Feld aendert
-        # den Hash ohnehin, ein unterdruecktes Suffix erspart also keinen
-        # Umzug und macht den Pfad nur unleserlicher.
+        # polarity immer im Kern: das Feld aendert den Hash ohnehin, ein
+        # unterdruecktes Suffix erspart also keinen Umzug.
         return (f"a{self.alpha}_r{_num(self.r_max)}_{self.geom}"
                 f"_{self.polarity}")
 
@@ -140,9 +137,8 @@ class PairSampling(_Typed):
     split: str = "train"
     runs: list[int] = field(
         default_factory=lambda: [2, 11, 19, 30, 32, 35, 44, 59, 61, 76])
-    # 1e-3 statt eines groesseren Werts, damit die Ausbeute je Run NAHE am
-    # Deckel landet statt weit darueber: bei 5e-3 rechnete run61 11,2 Mio.
-    # JA und warf neun davon wieder weg.
+    # So gewaehlt, dass die Ausbeute je Run nahe am Deckel landet: bei
+    # 5e-3 rechnete run61 11,2 Mio. JA und warf neun davon wieder weg.
     ja_frac: float = 1e-3
     max_yes: int = 1_000_000
     max_no: int = 1_000_000
@@ -219,9 +215,8 @@ class Solver(_Typed):
     cost_offset: float = 0.0
 
     def short(self) -> str:
-        # Kein Suffix im Vorgabefall: bestehende solves/*.json behalten
-        # ihren Namen, der Anker bleibt unter demselben Pfad erreichbar.
-        # cost_offset MUSS im Namen stehen, sobald er wirkt -- sonst
+        # Kein Suffix im Vorgabefall, damit bestehende Dateinamen bleiben.
+        # Sobald ein Feld WIRKT, muss es im Namen stehen -- sonst
         # ueberschriebe ein Sweep seine eigenen Ergebnisse.
         return (self.mode
                 + (f"_knn{self.k_max}" if self.use_knn else "")

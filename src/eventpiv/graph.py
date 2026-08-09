@@ -4,14 +4,13 @@
 graph.py -- die (alpha, r_max)-Nachbarschaft. EINE Definition fuer alle Nutzer.
 
 Zentraler Zweck: Paarbau [2] und Solve [4] MUESSEN dieselbe Kantenmenge
-erzeugen -- sonst sieht das Netz im Einsatz eine andere Nachbarschaft als im
-Training, und keine Kennzahl waere etwas wert. Frueher war das eine
-Konvention, jetzt ist es strukturell erzwungen: beide rufen diese Funktion.
+erzeugen -- sonst sieht das Netz im Einsatz eine andere Nachbarschaft als
+im Training. Strukturell erzwungen dadurch, dass beide diese Funktion
+rufen.
 
-GEOMETRIE: Der KDTree arbeitet auf (x, y, t*s) mit s = r_max/alpha. Mit
-Suchradius r_max liefert er von sich aus ein ELLIPSOID -- lange fuer einen
-Zylinder gehalten, obwohl das Ellipsoid strenger ist und beide
-Zylinderbedingungen impliziert. Ueber `geom` sind drei Formen waehlbar.
+GEOMETRIE: Der KDTree arbeitet auf (x, y, t*s) mit s = r_max/alpha und
+liefert mit Suchradius r_max ein ELLIPSOID. Ueber `geom` sind drei Formen
+waehlbar.
 
 KONTRAKT der Rueckgabe (auf den sich alle Aufrufer verlassen):
   - i, j sind Index-Arrays gleicher Laenge
@@ -27,10 +26,8 @@ from scipy.spatial import cKDTree
 from eventpiv.runconfig import (NEIGHBORHOOD_GEOMS, POLARITIES, Neighborhood,
                                 Solver)
 
-# EINE Quelle fuer diese Zahlen: runconfig. Die Namen bleiben hier bestehen
-# (Tests und Standardargumente benutzen sie), ihren Wert beziehen sie von
-# dort -- zwei Wahrheiten ueber dieselbe Zahl haben schon einmal still den
-# falschen Datensatz geladen.
+# EINE Quelle fuer diese Zahlen: runconfig. Die Namen bleiben hier, weil
+# Tests und Standardargumente sie benutzen -- der Wert kommt von dort.
 _NB_DEFAULT   = Neighborhood()
 V_MAX_DEFAULT = _NB_DEFAULT.v_max     # px/µs, p99.9 der Partikelgeschwindigkeit
 K_MAX_DEFAULT = Solver().k_max        # k-NN-Kappung
@@ -45,27 +42,21 @@ def polarity_mask(p, polarity: str) -> np.ndarray:
     """Welche Events als KNOTEN zugelassen sind. Boolesche Maske.
 
     Liegt aus demselben Grund hier wie neighborhood_pairs: Stufe [2] und
-    Stufe [4] muessen dieselbe Knotenmenge bilden. Zwei Fassungen dieser
-    Regel waeren zwei Wahrheiten ueber dieselbe Frage, und die Abweichung
-    faellt an keiner Kennzahl auf -- sie sieht aus wie ein anderer
-    Arbeitspunkt.
+    Stufe [4] muessen dieselbe Knotenmenge bilden, und eine Abweichung
+    faellt an keiner Kennzahl auf.
 
-    "on"   nur positive Events. Die ON-Sichel liegt in Bewegungsrichtung
-           vor dem Boxzentrum, die OFF-Sichel gleich weit dahinter; die
-           Kanten ZWISCHEN beiden sind die schwaechste Bindung innerhalb
-           eines Partikels und reissen deshalb zuerst. Sie fallen hier
-           ganz weg.
+    "on"   nur positive Events. Die Kanten zwischen ON- und OFF-Sichel sind
+           die schwaechste Bindung innerhalb eines Partikels und reissen
+           zuerst; sie fallen hier ganz weg.
     "both" alle Events.
 
-    OFF-Events bleiben in der Datei. Stufe 2 braucht sie fuer Zentrum und
-    Richtung: der Mittelwert beider Zentroiden ist erwartungstreu fuer die
-    Partikelposition, ihr Abstand |D| ist der einzige belastbare
-    Richtungsschaetzer. Gefiltert wird der GRAPH, nicht der Datensatz.
+    Gefiltert wird der GRAPH, nicht der Datensatz -- Stufe 2 braucht beide
+    Zentroiden fuer Position und Richtung.
 
-    WICHTIG bei der Anwendung: erst auf dem ungefilterten Strom ausrichten
+    ANWENDUNG: erst auf dem ungefilterten Strom ausrichten
     (evaluate.align_gt_window), dann dieselbe Maske auf beide Seiten. Ein
-    bereits gefilterter Strom ist eine Teilfolge, und die Ausrichtung
-    laeuft sofort auseinander.
+    gefilterter Strom ist eine Teilfolge, und die Ausrichtung laeuft sofort
+    auseinander.
     """
     p = np.asarray(p)
     if polarity == "both":
@@ -108,12 +99,11 @@ def neighborhood_pairs(t, x, y, alpha, r_max, *,
                     Die Taille ist die Wolkenausdehnung, die Aufweitung die
                     Partikeldrift. Bei kleinem alpha praktisch der Zylinder.
 
-    Es gilt ellipsoid ⊆ cylinder ⊆ hyperboloid. 
-    Urform ist jedesmal Ellipsoid, denn der KDTree kann nur Kugeln,
-    fuer die beiden anderen wird deshalb mit einer UMSCHLIESSENDEN (groesseren!) Kugel
+    Es gilt ellipsoid ⊆ cylinder ⊆ hyperboloid. Der KDTree kann nur Kugeln;
+    fuer die beiden weiteren Formen wird mit einer UMSCHLIESSENDEN Kugel
     gesucht und exakt nachgefiltert. Eine zu grosse Kugel ist nur langsam,
-    eine zu KLEINE verliert still Kanten -- deshalb der Brute-Force-Vergleich
-    in tests/test_graph.py.
+    eine zu KLEINE verliert still Kanten -- deshalb der Brute-Force-
+    Vergleich in tests/test_graph.py.
 
     Rueckgabe: (i, j) int64-Arrays, i = frueheres Event.
     """
@@ -149,10 +139,8 @@ def neighborhood_pairs(t, x, y, alpha, r_max, *,
                             distance_upper_bound=q, workers=-1)
         i = np.repeat(np.arange(n), k_max)
         j = idx[:, 1:].ravel()
-        # j != i zusaetzlich: Spalte 0 ist NUR dann der Punkt selbst, wenn er
-        # eindeutig der naechste ist. Bei zwei Events auf exakt derselben
-        # (x, y, t) -- ON und OFF am selben Pixel -- kann Spalte 0 der andere
-        # Punkt sein und man selbst rutscht in Spalte 1.
+        # j != i zusaetzlich: bei zwei Events auf exakt derselben (x, y, t)
+        # kann Spalte 0 der andere Punkt sein.
         ok = (j < n) & (j != i)
         i, j = i[ok], j[ok]
     else:

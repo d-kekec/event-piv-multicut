@@ -17,23 +17,17 @@ Reinheit 0.999 bei Fragmentierung 5.38.
 ZWEI MASKEN, und der Unterschied ist der Kern der Bewertung.
 
 Reinheit, Fragmentierung und die Clustergroessen laufen ueber SAUBERE
-Events (status == 0). Ein mehrdeutiges Event traegt zwar eine track_id,
-aber eine unsichere -- fuer eine Aussage ueber die Partitionsqualitaet
-waere das Rauschen im Massstab.
+Events. Ein mehrdeutiges Event traegt zwar eine track_id, aber eine
+unsichere.
 
-Die MERGE-Kennzahlen laufen dagegen ueber alles ausser Rauschen. Sie
-muessen es: mehrdeutig ist ein Event genau dort, wo zwei Boxzentren nahe
-beieinander liegen, also im Kern einer Ueberlappung -- und dort verschmilzt
-der Solver. Eine Merge-Rate, die nur saubere Events sieht, misst am
-falschen Ort und faellt systematisch zu guenstig aus.
+Die MERGE-Kennzahlen (Praefix `merge_`) laufen ueber alles ausser Rauschen.
+Sie muessen es: mehrdeutig ist ein Event im Kern einer Ueberlappung, und
+dort verschmilzt der Solver. `merge_event_frac` ist deshalb NICHT
+`1 - purity_event_mean` -- verschiedene Teilmengen.
 
-Die Merge-Felder tragen deshalb das Praefix `merge_`, und
-`merge_event_frac` ist NICHT `1 - purity_event_mean`: die beiden rechnen
-ueber verschiedene Teilmengen.
-
-WARUM MERGE ZAEHLT: ein verschmolzenes Tracklet ist in Stufe 2 ein Knoten,
-und ein Knoten laesst sich nicht halbieren. Zerschneiden ist das, was
-Stufe 2 rueckgaengig machen soll. Die Fehler sind nicht gleich teuer.
+Ein verschmolzenes Tracklet ist in Stufe 2 EIN Knoten und laesst sich nicht
+halbieren; ein zerschnittenes kann Stufe 2 verbinden. Die Fehler sind nicht
+gleich teuer.
 """
 from __future__ import annotations
 
@@ -42,18 +36,15 @@ import numpy as np
 from eventpiv.graph import edge_deltas
 from eventpiv.labels import STATUS_CLEAN, STATUS_NOISE
 
-# px. Unterhalb dieses Zentrumsabstands beruehren sich die Eventwolken
-# zweier Partikel: die Wolken streuen bis etwa 6 px um ihr Zentrum, dazu
-# die Reichweite r_max. Erst hier KANN der Solver verschmelzen -- oberhalb
-# gibt es zwischen den beiden gar keine Kanten.
+# px. Darunter beruehren sich die Eventwolken zweier Partikel (Streuung bis
+# ~6 px je Wolke, dazu r_max). Erst hier KANN der Solver verschmelzen.
 NAH_PX = 19.0
 
 def _kreuztabelle(labels, track_id, maske):
     """Cluster x GT-Kreuztabelle fuer eine Teilmenge der Events.
 
     Die eine Rechnung, aus der beide Kennzahlensaetze fallen -- einmal auf
-    den sauberen Events, einmal auf allem ausser Rauschen. Zwei Fassungen
-    dieser Zaehlung waeren zwei Wahrheiten ueber dieselbe Frage.
+    den sauberen Events, einmal auf allem ausser Rauschen.
 
     Kantenlose Knoten (label < 0) fallen heraus: sie gehoeren zu keinem
     Cluster.
@@ -108,26 +99,21 @@ def _kreuztabelle(labels, track_id, maske):
 def merge_metrics(labels, track_id, status, extra_maske=None) -> dict:
     """Wie oft verschmilzt der Solver zwei Partikel? Reine Funktion.
 
-    Ueber alles AUSSER Rauschen -- mehrdeutige Events eingeschlossen. Das
-    ist der Unterschied zu cluster_metrics, und er ist der Punkt: mehrdeutig
-    ist ein Event im Kern einer Ueberlappung, und dort verschmilzt der
-    Solver.
+    Ueber alles AUSSER Rauschen, mehrdeutige Events eingeschlossen -- das
+    ist der Unterschied zu cluster_metrics.
 
     DREI ZAHLEN AUS EINER RECHNUNG, und ihr ABSTAND ist die Diagnose:
-      merge_frac_strikt  Anteil der Cluster mit >= 2 GT-Partikeln.
-                         Pessimistisch: ein einziges fremdes Event genuegt.
-      merge_frac_10      Anteil der Cluster, deren Minderheit >= 10 %
-                         ausmacht -- "echt verschmolzen".
+      merge_frac_strikt  Cluster mit >= 2 GT-Partikeln. Ein einziges
+                         fremdes Event genuegt, also pessimistisch.
+      merge_frac_10      Cluster mit Minderheit >= 10 % -- "echt
+                         verschmolzen".
       merge_event_frac   Anteil der EVENTS, die in ihrem Cluster nicht zur
                          Mehrheit gehoeren.
-    Liegen die ersten beiden weit auseinander, sind es Ausreisser; liegen
-    sie gleichauf, ist die Verschmelzung echt.
+    Weit auseinander heisst Ausreisser, gleichauf heisst echte Verschmelzung.
 
-    extra_maske : zusaetzliche Einschraenkung der Events, etwa auf die
-        Partikel mit einem nahen Nachbarn. Die Cluster werden dann nur ueber
-        diese Teilmenge gebildet -- unbedenklich fuer die NAH/FERN-Trennung:
-        verschmelzen zwei Partikel, sind sie einander nah, also liegen beide
-        in derselben Teilmenge.
+    extra_maske : Einschraenkung auf eine Teilmenge, etwa die Partikel mit
+        nahem Nachbarn. Unbedenklich fuer NAH/FERN: verschmolzene Partikel
+        sind einander per Definition nah, liegen also in derselben Teilmenge.
 
     Rueckgabe: flaches dict mit `merge_`-Praefix. Leer, wenn nichts
     bewertbar ist.
@@ -170,20 +156,12 @@ def cluster_metrics(labels, track_id, status, t=None) -> dict:
       purity_cluster_mean  Mittel UEBER CLUSTER -- ein Cluster aus 3 Events
                            zaehlt so viel wie einer aus 5000.
       purity_event_mean    Mittel UEBER EVENTS -- jedes Event zaehlt gleich.
-    Bei vielen kleinen Fragmenten liegt die erste hoeher als die zweite. Fuer
-    RELATIVE Vergleiche ist beides brauchbar, fuer die FINALE Zahl ist die
-    eventgewichtete die ehrlichere.
+    Bei vielen kleinen Fragmenten liegt die erste hoeher. Fuer die finale
+    Zahl ist die eventgewichtete die ehrlichere.
 
-    purity_event_mean entsteht direkt aus groesste/groessen:
-    sum(groesste)/sum(groessen) ist der Anteil der Events, die in ihrem
-    Cluster zur Mehrheits-GT gehoeren -- keine zweite Rechnung noetig.
-
-    EINSCHRAENKUNG: bewertet werden nur SAUBERE Events (status == 0). Auch
-    die gt_-Felder gelten damit nur fuer diese Teilmenge --
-    gt_visible_ms_median unterschaetzt die Sichtbarkeit, wenn ein Partikel am
-    Rand mehrdeutige Events hat. Bewusst so: eine zweite Maske wuerde die
-    Ausrichtung duplizieren, und genau dort liegt die Falle
-    (align_gt_window).
+    EINSCHRAENKUNG: nur SAUBERE Events. Auch die gt_-Felder gelten damit nur
+    fuer diese Teilmenge -- gt_visible_ms_median unterschaetzt die
+    Sichtbarkeit, wenn ein Partikel am Rand mehrdeutige Events hat.
     """
     clean = np.asarray(status) == STATUS_CLEAN
     kt = _kreuztabelle(labels, track_id, clean)
@@ -213,19 +191,16 @@ def cluster_metrics(labels, track_id, status, t=None) -> dict:
         "n_singletons": int((groessen == 1).sum()),
         "frag_mean": float(frag.mean()),
         "frag_max": int(frag.max()),
-        # Anteil der Events eines GT-Partikels im GROESSTEN seiner
-        # Fragmente. 1.0 = ungeteilt. frag_mean allein sagt nicht, ob ein
-        # Partikel in drei gleiche Teile zerfaellt oder in ein grosses plus
-        # Kruemel -- und fuer die Zentroidgenauigkeit ist das der
-        # Unterschied.
+        # 1.0 = ungeteilt. frag_mean allein unterscheidet "drei gleiche
+        # Teile" nicht von "ein grosses plus Kruemel" -- fuer die
+        # Zentroidgenauigkeit ist das der Unterschied.
         "frag_groesster_anteil_median": float(
             np.median(kt["gt_groesster"] / gt_groessen)),
         "gt_events_per_particle_median": float(np.median(gt_groessen)),
     }
     if tt is not None:
-        # Sichtbarkeitsspanne je GT-Partikel, vektorisiert ueber
-        # np.maximum.at / np.minimum.at -- eine Schleife ueber die Partikel
-        # waere bei groesseren Fenstern der Engpass.
+        # Sichtbarkeitsspanne je GT-Partikel. Vektorisiert, weil eine
+        # Schleife ueber die Partikel bei grossen Fenstern der Engpass waere.
         tmax = np.full(len(gt_u), -np.inf)
         tmin = np.full(len(gt_u), np.inf)
         np.maximum.at(tmax, gt_idx, tt)
@@ -243,11 +218,10 @@ def align_gt_window(gt_t, event_t):
     ZUSAMMENHAENGEND: Startindex suchen, n Eintraege nehmen, Zeitstempel
     gegenpruefen.
 
-    Ein GEFILTERTER Eventstrom (ON-only) faellt hier auf: er ist eine
-    Teilfolge, die Positionen laufen sofort auseinander, der Vergleich
-    schlaegt fehl. Die Meldung zeigt dann allerdings auf die falsche
-    Ursache. Richtig bleibt: erst auf dem ungefilterten Strom ausrichten,
-    dann dieselbe Maske auf beide Seiten.
+    Ein GEFILTERTER Eventstrom (ON-only) faellt hier auf -- als Teilfolge
+    laufen die Positionen sofort auseinander. Die Meldung zeigt dann
+    allerdings auf die falsche Ursache. Richtig: erst auf dem ungefilterten
+    Strom ausrichten, dann dieselbe Maske auf beide Seiten.
 
     Rueckgabe: slice. ValueError, wenn die Zeitstempel nicht passen.
     """
@@ -272,25 +246,20 @@ def edge_gt_stats(i, j, t, x, y, track_id, status) -> dict:
     """Statistik ueber die KANTEN eines Fensters, gegen die GT.
 
     Gegenstueck zu cluster_metrics: dort wird die AUSGABE des Solvers
-    bewertet, hier seine EINGABE. edge_ja_frac ist der Anteil der Kanten,
-    die zwei Events desselben Partikels verbinden -- die Klassenverteilung,
-    die das Netz im Einsatz tatsaechlich vorfindet.
+    bewertet, hier seine EINGABE. edge_ja_frac ist die Klassenverteilung,
+    die das Netz im Einsatz vorfindet -- ohne sie liesse sich nicht trennen,
+    ob eine Abweichung von der Holdout-Rate an der Verteilung liegt oder an
+    den Merkmalen.
 
-    Wozu: pred_neg_frac auf dem Holdout und frac_neg im Einsatz weichen
-    voneinander ab, und ohne edge_ja_frac liesse sich nicht trennen, ob das
-    an der Klassenverteilung liegt oder an den Merkmalen.
-
-    NUR Kanten mit ZWEI sauberen Endpunkten sind bewertbar -- dieselbe
-    Bedingung wie beim Sammeln des Paar-Datensatzes, damit die Zahlen
-    vergleichbar sind. edge_bewertbar_frac sagt, auf welchem Anteil der
-    Kanten die Aussage ruht.
+    NUR Kanten mit ZWEI sauberen Endpunkten sind bewertbar, dieselbe
+    Bedingung wie beim Sammeln. edge_bewertbar_frac sagt, auf welchem
+    Anteil der Kanten die Aussage ruht.
 
     dt_mean und dr_mean laufen dagegen ueber ALLE Kanten -- das ist, was das
-    Netz im Einsatz sieht. Mit data/mu aus dem Training nur naeherungsweise
-    vergleichbar, weil dort ausschliesslich sauber-sauber-Paare stehen.
+    Netz im Einsatz sieht.
 
-    Legt vier Arrays der Kantenzahl in float64 an. Wird NACH dem RAMA-Aufruf
-    gerechnet und liegt deshalb nicht in der Speicherspitze.
+    Legt vier Arrays der Kantenzahl in float64 an, deshalb NACH dem
+    RAMA-Aufruf.
     """
     i, j = np.asarray(i), np.asarray(j)
     if len(i) == 0:
@@ -314,11 +283,10 @@ def edge_gt_stats(i, j, t, x, y, track_id, status) -> dict:
 def min_abstand_je_partikel(bbox, box_w=11.0):
     """Kleinster Abstand JE PARTIKEL zu irgendeinem anderen, je Rasterpunkt.
 
-    Nicht das globale Minimum ueber alle Paare: bei rund 50 Partikeln im
-    Bild liegt IRGENDEIN Paar praktisch immer naeher als NAH_PX, und ein
-    Fenster waere dann immer "Begegnung". Die Frage ist ohnehin eine je
-    Partikel -- verschmilzt DIESES Partikel, wenn es einen nahen Nachbarn
-    hat.
+    Nicht das globale Minimum ueber alle Paare: bei rund 50 Partikeln liegt
+    IRGENDEINES praktisch immer naeher als NAH_PX -- gemessen fielen auf
+    run76 alle 799 Fenster auf dieselbe Seite. Die Frage ist ohnehin eine je
+    Partikel.
 
     Rueckgabe: (raster_t, ids, d). `ids` sind die track_ids in aufsteigender
     Ordnung, `d` hat die Form (Rasterpunkte, Partikel). inf steht dort, wo
@@ -347,13 +315,12 @@ def abstand_im_fenster(raster_t, ids, d, t_lo, t_hi):
     """Kleinster Nachbarabstand je Partikel im Zeitraum [t_lo, t_hi).
 
     UMSCHLIESSEND, nicht filternd: das Raster hat 16,67 ms Abstand, ein
-    Tracklet-Fenster 10 ms -- rund vier von zehn Fenstern enthalten gar
-    keinen Rasterpunkt. Eine Filterung lieferte dort inf und meldete "keine
-    Begegnung", wo in Wahrheit nur nicht gemessen wurde.
+    Tracklet-Fenster 10 ms -- rund vier von zehn Fenstern enthalten keinen
+    Rasterpunkt. Eine Filterung meldete dort "keine Begegnung", wo nur nicht
+    gemessen wurde.
 
-    Genommen werden deshalb die Rasterpunkte VOM letzten bei oder vor t_lo
-    BIS zum ersten bei oder nach t_hi. Das ueberschaetzt die Spanne um
-    hoechstens eine Rasterperiode und unterschaetzt damit den Abstand -- die
+    Genommen wird vom letzten Rasterpunkt bei oder vor t_lo bis zum ersten
+    bei oder nach t_hi. Das unterschaetzt den Abstand, und das ist die
     sichere Richtung: ein Partikel faelschlich als NAH zu zaehlen kostet
     Trennschaerfe, es zu verfehlen verdeckt einen Merge.
 
