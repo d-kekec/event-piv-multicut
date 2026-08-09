@@ -3,31 +3,32 @@
 """
 overlap.py -- Runs nach Partikel-Ueberlappung klassifizieren.
 
-Bestimmt aus den Bounding-Box-ZENTREN, welche Runs sich als JA- bzw.
-NEIN-Quelle fuer das Paar-Training eignen. Grundlage der Run-Listen in
-PairSampling.
+Grobe VORAUSWAHL, wenn es weder Labels noch ein Netz noch Solves gibt --
+etwa beim Erschliessen eines neuen Datensatzes. Braucht nur die
+Bounding-Box-Zentren.
+
+KEINE Bewertung. Wie gut Stufe 1 trennt, sagt der Treiber ueber
+lauf/nah_merge_event_frac -- getrennt je PARTIKEL und je Fenster, nicht als
+Aggregat ueber einen ganzen Run.
 
 MASS (je 60-Hz-Rasterzeitpunkt, dann ueber den Run aggregiert):
   min_dist  kleinster je erreichter Zentrumsabstand
   frac11    Anteil Zeitpunkte mit minimalem Abstand < box_w
   mean11    mittlere Zahl PAARE unter box_w je Zeitpunkt
 
-mean11 zaehlt PAARE, nicht Boxen -- query_pairs liefert Paare, drei sich
-beruehrende Boxen ergeben also 3. Die Schwelle 1.4 ist empirisch an den
-ERGEBNISSEN kalibriert, nicht hergeleitet.
+mean11 zaehlt PAARE, nicht Boxen -- drei sich beruehrende Boxen ergeben 3.
+Die Schwelle 1.4 ist empirisch kalibriert, nicht hergeleitet.
 
 KATEGORIEN:
   MAX_OVERLAP  frac11 == 1.0                         durchgehende Ueberlappung
   MIN_OVERLAP  min_dist >= box_w UND mean11 < 0.05   praktisch sauber
   CROSSING     frac11 == 1.0 UND mean11 >= 1.4       echte Kreuzungen
 
-Der 19-px-Verschmelzungsabstand der Eventwolken ist NICHT das Kriterium fuer
-"sauberer Trainings-Run" -- viel zu streng, fast kein Run erfuellt ihn.
-Sauberkeit laeuft ueber min_dist >= box_w plus Abwesenheit von Kreuzungen.
-
-GRENZE: alle drei Masse sind Aggregate ueber den GANZEN Run. Es steht hier
-nirgends, WANN eine Ueberlappung passiert -- solange das so ist, lassen sich
-die Sammelfenster nicht auf gemessene Ueberlappungszeiten legen.
+GRENZE, gemessen: alle drei Masse sind Aggregate ueber den GANZEN Run und
+sagen nicht, WANN eine Ueberlappung passiert. Die Einteilung traegt
+entsprechend grob -- run11 steht als Overlap-Run in der Liste und hat 531
+von 798 Tracklet-Fenstern ohne eine einzige NEIN-Kante. Wer die Zeitachse
+braucht, nimmt fenster_n_nein aus dem Tracklet-Artefakt.
 """
 from __future__ import annotations
 

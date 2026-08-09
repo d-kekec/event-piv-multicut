@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import resource          # Unix-only; SLURM buchhaltet Speicher hier nicht
 import time
+import json
 from pathlib import Path
 
 import numpy as np
@@ -195,13 +196,19 @@ def build_pairs_for_run(cfg: PairCfg, run_nr, rng):
             f"{path} fehlt -- erst scripts/build_event_labels.py "
             f"selection.split={ps.split} selection.runs=[{run_nr}] laufen lassen.")
     with np.load(path) as d:
+        # Das Labeling aus der DATEI lesen, nicht aus der Konfiguration:
+        # welche Parameter diese Labels erzeugt haben, weiss nur sie. Eine
+        # Konfigurationsgruppe daneben waere eine Behauptung.
+        meta = json.loads(str(d["meta"]))
+        lb = (meta.get("labeling"), meta.get("label_format"))
         # VOR dem float64-Cast in collect_pairs: bei polarity="on" halbiert
         # das nebenbei den festen Speicheraufwand je Run.
         m = polarity_mask(d["p"], nb.polarity)
-        return collect_pairs(d["t"][m], d["x"][m], d["y"][m],
-                             d["track_id"][m], d["status"][m],
-                             alpha=nb.alpha, r_max=nb.r_max, geom=nb.geom,
-                             ja_frac=ps.ja_frac, rng=rng)
+        daten, zaehler = collect_pairs(
+            d["t"][m], d["x"][m], d["y"][m], d["track_id"][m], d["status"][m],
+            alpha=nb.alpha, r_max=nb.r_max, geom=nb.geom,
+            ja_frac=ps.ja_frac, rng=rng)
+    return daten, zaehler, lb
 
 
 def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
@@ -226,12 +233,25 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
     teile = []
     je_run = []
     roh_ja = roh_nein = n_fenster = 0
+    labeling = None
 
-    print(f"Paare aus {len(ps.runs)} Run(s), Fenster {nb.alpha/1000:.0f}ms, "
-          f"ja_frac={ps.ja_frac:g}:")
+    if verbose:
+        print(f"Paare aus {len(ps.runs)} Run(s), Fenster {nb.alpha/1000:.0f}ms, "
+              f"ja_frac={ps.ja_frac:g}:")
     for r in ps.runs:
         tic = time.time()
-        roh, z = build_pairs_for_run(cfg, r, rng)
+        roh, z, lb = build_pairs_for_run(cfg, r, rng)
+        # ALLE Runs muessen dasselbe Labeling tragen. Sonst stuenden in
+        # einem Datensatz Paare aus zwei verschiedenen Wahrheiten, und
+        # keine Kennzahl darauf waere etwas wert.
+        if labeling is None:
+            labeling = lb
+        elif lb != labeling:
+            raise ValueError(
+                f"run{r} wurde mit anderen Labeling-Parametern gelabelt als "
+                f"die vorigen Runs: {lb} gegen {labeling}. Label-Dateien "
+                "einheitlich neu bauen (scripts/build_event_labels.py "
+                "io.overwrite=true).")
         # VOR dem Deckel zaehlen: n_roh_ja ist die Zahl vor dem ZIEHEN, also
         # immer groesser. Ohne diese Zwischenzahl waere ein greifender
         # max_yes nicht von der ja_frac-Duennung zu unterscheiden und bliebe
@@ -266,10 +286,11 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
         deckel = "".join([
             "  (JA gedeckelt)" if z_["gedeckelt_ja"] else "",
             "  (NEIN gedeckelt)" if z_["gedeckelt_nein"] else ""])
-        print(f"  run{r:<3d}: {n_ja:>9,} JA / {n_nein:>9,} NEIN behalten "
-              f"aus {z['n_roh_ja']:,} / {z['n_roh_nein']:,} roh "
-              f"({z['n_fenster']} Fenster, {z['n_fenster_ohne_nein']} ohne "
-              f"NEIN){deckel}")
+        if verbose:
+            print(f"  run{r:<3d}: {n_ja:>9,} JA / {n_nein:>9,} NEIN behalten "
+                  f"aus {z['n_roh_ja']:,} / {z['n_roh_nein']:,} roh "
+                  f"({z['n_fenster']} Fenster, {z['n_fenster_ohne_nein']} ohne "
+                  f"NEIN){deckel}")
 
     # Feldweise zusammenfuegen und die Teile SOFORT freigeben. Sonst liegen
     # am Ende alle Teile UND das Ergebnis gleichzeitig im RAM (Faktor 2).
@@ -287,18 +308,8 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
     gedeckelt = [z["run"] for z in je_run
                  if z["gedeckelt_ja"] or z["gedeckelt_nein"]]
 
-    print("=" * 52)
-    print(f"Datensatz gesamt: {len(data['label']):,} Paare")
-    print(f"  JA  : {n_yes:,}")
-    print(f"  NEIN: {n_no:,}")
-    if n_no:
-        print(f"  Verhaeltnis JA:NEIN = {n_yes/n_no:,.1f} : 1")
-    if gedeckelt:
-        print(f"  GEDECKELT: {len(gedeckelt)} Run(s) {gedeckelt} -- das "
-              f"Verhaeltnis folgt hier aus max_yes/max_no, nicht aus den Daten")
-    if leer:
-        print(f"  OHNE AUSBEUTE: {len(leer)} Run(s) {leer}")
-    print(f"  Zeit: {time.time()-t_start:.0f}s")
+    if verbose:
+        print("=" * 52)
 
     out_path = (Path(cfg.io.out_path) if cfg.io.out_path
                 else config.pairs_file(nb, ps))
@@ -306,6 +317,15 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
     np.savez(out_path, **data,
              meta=config.meta_json(stage="pair_dataset",
                                    **identity_meta(neighborhood=nb, pairs=ps),
+                                   # Aus den Label-Dateien gelesen. Ohne
+                                   # dieses Feld liesse sich nachtraeglich
+                                   # nicht mehr feststellen, welche Wahrheit
+                                   # dieser Datensatz gelernt hat -- und
+                                   # zwei Labelings landen auf DEMSELBEN
+                                   # Pfad, weil Labeling in keinen Slug
+                                   # eingeht.
+                                   labeling=labeling[0],
+                                   label_format=labeling[1],
                                    n_yes=n_yes, n_no=n_no))
     kennzahlen = {
         "n_total": int(len(data["label"])), "n_ja": n_yes, "n_nein": n_no,
@@ -332,5 +352,6 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
     }
     if on_summary is not None:
         on_summary(kennzahlen)
-    print(f"-> {out_path}")
+    if verbose:
+        print(f"-> {out_path}")
     return out_path, data

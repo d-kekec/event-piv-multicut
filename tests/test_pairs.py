@@ -204,3 +204,50 @@ def test_gegen_bruteforce(szene):
                        alpha=PARAMS["alpha"], r_max=PARAMS["r_max"])
     assert len(ist) == len(soll) > 0
     np.testing.assert_allclose(np.array(ist), np.array(soll), atol=1e-5)
+
+
+def test_verschiedene_labelings_fallen_auf(tmp_path):
+    """Labeling geht in keinen Slug ein -- zwei Parametersaetze landen auf
+    demselben Pfad. Gemischt werden duerfen sie nie: ein Datensatz aus zwei
+    Wahrheiten macht jede Kennzahl darauf wertlos.
+
+    Die Label-Dateien werden hier von Hand geschrieben statt ueber
+    build_labels: geprueft wird der Vergleich zweier Metadatenbloecke, und
+    dafuer braucht es weder Bounding Boxes noch den Umweg ueber
+    io.overwrite.
+    """
+    import json
+
+    import numpy as np
+
+    from eventpiv.pairs import build_pair_dataset
+    from eventpiv.runconfig import (IO, Compute, Neighborhood, PairCfg,
+                                    PairSampling)
+
+    def schreibe(run_nr, r_ambig):
+        n = 400
+        rng = np.random.default_rng(run_nr)
+        t = np.sort(rng.integers(0, 20_000, n)).astype(np.uint32)
+        np.savez(
+            tmp_path / f"run{run_nr}_eventlabels.npz",
+            t=t,
+            x=rng.integers(100, 110, n).astype(np.uint16),
+            y=rng.integers(100, 110, n).astype(np.uint16),
+            p=np.ones(n, np.uint8),
+            track_id=rng.integers(1, 3, n).astype(np.int16),
+            status=np.zeros(n, np.uint8),
+            meta=json.dumps({"labeling": {"r_assign": 8.0, "r_ambig": r_ambig,
+                                          "box_w": 11.0},
+                             "label_format": 2}))
+
+    schreibe(1, 2.0)
+    schreibe(2, 0.5)
+
+    cfg = PairCfg(io=IO(label_dir=str(tmp_path)),
+                  neighborhood=Neighborhood(alpha=10_000, r_max=5.0,
+                                            geom="cylinder", polarity="on"),
+                  pairs=PairSampling(split="train", runs=[1, 2],
+                                     ja_frac=1.0, seed=0),
+                  compute=Compute(device="cpu"))
+    with pytest.raises(ValueError, match="Labeling"):
+        build_pair_dataset(cfg, verbose=False)

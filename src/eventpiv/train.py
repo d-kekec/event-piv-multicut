@@ -285,7 +285,13 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
                             "train-Splits -- NICHT der offizielle val-Split "
                             "(BA_NN_Kantenkosten.md §3.6)"),
         "pairs_path": str(data_path),
-        "dataset_neighborhood": ds_meta.get("neighborhood", {})
+        "dataset_neighborhood": ds_meta.get("neighborhood", {}),
+        # Aus dem Datensatz uebernommen, nicht aus der Konfiguration:
+        # Labeling geht in keinen Slug ein, zwei Labelings landen also auf
+        # demselben Pfad. Nur so laesst sich einem Netz nachtraeglich
+        # ansehen, welche Wahrheit es gelernt hat.
+        "dataset_labeling": ds_meta.get("labeling", {}),
+        "dataset_label_format": ds_meta.get("label_format")
     }
     if verbose:
         print(f"Holdout-Runs (aus demselben Split wie der Paar-Datensatz): "
@@ -458,6 +464,8 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
         **json.loads(config.meta_json(
             stage="edge_nn",
             **identity_meta(neighborhood=nb, pairs=ps, training=tr),
+            labeling=ds_meta.get("labeling"),
+            label_format=ds_meta.get("label_format"),
             data_path=str(data_path), **kennzahlen)))
     mpath = path.with_suffix(".metrics.json")
     mpath.write_text(json.dumps(

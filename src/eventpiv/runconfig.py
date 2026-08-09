@@ -258,18 +258,19 @@ class Selection(_Typed):
 class Window(_Typed):
     """Der AUSSCHNITT: welcher Teil eines Runs betrachtet wird.
 
-    Einer von vier Fensterbegriffen, und sie werden regelmaessig
-    verwechselt:
-      PairSampling.win_dt   Sammelfenster, breit, fuer TRAININGSPAARE
-      PairSampling.slab_dt  ergebnisneutrale Zerlegung, reiner RAM-Schutz
-      Neighborhood.alpha    zugleich die Laenge eines Tracklet-Fensters in
-                            Stufe 1 -- dort ein HARTER Schnitt
-      Window                dieser Ausschnitt, fuer Einzelsolve und Animation
+    Nicht zu verwechseln mit `Neighborhood.alpha`: das ist die Laenge eines
+    TRACKLET-Fensters und zugleich ein harter Schnitt, ueber den keine
+    Kante gehen darf. `Window` schneidet dagegen nur aus, was betrachtet
+    wird.
 
     None heisst "ab Anfang" bzw. "ganzer Run" -- load_events kennt das
     ohnehin. Sinnvoll bei animate_run und beim Abschreiten eines Runs; ein
     ganzer Run in EINER Solve-Instanz waere ein VRAM-Selbstmord.
     """
+    
+    # Vorgabe ist der alte Ankerpunkt und heute vor allem fuer Tests
+    # brauchbar: jeder rechnende Aufrufer setzt seinen Ausschnitt selbst,
+    # der Treiber auf None/None (ganzer Run).
     t0: int | None = 1_700_000
     dt: int | None = 20_000
 
@@ -306,15 +307,6 @@ class IO(_Typed):
     data_path: str | None = None    # Notausgang LESEpfad: fremder Paar-Datensatz
     list_runs: bool = False     # nur auflisten, nichts rechnen (animate_run)
 
-@dataclass
-class Report(_Typed):
-    """Auswertung mehrerer Solve-Laeufe. KEINE Laufauswahl: `crossing` und
-    `clean` sind zwei BEWERTUNGSGRUPPEN, die getrennt gemittelt werden --
-    ein Mittelwert ueber beide koennte schlechte Trennung durch gute
-    Kontrolle kaschieren."""
-    split: str = "val"
-    crossing: list[int] = field(default_factory=lambda: [3, 4, 6, 20])
-    clean: list[int] = field(default_factory=lambda: [7, 9, 12, 13, 21])
 
 @dataclass
 class Overlap(_Typed):
@@ -410,20 +402,6 @@ class SolveCfg:
     selection:    Selection    = field(default_factory=Selection)
     window:       Window       = field(default_factory=Window)
     compute:      Compute      = field(default_factory=Compute)
-
-
-@dataclass
-class ReportCfg:
-    """Liest nur -- rechnet nichts. Braucht neighborhood/pairs/training, um
-    das solves/-Verzeichnis zu FINDEN, und solver/window, weil beide im
-    Dateinamen stehen."""
-    io:           IO           = field(default_factory=IO)
-    neighborhood: Neighborhood = field(default_factory=Neighborhood)
-    pairs:        PairSampling = field(default_factory=PairSampling)
-    training:     Training     = field(default_factory=Training)
-    solver:       Solver       = field(default_factory=Solver)
-    window:       Window       = field(default_factory=Window)
-    report:       Report       = field(default_factory=Report)
 
 
 @dataclass
