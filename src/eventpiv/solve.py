@@ -718,8 +718,7 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
         "run": sel.run_nr, "split": sel.split,
         "n_events": n_ev,
         "n_fenster": len(zeilen),
-        # Default -1 wie im Artefakt: ohne GT ist n_nein NICHT bestimmbar,
-        # und "nicht bestimmbar" darf nicht als "null Begegnungen" zaehlen.
+        # Default -1 wie im Artefakt: ohne GT ist n_nein nicht bestimmbar.
         "n_fenster_ohne_nein": sum(1 for z in zeilen
                                    if z.get("n_nein", -1) == 0),
         "n_tracklets": n_tracklets,
@@ -727,16 +726,17 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
         "tracklets_je_fenster": n_tracklets / max(len(zeilen), 1),
         "events_je_tracklet": ((tracklet_id >= 0).sum()
                                / max(n_tracklets, 1)),
-        # Der Betriebspunkt, wie der Solver ihn sieht -- invariant gegen
-        # ein Neutraining, anders als cost_offset. In W&B steht unter
-        # solve/frac_neg nur das LETZTE Fenster.
         "frac_neg": _gewichtet(zeilen, "frac_neg", "n_edges"),
+        "frag_mean": _gewichtet(zeilen, "frag_mean", "n_gt"),
+        # _mittel, nicht _median: ein gewichtetes Mittel von Medianen ist
+        # kein Median.
+        "frag_groesster_anteil_mittel": _gewichtet(
+            zeilen, "frag_groesster_anteil_median", "n_gt"),
         **_nah_fern(zeilen),
         "diag": {
             "sec_laden": round(t_laden, 1),
             "sec_total": round(time.time() - t_start, 1),
-            # EINMAL je Run: ru_maxrss ist eine Hochwassermarke des
-            # Prozesses, je Fenster saehe man nur das Maximum bisher.
+            # EINMAL je Run: ru_maxrss ist eine Hochwassermarke des Prozesses.
             "max_rss_mb": round(
                 resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
         },

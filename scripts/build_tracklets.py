@@ -73,7 +73,7 @@ def main(dcfg: DictConfig) -> None:
             project=PROJECT,
             group=slug(cfg.neighborhood),
             job_type="tracklets",
-            name=f"{split}_run{r}_{cfg.solver.short()}",
+            name=f"solve_tracklets_{split}_run{r}_{cfg.solver.short()}",
             tags=[slug(cfg.pairs), slug(cfg.training)],
             config=asdict(rcfg),
         )

@@ -7,15 +7,13 @@ nebeneinander. Zweck: Reinheit und Fragmentierung SEHEN statt nur als Zahl
 lesen. Framezahl = window.dt / anim.frame_ms -- ueber ~100 wird das GIF
 unhandlich.
 
-  # Trail an, Farbe nach Cluster-ID: zeigt Fragmentierung
-  python scripts/animate_tracklets.py selection.split=train \\
-      selection.run_nr=3 window.dt=100000 anim.frame_ms=2 anim.downscale=2
+# Fragmentierung sehen: Trail an, funf Fenster, Zuschnitt
+  WANDB_MODE=disabled python scripts/animate_tracklets.py selection.split=train selection.run_nr=32 window.t0=7050000 window.dt=50000 anim.frame_ms=0.5 anim.crop=true
 
-  # Momentaufnahmen, Farbe nach GT-Mehrheit: zeigt Verschmelzungen
-  python scripts/animate_tracklets.py selection.split=train \\
-      selection.run_nr=32 anim.frame_ms=0.5 anim.trail=false anim.color_by=gt
+# Verschmelzung sehen: Momentaufnahmen statt Trail, hoeherer Versatz
+  WANDB_MODE=disabled python scripts/animate_tracklets.py selection.split=train selection.run_nr=32 window.t0=7050000 window.dt=50000 anim.frame_ms=0.5 anim.trail=false solver.cost_offset=0.5
 
-  Beispielaufruf: 
+Beispielaufruf starke Überlappung: 
   WANDB_MODE=disabled python scripts/animate_tracklets.py selection.split=train selection.run_nr=76 window.t0=2700000 window.dt=50000 anim.frame_ms=0.5 anim.crop=true
 """
 import hydra
