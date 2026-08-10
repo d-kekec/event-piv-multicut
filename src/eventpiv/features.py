@@ -22,22 +22,6 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 
-def fenster_index(t, fenster_t0, alpha):
-    """Fensternummer je Event. -1 vor dem ersten Fenster.
-
-    Der Treiber schreitet in ANSTOSSENDEN Fenstern der Laenge alpha ab,
-    fenster_t0 ist damit ein aequidistantes Raster -- searchsorted genuegt,
-    eine Suche je Event ist nicht noetig.
-    """
-    t = np.asarray(t, dtype=np.float64)
-    if len(fenster_t0) == 0:
-        return np.full(len(t), -1, np.int64)
-    k = np.searchsorted(fenster_t0, t, side="right") - 1
-    # Nach dem letzten Fenster: nur gueltig, solange t < t0 + alpha.
-    zu_spaet = (k == len(fenster_t0) - 1) & (t >= fenster_t0[-1] + alpha)
-    k[zu_spaet] = -1
-    return k.astype(np.int64)
-
 
 def off_zuordnung(t_on, x_on, y_on, tracklet_id, t_off, x_off, y_off, *,
                   s, k=8):

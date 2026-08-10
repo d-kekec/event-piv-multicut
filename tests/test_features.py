@@ -10,7 +10,7 @@ aendern.
 import numpy as np
 import pytest
 
-from eventpiv.features import (fenster_index, off_zuordnung,
+from eventpiv.features import (off_zuordnung,
                                tracklet_features)
 
 
@@ -117,29 +117,6 @@ def test_k_groesser_als_die_eventzahl(zwei_partikel):
     a, kon = off_zuordnung(t[:3], xo[:3], yo[:3], tid[:3],
                            t[:5], xf[:5], yf[:5], s=0.1, k=32)
     assert len(a) == 5 and (a >= 0).all()
-
-
-# --- fenster_index ------------------------------------------------------
-
-def test_fenster_index_auf_aequidistantem_raster():
-    t0 = np.array([0.0, 10_000.0, 20_000.0])
-    t = np.array([0.0, 9_999.0, 10_000.0, 19_999.0, 29_999.0])
-    np.testing.assert_array_equal(
-        fenster_index(t, t0, 10_000), [0, 0, 1, 1, 2])
-
-
-def test_fenster_index_ausserhalb():
-    """Vor dem ersten und nach dem letzten Fenster: -1, nicht 0 und nicht
-    der letzte Index. Ein Event dem falschen Fenster zuzuschlagen faellt
-    an keiner Kennzahl auf."""
-    t0 = np.array([10_000.0, 20_000.0])
-    t = np.array([9_999.0, 30_000.0, 35_000.0])
-    np.testing.assert_array_equal(fenster_index(t, t0, 10_000), [-1, -1, -1])
-
-
-def test_fenster_index_ohne_fenster():
-    assert (fenster_index(np.array([1.0, 2.0]), np.empty(0), 10_000)
-            == -1).all()
 
 
 # --- tracklet_features --------------------------------------------------
