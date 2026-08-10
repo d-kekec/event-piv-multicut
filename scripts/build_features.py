@@ -58,10 +58,20 @@ def _lade(cfg: FeatureCfg, run_nr: int):
             "Parametern laufen lassen.")
     with np.load(art) as d:
         tid_on, fenster_t0 = d["tracklet_id"], d["fenster_t0"]
+        
 
     lab = (config.label_file(cfg.selection.split, run_nr)
            if cfg.io.label_dir is None
            else Path(cfg.io.label_dir) / f"run{run_nr}_eventlabels.npz")
+    if not Path(lab).exists():
+        # Wie in lade_fenster: keine Labels ist kein Fehler. Echte
+        # Messdaten haben keine Boxen, und die Tabelle traegt dann eben
+        # keine gt_-Felder. Ohne die Events geht es allerdings nicht --
+        # die stehen nur in der Label-Datei.
+        raise SystemExit(
+            f"{lab} fehlt. Ohne Label-Datei liegt der Eventstrom nicht in "
+            "der Reihenfolge des Artefakts vor; fuer Runs ohne GT braucht "
+            "es einen eigenen Lesepfad ueber data.load_events.")
     with np.load(lab) as d:
         t, x, y, p = d["t"], d["x"], d["y"], d["p"]
         gt, status = d["track_id"], d["status"]
