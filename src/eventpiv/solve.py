@@ -732,6 +732,10 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
         # kein Median.
         "frag_groesster_anteil_mittel": _gewichtet(
             zeilen, "frag_groesster_anteil_median", "n_gt"),
+        "merge_frac_strikt": _gewichtet(zeilen, "merge_frac_strikt",
+                                        "merge_n_clusters"),
+        "merge_frac_10": _gewichtet(zeilen, "merge_frac_10",
+                                    "merge_n_clusters"),
         **_nah_fern(zeilen),
         "diag": {
             "sec_laden": round(t_laden, 1),
