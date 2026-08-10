@@ -11,7 +11,7 @@ unhandlich.
   WANDB_MODE=disabled python scripts/animate_tracklets.py selection.split=train selection.run_nr=32 window.t0=7050000 window.dt=50000 anim.frame_ms=0.5 anim.crop=true
 
 # Verschmelzung sehen: Momentaufnahmen statt Trail, hoeherer Versatz
-  WANDB_MODE=disabled python scripts/animate_tracklets.py selection.split=train selection.run_nr=32 window.t0=7050000 window.dt=50000 anim.frame_ms=0.5 anim.trail=false solver.cost_offset=0.5
+  WANDB_MODE=disabled python scripts/animate_tracklets.py selection.split=train selection.run_nr=32 window.t0=7050000 window.dt=50000 anim.frame_ms=0.5 solver.cost_offset=0.5
 
 Beispielaufruf starke Überlappung: 
   WANDB_MODE=disabled python scripts/animate_tracklets.py selection.split=train selection.run_nr=76 window.t0=2700000 window.dt=50000 anim.frame_ms=0.5 anim.crop=true
