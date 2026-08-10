@@ -290,3 +290,18 @@ def test_leeres_fenster_gibt_leeres_dict():
     assert tracklet_features(leer, leer, leer, np.empty(0, np.int64),
                              leer, leer, leer, np.empty(0, np.int64), leer,
                              fenster_idx=0) == {}
+
+
+def test_features_slug_haengt_an_beiden_feldern():
+    """Zwei Parametersaetze duerfen nicht auf demselben Pfad landen --
+    dieselbe Falle wie bei Labeling (Journal 08.08.)."""
+    from eventpiv.runconfig import Features, slug
+    assert slug(Features()) != slug(Features(off_s=0.15))
+    assert slug(Features()) != slug(Features(off_k=16))
+
+
+def test_features_default_ist_der_gemessene_wert():
+    """off_s = 0,1 ist das Optimum aus der Messreihe vom 09.08. auf run76
+    und run32. Faellt der Test, wurde der Wert ohne Messung geaendert."""
+    from eventpiv.runconfig import Features
+    assert Features().off_s == 0.1 and Features().off_k == 8

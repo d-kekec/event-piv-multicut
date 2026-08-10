@@ -182,6 +182,19 @@ def tracklet_file(nb, ps, tr, sel, sv, create: bool = False) -> Path:
     return d / f"{sel.split}_run{sel.run_nr}_{sv.short()}.npz"
 
 
+def feature_file(nb, ps, tr, sel, sv, ft, create: bool = False) -> Path:
+    """Merkmalstabelle EINES Runs, abgeleitet aus dem Tracklet-Artefakt.
+
+    Eigene Slug-Ebene, anders als bei tracklet_file: die OFF-Zuordnung hat
+    eigene Parameter, und zwei Tabellen desselben Solves unterscheiden sich
+    genau darin. Der Solver steht wie dort im Dateinamen, weil er die
+    QUELLE waehlt und nicht die Rechnung.
+    """
+    d = _ensure(wp_dir(nb, create) / "pairs" / slug(ps) / slug(tr)
+                / "tracklets" / "features" / slug(ft), create)
+    return d / f"{sel.split}_run{sel.run_nr}_{sv.short()}.npz"
+
+
 # ============================================================
 # Metadaten (Code-Prinzip: jede erzeugte Datei traegt ihre Herkunft)
 # ============================================================

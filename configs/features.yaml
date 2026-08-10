@@ -1,0 +1,12 @@
+defaults:
+  - feature_schema
+  - _self_
+
+hydra:
+  run:
+    dir: ${oc.env:EVENTPIV_OUT}/hydra/features/${now:%Y-%m-%d_%H-%M-%S}
+  sweep:
+    dir: ${oc.env:EVENTPIV_OUT}/hydra/features/multirun_${now:%Y-%m-%d_%H-%M-%S}
+    subdir: ${hydra.job.num}
+  job:
+    chdir: false
