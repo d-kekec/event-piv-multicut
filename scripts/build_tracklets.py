@@ -31,6 +31,31 @@ ConfigStore.instance().store(name="solve_schema", node=SolveCfg)
 PROJECT = "event-piv-multicut"
 
 
+def kanten_tabelle(lauf):
+    """Konfusionsmatrix der KANTEN als 2x2-Tabelle, ueber den ganzen Run.
+
+    Zeilen sind die Vorhersage des NETZES (Vorzeichen der Kosten), Spalten
+    die GT. Nicht der Schnitt des Solvers: Multicut darf von der
+    Kantenpraeferenz abweichen, wenn die Bilanz es verlangt.
+
+    Randsummen stehen mit drin, weil sie im Gespraech sonst im Kopf
+    gerechnet werden muessen -- und weil die Spaltensumme rechts die
+    Klassenverteilung im Einsatz ist.
+
+    None, wenn der Run keine GT hat.
+    """
+    tp, fp = lauf.get("edge_tp"), lauf.get("edge_fp")
+    fn, tn = lauf.get("edge_fn"), lauf.get("edge_tn")
+    if tp is None or (tp + fp + fn + tn) == 0:
+        return None
+    t = wandb.Table(columns=["", "GT: gleiches Partikel",
+                             "GT: verschiedene Partikel", "Summe"])
+    t.add_data("Kosten >= 0 (verbinden)", tp, fp, tp + fp)
+    t.add_data("Kosten < 0 (schneiden)", fn, tn, fn + tn)
+    t.add_data("Summe", tp + fn, fp + tn, tp + fp + fn + tn)
+    return t
+
+
 def senke(run):
     """on_fenster fuer solve_run.
 
@@ -86,6 +111,12 @@ def main(dcfg: DictConfig) -> None:
             pfad = schreibe_tracklets(rcfg, tid, zeilen, lauf)
             run.summary.update(flatten({"lauf": lauf}))
             run.summary["tracklet_path"] = str(pfad)
+            tab = kanten_tabelle(lauf)
+            if tab is not None:
+                # run.log, nicht run.summary: nur der Log-Eintrag traegt den
+                # Deskriptor, aus dem die Oberflaeche ein Panel baut.
+                # Dieselbe Begruendung wie bei pairs/per_run.
+                run.log({"lauf/kanten_konfusion": tab})
             print(f"-> {pfad}", flush=True)
         finally:
             run.finish()

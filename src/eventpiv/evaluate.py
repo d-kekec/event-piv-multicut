@@ -242,7 +242,7 @@ def align_gt_window(gt_t, event_t):
     return sl
 
 
-def edge_gt_stats(i, j, t, x, y, track_id, status) -> dict:
+def edge_gt_stats(i, j, t, x, y, track_id, status, costs=None) -> dict:
     """Statistik ueber die KANTEN eines Fensters, gegen die GT.
 
     Gegenstueck zu cluster_metrics: dort wird die AUSGABE des Solvers
@@ -275,8 +275,19 @@ def edge_gt_stats(i, j, t, x, y, track_id, status) -> dict:
     out["edge_bewertbar_frac"] = float(n_bew / len(i))
     if n_bew:
         tid = np.asarray(track_id)
-        out["edge_ja_frac"] = float(
-            (tid[i[beide]] == tid[j[beide]]).mean())
+        ja = tid[i[beide]] == tid[j[beide]]
+        out["edge_ja_frac"] = float(ja.mean())
+        if costs is not None:
+            # VORHERSAGE ist das Vorzeichen der Kosten, nicht der Schnitt des
+            # Solvers: Multicut darf von der Kantenpraeferenz abweichen, wenn
+            # die Bilanz es verlangt. Hier wird das NETZ bewertet, nicht RAMA.
+            # Schwelle bei 0, weil die Kosten Logits sind.
+            c = np.asarray(costs)[beide]
+            pos = c >= 0
+            out["edge_tp"] = int((ja & pos).sum())
+            out["edge_fn"] = int((ja & ~pos).sum())
+            out["edge_fp"] = int((~ja & pos).sum())
+            out["edge_tn"] = int((~ja & ~pos).sum())
     return out
 
 

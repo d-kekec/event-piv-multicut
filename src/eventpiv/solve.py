@@ -378,7 +378,8 @@ def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
     if fenster.hat_gt:
         tic = time.time()
         kanten = edge_gt_stats(i, j, t, x, y,
-                               fenster.track_id, fenster.status)
+                               fenster.track_id, fenster.status,
+                               costs=costs.detach().cpu().numpy())
         kanten["t_edges"] = time.time() - tic
         if verbose and "edge_ja_frac" in kanten:
             print(f"  Kanten gegen GT: {kanten['edge_ja_frac']*100:.2f}% "
@@ -736,6 +737,8 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
                                         "merge_n_clusters"),
         "merge_frac_10": _gewichtet(zeilen, "merge_frac_10",
                                     "merge_n_clusters"),
+        **{f"edge_{k}": sum(int(z.get(f"edge_{k}", 0)) for z in zeilen)
+           for k in ("tp", "fp", "fn", "tn")},
         **_nah_fern(zeilen),
         "diag": {
             "sec_laden": round(t_laden, 1),
@@ -745,6 +748,10 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
                 resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
         },
     }
+    _tp, _fn = lauf["edge_tp"], lauf["edge_fn"]
+    _fp, _tn = lauf["edge_fp"], lauf["edge_tn"]
+    lauf["edge_tpr"] = _tp / max(_tp + _fn, 1)
+    lauf["edge_tnr"] = _tn / max(_tn + _fp, 1)
     if verbose:
         print(f"  {lauf['n_fenster']} Fenster, {n_tracklets:,} Tracklets, "
               f"{lauf['events_je_tracklet']:.0f} Events je Tracklet, "
