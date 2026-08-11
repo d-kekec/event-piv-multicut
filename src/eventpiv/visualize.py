@@ -395,6 +395,8 @@ def animate_tracklets(cfg: AnimClustersCfg):
     Tracklet-Fensters ist neighborhood.alpha und nicht waehlbar. Ein ganzer
     Run waere hier sinnlos -- 800 Fenster ergaeben ein GIF von Stunden.
 
+    Wir koennen nun auswaehlen welches Panel wir sehen wollen: roh, tracklets, gt.
+
     Rueckgabe: (gif_pfad, lauf).
     """
     from eventpiv.model import load_checkpoint
@@ -454,6 +456,21 @@ def animate_tracklets(cfg: AnimClustersCfg):
         gt_uniq, gt_colors = color_lookup(schluessel, min_size=1)
         gt_farben = gt_colors[np.searchsorted(gt_uniq, schluessel)]
 
+    wahl = [p.strip() for p in an.panels.split(",") if p.strip()]
+    unbekannt = [p for p in wahl if p not in ("roh", "tracklets", "gt")]
+    if unbekannt or not wahl:
+        raise SystemExit(f"anim.panels={an.panels!r} -- erlaubt sind "
+                         "roh, tracklets, gt (Komma-getrennt)")
+    if "gt" in wahl and not show_gt:
+        # Kein Abbruch: ohne Labels gibt es das Panel nicht, der Rest schon.
+        wahl.remove("gt")
+        if not wahl:
+            raise SystemExit("nur 'gt' gewaehlt, aber keine Labels vorhanden")
+    quelle = {"roh": (roh_farben, "Rohevents"),
+              "tracklets": (tracklet_farben,
+                            f"Tracklets (grau: < {an.min_size} Events)"),
+              "gt": (gt_farben, "Ground Truth (grau: kein sauberes Label)")}
+
     shape = (SENSOR_H // an.downscale, SENSOR_W // an.downscale)
     zuschnitt = _crop_box(x, y, an.downscale, shape) if an.crop else None
 
@@ -476,19 +493,17 @@ def animate_tracklets(cfg: AnimClustersCfg):
 
         gem = dict(shape=shape, downscale=an.downscale, point=an.point,
                    crop=zuschnitt)
-        panels = [render_panel(x, y, roh_farben, m, **gem),
-                  render_panel(x, y, tracklet_farben, m, **gem)]
-        titel = ["Rohevents", f"Tracklets (grau: < {an.min_size} Events)"]
-        if show_gt:
-            panels.append(render_panel(x, y, gt_farben, m, **gem))
-            titel.append("Ground Truth (grau: kein sauberes Label)")
+        panels = [render_panel(x, y, quelle[p][0], m, **gem) for p in wahl]
+        titel = [quelle[p][1] for p in wahl]
         frames.append(compose(
             panels, titel,
             f"F{fenster_nr}  {(s - t[0])/1000:.2f}ms"))
 
     out_dir = (config.results_dir() / "animations" if cfg.io.out_path is None
                else Path(cfg.io.out_path))
+    p_tag = ("" if an.panels == "roh,tracklets,gt"
+             else "_" + "".join(w[0] for w in wahl))
     name = (f"tracklets_{split}_run{run_nr}_t{win.t0}_dt{win.dt}_"
-            f"{slug(cfg.neighborhood)}_{cfg.solver.short()}.gif")
+            f"{slug(cfg.neighborhood)}_{cfg.solver.short()}{p_tag}.gif")
     pfad = save_gif(frames, out_dir / name, max(an.frame_ms * 20, 60))
     return pfad, lauf

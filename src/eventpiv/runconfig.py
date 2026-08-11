@@ -365,6 +365,10 @@ class AnimClusters(_Typed):
     color_by: str = "cluster"
     show_gt: bool = True
     crop: bool = True
+    # Welche Panels gezeichnet werden, Komma-getrennt: roh, tracklets, gt.
+    # Einzeln gewaehlt wird das Bild breiter und damit im Report lesbar --
+    # drei nebeneinander sind auf einem geteilten Bildschirm zu klein.
+    panels: str = "roh,tracklets,gt"
 
 # ============================================================
 # Stufen-Konfigurationen (Zusammensetzung = Abhaengigkeitskette §5)
