@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-features.py -- Artefakt (B): ein Tracklet, eine Zeile.
+features.py -- Artefakt [5b]: ein Tracklet, eine Zeile.
 
 ABGELEITETER SCHRITT, kein Anbau an Stufe 1. Die Tabelle entsteht aus dem
 Tracklet-Artefakt plus dem neu geladenen Run; solve_run bleibt unberuehrt.

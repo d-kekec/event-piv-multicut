@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 r"""
-tracklets.py -- BAUSTEIN [5]: einen ganzen Run in Tracklet-Fenstern
+tracklets.py -- BAUSTEIN [5a]: einen ganzen Run in Tracklet-Fenstern
 abschreiten und das Ergebnis als Artefakt schreiben.
 
   solve_run           einen Run in anstossenden Fenstern der Laenge alpha
