@@ -12,8 +12,8 @@ import torch
 from eventpiv import config
 from eventpiv.runconfig import (IO, Compute, Neighborhood, PairSampling,
                                 Selection, SolveCfg, Solver, Training, Window)
-from eventpiv.solve import (SOLVER_FUNKTIONEN, Fenster, lade_fenster,
-                            solve_cc, solve_window)
+from eventpiv.loeser import SOLVER_FUNKTIONEN, solve_cc
+from eventpiv.solve import Fenster, lade_fenster, solve_window
 
 
 def test_formatzusicherungen():
