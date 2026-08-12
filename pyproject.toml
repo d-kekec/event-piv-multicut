@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "event-piv-multicut"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Event-basierte PIV: Partikel-Trajektorien aus Event-Kamera-Daten via Multicut (RAMA) mit gelernten Kantenkosten"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -28,6 +28,11 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest"]
 
+# Eine Zahl, eine Stelle: die Paketversion kommt aus src/eventpiv/__init__.py.
+# Von dort holt config.build_meta sie als pkg_version in jedes Artefakt --
+# stuenden beide getrennt, liefen sie beim ersten Hochzaehlen auseinander.
+[tool.setuptools.dynamic]
+version = { attr = "eventpiv.__version__" }
 [tool.setuptools.packages.find]
 where = ["src"]
 
