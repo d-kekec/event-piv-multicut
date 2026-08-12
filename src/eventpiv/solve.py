@@ -360,6 +360,10 @@ def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
         costs += sv.cost_offset
     frac_neg = (costs < 0).float().mean().item()
     t_costs = time.time() - tic
+    # Vor dem Solver: RAMAs Message-Passing reparametrisiert die Kosten im
+    # selben Puffer. Was wir bewerten wollen, ist die Vorhersage des NETZES.
+    # Nur das Vorzeichen, ein bool je Kante -- 1 MB statt 12.
+    kosten_pos = (costs >= 0).cpu().numpy()
     if verbose:
         versatz = ("" if sv.cost_offset == 0.0
                    else f", Versatz {sv.cost_offset:+g} "
@@ -372,14 +376,14 @@ def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
     labels = SOLVER_FUNKTIONEN[sv.backend](i, j, costs, num_nodes=n, cp=cp,
                                            mode=sv.mode)
     t_rama = time.time() - tic
-
+          
     # NACH dem Solve: die Statistik legt CPU-Arrays in Kantengroesse an.
     kanten = {}
     if fenster.hat_gt:
         tic = time.time()
         kanten = edge_gt_stats(i, j, t, x, y,
                                fenster.track_id, fenster.status,
-                               costs=costs.detach().cpu().numpy())
+                               pos=kosten_pos)
         kanten["t_edges"] = time.time() - tic
         if verbose and "edge_ja_frac" in kanten:
             print(f"  Kanten gegen GT: {kanten['edge_ja_frac']*100:.2f}% "
