@@ -49,3 +49,11 @@ def test_create_true_legt_nur_das_verzeichnis_an(tmp_path, monkeypatch, gruppen)
     p = config.pairs_file(nb, ps, create=True)
     assert p.parent.is_dir()
     assert not p.exists()
+
+
+def test_project_root_traegt_die_marke():
+    """Nicht die Ebenenzahl pruefen, sondern die Aussage: PROJECT_ROOT ist
+    das Verzeichnis mit der pyproject.toml. Ein Umzug von config.py darf
+    daran nichts aendern -- mit parents[N] taete er es still."""
+    assert (config.PROJECT_ROOT / "pyproject.toml").is_file()
+    assert (config.PROJECT_ROOT / "src" / "eventpiv").is_dir()

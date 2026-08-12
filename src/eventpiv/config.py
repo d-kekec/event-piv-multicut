@@ -30,9 +30,27 @@ from eventpiv.runconfig import slug
 # Wurzeln
 # ============================================================
 
-# config.py liegt in src/eventpiv/ -> zwei Ebenen hoch ist die Repo-Wurzel.
+
+# config.py liegt irgendwo unter src/ im Repo. Aufwaerts nach der Marke
+# suchen, statt Ebenen zu zaehlen: parents[N] zeigt nach jedem Umzug einer
+# Datei still ins Falsche, und ein falscher PROJECT_ROOT sieht aus wie ein
+# leeres Verzeichnis, nicht wie ein Fehler.
+def _find_project_root(start: Path) -> Path | None:
+    """Repo-Wurzel, oder None ausserhalb des Repos.
+
+    None statt einer Ausnahme, weil PROJECT_ROOT nur zwei Verbraucher hat --
+    git_commit() und describe() --, und git_commit laut seinem Docstring nie
+    zum Abbruch fuehren darf. Bei einer regulaeren Installation in
+    site-packages liegt keine pyproject.toml oberhalb; dann meldet
+    git_commit 'unknown', und das ist die richtige Antwort.
+    """
+    for kandidat in (start, *start.parents):
+        if (kandidat / "pyproject.toml").is_file():
+            return kandidat
+    return None
+
 # Nur fuer configs/ und docs/ gedacht; Daten/Ausgaben NIE hierueber aufloesen.
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = _find_project_root(Path(__file__).resolve().parent)
 
 
 def _env_path(var_name: str) -> Path:
