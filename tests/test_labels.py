@@ -10,8 +10,8 @@ eine Referenzdatei waere bei jeder gewollten Aenderung wertlos.
 import numpy as np
 import pytest
 
-from eventpiv.labels import (STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE,
-                             assign_track_ids)
+from eventpiv.status import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
+from eventpiv.labels import assign_track_ids
 
 
 

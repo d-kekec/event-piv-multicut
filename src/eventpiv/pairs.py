@@ -36,8 +36,8 @@ import numpy as np
 
 from eventpiv import config
 from eventpiv.graph import neighborhood_pairs, polarity_mask
-from eventpiv.labels import STATUS_CLEAN
 from eventpiv.runconfig import PairCfg, identity_meta
+from eventpiv.status import STATUS_CLEAN
 
 
 FIELDS = ("dt", "dx", "dy", "label", "run")

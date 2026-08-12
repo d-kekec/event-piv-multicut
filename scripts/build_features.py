@@ -25,7 +25,7 @@ from _cli import to_cfg
 from eventpiv import config
 from eventpiv.features import off_zuordnung, tracklet_features
 from eventpiv.graph import polarity_mask
-from eventpiv.labels import STATUS_NOISE
+from eventpiv.status import STATUS_NOISE
 from eventpiv.metrics import flatten
 from eventpiv.runconfig import FeatureCfg, identity_meta, slug
 

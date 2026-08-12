@@ -10,7 +10,7 @@ braucht Pillow-Ausgabe und bleibt aussen vor.
 import numpy as np
 import pytest
 
-from eventpiv.labels import STATUS_AMBIG, STATUS_CLEAN
+from eventpiv.status import STATUS_AMBIG, STATUS_CLEAN
 from eventpiv.visualize import (GREY, color_lookup, distinct_colors,
                                 majority_gt_colors)
 

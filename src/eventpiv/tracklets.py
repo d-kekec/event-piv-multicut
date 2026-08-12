@@ -26,13 +26,13 @@ import numpy as np
 from pathlib import Path
 
 from eventpiv import config
-from eventpiv.labels import STATUS_AMBIG
 from eventpiv.evaluate import (NAH_PX, abstand_im_fenster, cluster_metrics,
                                merge_metrics, min_abstand_je_partikel,
                                nah_maske)
 from eventpiv.fenster import Fenster, lade_fenster
 from eventpiv.runconfig import SolveCfg, identity_meta
 from eventpiv.solve import solve_window
+from eventpiv.status import STATUS_AMBIG
 
 @contextlib.contextmanager
 def _stumm():

@@ -11,7 +11,7 @@ import pytest
 
 from eventpiv.evaluate import (align_gt_window, cluster_metrics,
                                edge_gt_stats, merge_metrics)
-from eventpiv.labels import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
+from eventpiv.status import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
 
 
 def cluster_metrics_naiv(labels, track_id, status, t=None):

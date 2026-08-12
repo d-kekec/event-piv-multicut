@@ -43,11 +43,7 @@ from scipy.spatial import cKDTree
 from eventpiv import config
 from eventpiv.data import load_bbox, load_events
 from eventpiv.runconfig import LabelCfg, Labeling, identity_meta
-
-# --- Statuscodes (statt magischer Zahlen im Code) ---
-STATUS_CLEAN = 0
-STATUS_AMBIG = 1
-STATUS_NOISE = 2
+from eventpiv.status import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
 
 # Version des LABEL-INHALTS, nicht der Labeling-Parameter. Wird erhoeht,
 # wenn sich die Bedeutung der Felder aendert, ohne dass sich `Labeling`

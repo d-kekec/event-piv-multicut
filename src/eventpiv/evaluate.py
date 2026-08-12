@@ -34,7 +34,7 @@ from __future__ import annotations
 import numpy as np
 
 from eventpiv.graph import edge_deltas
-from eventpiv.labels import STATUS_CLEAN, STATUS_NOISE
+from eventpiv.status import STATUS_CLEAN, STATUS_NOISE
 
 # px. Darunter beruehren sich die Eventwolken zweier Partikel (Streuung bis
 # ~6 px je Wolke, dazu r_max). Erst hier KANN der Solver verschmelzen.
@@ -146,7 +146,7 @@ def cluster_metrics(labels, track_id, status, t=None) -> dict:
     labels    : Cluster-ID je Event (RAMA-Ausgabe; < 0 = keinem Cluster
                 zugeordnet, entsteht bei Knoten ohne Kante)
     track_id  : GT je Event
-    status    : labels.STATUS_* je Event
+    status    : status.STATUS_* je Event
     t         : optional Zeitstempel in µs. Nur fuer gt_visible_ms_median --
                 ohne sie fehlt genau dieses Feld, alles andere bleibt.
 

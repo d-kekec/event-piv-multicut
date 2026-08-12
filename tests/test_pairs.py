@@ -4,7 +4,7 @@
 import numpy as np
 import pytest
 
-from eventpiv.labels import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
+from eventpiv.status import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
 from eventpiv.pairs import collect_pairs
 
 # ja_frac=1.0 in den meisten Tests: sie pruefen die Fensterlogik, nicht das
