@@ -400,7 +400,8 @@ def animate_tracklets(cfg: AnimClustersCfg):
     Rueckgabe: (gif_pfad, lauf).
     """
     from eventpiv.model import load_checkpoint
-    from eventpiv.solve import check_consistency, lade_fenster, solve_run
+    from eventpiv.solve import check_consistency, lade_fenster
+    from eventpiv.tracklets import solve_run
 
     sel, win, an = cfg.selection, cfg.window, cfg.anim
     split, run_nr = sel.split, sel.run_nr

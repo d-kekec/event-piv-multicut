@@ -318,7 +318,7 @@ def test_solve_run_schreitet_ab(mini_datensatz):
     from eventpiv.labels import build_labels
     from eventpiv.model import EdgeMLP, n_features
     from eventpiv.runconfig import LabelCfg, Labeling
-    from eventpiv.solve import solve_run
+    from eventpiv.tracklets import solve_run
 
     build_labels(LabelCfg(io=IO(), labeling=Labeling(),
                           selection=Selection(split="train")), verbose=False)
@@ -355,7 +355,7 @@ def test_tracklet_ids_sind_global(mini_datensatz):
     from eventpiv.labels import build_labels
     from eventpiv.model import EdgeMLP, n_features
     from eventpiv.runconfig import LabelCfg, Labeling
-    from eventpiv.solve import solve_run
+    from eventpiv.tracklets import solve_run
 
     build_labels(LabelCfg(io=IO(), labeling=Labeling(),
                           selection=Selection(split="train")), verbose=False)
@@ -388,7 +388,7 @@ def test_tracklet_artefakt_rundreise(mini_datensatz):
     from eventpiv.labels import build_labels
     from eventpiv.model import EdgeMLP, n_features
     from eventpiv.runconfig import LabelCfg, Labeling
-    from eventpiv.solve import schreibe_tracklets, solve_run
+    from eventpiv.tracklets import schreibe_tracklets, solve_run
 
     build_labels(LabelCfg(io=IO(), labeling=Labeling(),
                           selection=Selection(split="train")), verbose=False)
@@ -428,7 +428,7 @@ def test_tracklet_artefakt_rundreise(mini_datensatz):
 def test_stumm_gibt_den_deskriptor_zurueck(capfd):
     """Nach dem Block muss stdout wieder funktionieren -- ein verlorener
     Deskriptor machte den Rest des Prozesses stumm, ohne abzustuerzen."""
-    from eventpiv.solve import _stumm
+    from eventpiv.tracklets import _stumm
 
     with _stumm():
         print("das darf niemand sehen")
