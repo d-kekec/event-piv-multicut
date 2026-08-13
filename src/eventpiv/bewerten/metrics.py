@@ -44,7 +44,7 @@ Fehlt eine Klasse ganz, sind Precision/TPR/TNR/AUC nicht definiert. Diese
 Funktionen liefern dann float("nan") und werfen NICHT: ein Trainingslauf
 soll nicht daran scheitern, dass eine Kennzahl in einer Epoche undefiniert
 ist. Wo eine fehlende Klasse WIRKLICH ein Fehler ist -- beim Holdout-Split --
-wacht train.split_runs_stratified.
+wacht train.split_runs.
 """
 from __future__ import annotations
 

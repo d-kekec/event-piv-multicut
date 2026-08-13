@@ -282,8 +282,7 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
         "holdout": class_balance(label[val_idx]),
         "holdout_runs": sorted(val_runs),
         "holdout_hinweis": ("run-getrennter Holdout INNERHALB des "
-                            "train-Splits -- NICHT der offizielle val-Split "
-                            "(BA_NN_Kantenkosten.md §3.6)"),
+                            "train-Splits -- NICHT der offizielle val-Split "),
         "pairs_path": str(data_path),
         "dataset_neighborhood": ds_meta.get("neighborhood", {}),
         # Aus dem Datensatz uebernommen, nicht aus der Konfiguration:
