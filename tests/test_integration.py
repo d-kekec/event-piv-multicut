@@ -29,12 +29,12 @@ import json
 import numpy as np
 import pytest
 
-from eventpiv import config
-from eventpiv.labels import LABEL_FORMAT
-from eventpiv.pairs import build_pair_dataset
-from eventpiv.runconfig import (IO, Compute, LabelCfg, Labeling, Neighborhood,
+from eventpiv.kern import config
+from eventpiv.kern.runconfig import (IO, Compute, LabelCfg, Labeling, Neighborhood,
                                 PairCfg, PairSampling, Selection, SolveCfg,
                                 Solver, TrainCfg, Training, Window, slug)
+from eventpiv.labels import LABEL_FORMAT
+from eventpiv.pairs import build_pair_dataset
 from eventpiv.solve import solve_and_evaluate
 from eventpiv.train import train_edge_nn
 

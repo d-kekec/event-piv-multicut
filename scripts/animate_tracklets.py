@@ -21,7 +21,7 @@ from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig
 
 from _cli import to_cfg
-from eventpiv.runconfig import AnimClustersCfg
+from eventpiv.kern.runconfig import AnimClustersCfg
 from eventpiv.visualize import animate_tracklets
 
 ConfigStore.instance().store(name="animclusters_schema", node=AnimClustersCfg)

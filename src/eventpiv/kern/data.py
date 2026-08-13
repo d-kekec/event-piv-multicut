@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from eventpiv import config
+from eventpiv.kern import config
 from eventpiv.psee_io.psee_loader import PSEELoader
 
 

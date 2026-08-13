@@ -9,9 +9,9 @@ from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig
 
 from _cli import to_cfg
-from eventpiv import config
+from eventpiv.kern import config
+from eventpiv.kern.runconfig import OverlapCfg, identity_meta
 from eventpiv.overlap import analyze_split
-from eventpiv.runconfig import OverlapCfg, identity_meta
 
 ConfigStore.instance().store(name="overlap_schema", node=OverlapCfg)
 

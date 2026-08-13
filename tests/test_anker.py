@@ -25,8 +25,8 @@ Fehlerart nicht.
 """
 import pytest
 
-from eventpiv import config
-from eventpiv.runconfig import (Neighborhood, PairSampling, Selection,
+from eventpiv.kern import config
+from eventpiv.kern.runconfig import (Neighborhood, PairSampling, Selection,
                                 SolveCfg, Solver, Training, Window)
 
 pytestmark = pytest.mark.anker

@@ -14,8 +14,8 @@ from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig
 
 from _cli import to_cfg, konfusionstabelle
+from eventpiv.kern.runconfig import TrainCfg, slug
 from eventpiv.metrics import flatten
-from eventpiv.runconfig import TrainCfg, slug
 from eventpiv.train import train_edge_nn
 
 ConfigStore.instance().store(name="train_schema", node=TrainCfg)

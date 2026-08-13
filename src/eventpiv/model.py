@@ -34,7 +34,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from eventpiv.runconfig import FEATURE_MODES
+from eventpiv.kern.runconfig import FEATURE_MODES
 
 _FEATURE_NAMES = {
     "dr":    ("dt", "dr"),

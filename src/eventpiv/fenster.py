@@ -21,9 +21,9 @@ from dataclasses import dataclass
 import numpy as np
 from pathlib import Path
 
-from eventpiv.data import load_events
 from eventpiv.evaluate import align_gt_window
-from eventpiv.graph import polarity_mask
+from eventpiv.kern.data import load_events
+from eventpiv.kern.graph import polarity_mask
 
 
 @dataclass

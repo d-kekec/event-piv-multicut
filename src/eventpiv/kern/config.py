@@ -24,7 +24,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from eventpiv.runconfig import slug
+from eventpiv.kern.runconfig import slug
 
 # ============================================================
 # Wurzeln

@@ -33,8 +33,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from eventpiv.graph import edge_deltas
-from eventpiv.status import STATUS_CLEAN, STATUS_NOISE
+from eventpiv.kern.graph import edge_deltas
+from eventpiv.kern.status import STATUS_CLEAN, STATUS_NOISE
 
 # px. Darunter beruehren sich die Eventwolken zweier Partikel (Streuung bis
 # ~6 px je Wolke, dazu r_max). Erst hier KANN der Solver verschmelzen.

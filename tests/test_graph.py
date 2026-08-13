@@ -10,7 +10,7 @@ sich Parameter oder Implementierung aendern.
 import numpy as np
 import pytest
 
-from eventpiv.graph import (edge_deltas, neighborhood_pairs, polarity_mask,
+from eventpiv.kern.graph import (edge_deltas, neighborhood_pairs, polarity_mask,
                             NEIGHBORHOOD_GEOMS, V_MAX_DEFAULT)
 
 

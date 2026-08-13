@@ -25,13 +25,13 @@ import numpy as np
 import torch
 from pathlib import Path
 
-from eventpiv import config
+from eventpiv.kern import config
 from eventpiv.evaluate import cluster_metrics, edge_gt_stats, merge_metrics
 from eventpiv.fenster import Fenster, lade_fenster
-from eventpiv.graph import edge_deltas, neighborhood_pairs
+from eventpiv.kern.graph import edge_deltas, neighborhood_pairs
+from eventpiv.kern.runconfig import Neighborhood, SolveCfg, identity_meta
 from eventpiv.loeser import SOLVER_FUNKTIONEN
 from eventpiv.model import build_features
-from eventpiv.runconfig import Neighborhood, SolveCfg, identity_meta
 
 
 def edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, cp):

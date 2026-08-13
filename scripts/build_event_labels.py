@@ -7,7 +7,7 @@ from omegaconf import DictConfig
 
 from _cli import to_cfg
 from eventpiv.labels import build_labels
-from eventpiv.runconfig import LabelCfg
+from eventpiv.kern.runconfig import LabelCfg
 
 ConfigStore.instance().store(name="labels_schema", node=LabelCfg)
 

@@ -3,8 +3,8 @@
 """Pfadableitung: rechnet, legt nichts an."""
 import pytest
 
-from eventpiv import config
-from eventpiv.runconfig import (Neighborhood, PairSampling, Selection, Solver,
+from eventpiv.kern import config
+from eventpiv.kern.runconfig import (Neighborhood, PairSampling, Selection, Solver,
                                 Training, Window)
 
 

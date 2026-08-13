@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 import torch
 
-from eventpiv import config
-from eventpiv.runconfig import (IO, Compute, Neighborhood, PairSampling,
+from eventpiv.kern import config
+from eventpiv.kern.runconfig import (IO, Compute, Neighborhood, PairSampling,
                                 Selection, SolveCfg, Solver, Training, Window)
 from eventpiv.fenster import Fenster, lade_fenster
 from eventpiv.loeser import SOLVER_FUNKTIONEN, solve_cc
@@ -129,8 +129,8 @@ def test_fehlende_gt_datei_ist_kein_fehler(mini_datensatz):
 def test_fenster_mit_gt_ist_ausgerichtet(mini_datensatz):
     """track_id und status haben Fensterlaenge, nicht Runlaenge -- die
     Ausrichtung ist die fehleranfaelligste Stelle der Stufe."""
+    from eventpiv.kern.runconfig import LabelCfg, Labeling
     from eventpiv.labels import build_labels
-    from eventpiv.runconfig import LabelCfg, Labeling
     build_labels(LabelCfg(io=IO(), labeling=Labeling(),
                           selection=Selection(split="train")), verbose=False)
 
@@ -236,8 +236,8 @@ def test_polarity_on_laesst_nur_positive_events_durch(mini_datensatz):
 def test_gt_bleibt_unter_der_maske_ausgerichtet(mini_datensatz):
     """Erst ausrichten, dann filtern. Andersherum bekaeme align_gt_window
     eine Teilfolge und liefe sofort auseinander."""
+    from eventpiv.kern.runconfig import LabelCfg, Labeling
     from eventpiv.labels import build_labels
-    from eventpiv.runconfig import LabelCfg, Labeling
     build_labels(LabelCfg(io=IO(), labeling=Labeling(),
                           selection=Selection(split="train")), verbose=False)
 
@@ -316,9 +316,9 @@ def test_negativer_versatz_schneidet_mehr():
 def test_solve_run_schreitet_ab(mini_datensatz):
     """Der Treiber auf dem Mini-Datensatz: 1 s bei alpha = 10 ms sind
     100 Fenster. Geprueft werden die Zusicherungen, nicht die Qualitaet."""
+    from eventpiv.kern.runconfig import LabelCfg, Labeling
     from eventpiv.labels import build_labels
     from eventpiv.model import EdgeMLP, n_features
-    from eventpiv.runconfig import LabelCfg, Labeling
     from eventpiv.tracklets import solve_run
 
     build_labels(LabelCfg(io=IO(), labeling=Labeling(),
@@ -353,9 +353,9 @@ def test_solve_run_schreitet_ab(mini_datensatz):
 def test_tracklet_ids_sind_global(mini_datensatz):
     """Ein Tracklet darf nie ueber eine Fenstergrenze reichen, und zwei
     Fenster duerfen sich keine ID teilen."""
+    from eventpiv.kern.runconfig import LabelCfg, Labeling
     from eventpiv.labels import build_labels
     from eventpiv.model import EdgeMLP, n_features
-    from eventpiv.runconfig import LabelCfg, Labeling
     from eventpiv.tracklets import solve_run
 
     build_labels(LabelCfg(io=IO(), labeling=Labeling(),
@@ -385,10 +385,10 @@ def test_tracklet_artefakt_rundreise(mini_datensatz):
     Datei stumm unbrauchbar -- nichts wuerde abstuerzen."""
     import json
 
-    from eventpiv.graph import polarity_mask
+    from eventpiv.kern.graph import polarity_mask
+    from eventpiv.kern.runconfig import LabelCfg, Labeling
     from eventpiv.labels import build_labels
     from eventpiv.model import EdgeMLP, n_features
-    from eventpiv.runconfig import LabelCfg, Labeling
     from eventpiv.tracklets import schreibe_tracklets, solve_run
 
     build_labels(LabelCfg(io=IO(), labeling=Labeling(),

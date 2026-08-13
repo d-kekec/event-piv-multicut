@@ -4,7 +4,7 @@
 import numpy as np
 import pytest
 
-from eventpiv.status import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
+from eventpiv.kern.status import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
 from eventpiv.pairs import collect_pairs
 
 # ja_frac=1.0 in den meisten Tests: sie pruefen die Fensterlogik, nicht das
@@ -221,7 +221,7 @@ def test_verschiedene_labelings_fallen_auf(tmp_path):
     import numpy as np
 
     from eventpiv.pairs import build_pair_dataset
-    from eventpiv.runconfig import (IO, Compute, Neighborhood, PairCfg,
+    from eventpiv.kern.runconfig import (IO, Compute, Neighborhood, PairCfg,
                                     PairSampling)
 
     def schreibe(run_nr, r_ambig):

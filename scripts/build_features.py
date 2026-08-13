@@ -22,12 +22,12 @@ from omegaconf import DictConfig
 from pathlib import Path
 
 from _cli import to_cfg
-from eventpiv import config
 from eventpiv.features import off_zuordnung, tracklet_features
-from eventpiv.graph import polarity_mask
-from eventpiv.status import STATUS_NOISE
+from eventpiv.kern import config
+from eventpiv.kern.graph import polarity_mask
+from eventpiv.kern.status import STATUS_NOISE
+from eventpiv.kern.runconfig import FeatureCfg, identity_meta, slug
 from eventpiv.metrics import flatten
-from eventpiv.runconfig import FeatureCfg, identity_meta, slug
 
 ConfigStore.instance().store(name="feature_schema", node=FeatureCfg)
 

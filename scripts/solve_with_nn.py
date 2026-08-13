@@ -15,9 +15,9 @@ from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig
 
 from _cli import to_cfg              # scripts/ liegt beim Start auf sys.path
-from eventpiv import config
+from eventpiv.kern import config
+from eventpiv.kern.runconfig import SolveCfg, identity_meta, slug
 from eventpiv.metrics import flatten
-from eventpiv.runconfig import SolveCfg, identity_meta, slug
 from eventpiv.solve import info_groups, solve_and_evaluate
 
 ConfigStore.instance().store(name="solve_schema", node=SolveCfg)

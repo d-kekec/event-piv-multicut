@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import numpy as np
 from scipy.spatial import cKDTree
-from eventpiv.runconfig import (NEIGHBORHOOD_GEOMS, POLARITIES, Neighborhood,
+from eventpiv.kern.runconfig import (NEIGHBORHOOD_GEOMS, POLARITIES, Neighborhood,
                                 Solver)
 
 # EINE Quelle fuer diese Zahlen: runconfig. Die Namen bleiben hier, weil

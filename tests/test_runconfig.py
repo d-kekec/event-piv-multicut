@@ -8,7 +8,7 @@ Rechnung benutzen. Genau deshalb muss sie geprueft sein.
 """
 import pytest
 
-from eventpiv.runconfig import (Neighborhood, canonical, same_neighborhood,
+from eventpiv.kern.runconfig import (Neighborhood, canonical, same_neighborhood,
                                 slug)
 
 
@@ -29,7 +29,7 @@ def test_v_max_gehoert_zur_identitaet():
 def test_unbekannte_auswahlwerte_fallen_zur_konfigurationszeit_auf():
     """Frueher fiel das erst tief im Lauf auf -- da stand der Slug schon und
     ein Verzeichnis hiess danach."""
-    from eventpiv.runconfig import Training
+    from eventpiv.kern.runconfig import Training
 
     with pytest.raises(ValueError, match="geom"):
         Neighborhood(geom="wuerfel")

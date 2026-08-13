@@ -10,9 +10,9 @@ import numpy as np
 import pytest
 
 import mini_dataset as md
-from eventpiv.data import load_events
-from eventpiv.graph import neighborhood_pairs
-from eventpiv.status import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
+from eventpiv.kern.data import load_events
+from eventpiv.kern.graph import neighborhood_pairs
+from eventpiv.kern.status import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
 from eventpiv.labels import assign_track_ids
 from eventpiv.psee_io.psee_loader import PSEELoader
 

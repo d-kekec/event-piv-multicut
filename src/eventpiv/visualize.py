@@ -47,10 +47,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from eventpiv import config
-from eventpiv.data import load_events
-from eventpiv.runconfig import AnimClustersCfg, AnimRunCfg, slug
-from eventpiv.status import STATUS_CLEAN
+from eventpiv.kern import config
+from eventpiv.kern.data import load_events
+from eventpiv.kern.runconfig import AnimClustersCfg, AnimRunCfg, slug
+from eventpiv.kern.status import STATUS_CLEAN
 
 SENSOR_H, SENSOR_W = 720, 1280
 

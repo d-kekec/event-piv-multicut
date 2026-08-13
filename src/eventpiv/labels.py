@@ -40,10 +40,10 @@ from pathlib import Path
 import numpy as np
 from scipy.spatial import cKDTree
 
-from eventpiv import config
-from eventpiv.data import load_bbox, load_events
-from eventpiv.runconfig import LabelCfg, Labeling, identity_meta
-from eventpiv.status import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
+from eventpiv.kern import config
+from eventpiv.kern.data import load_bbox, load_events
+from eventpiv.kern.runconfig import LabelCfg, Labeling, identity_meta
+from eventpiv.kern.status import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
 
 # Version des LABEL-INHALTS, nicht der Labeling-Parameter. Wird erhoeht,
 # wenn sich die Bedeutung der Felder aendert, ohne dass sich `Labeling`

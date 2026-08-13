@@ -35,7 +35,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.spatial import cKDTree
 
-from eventpiv.runconfig import Overlap, OverlapCfg
+from eventpiv.kern.runconfig import Overlap, OverlapCfg
 
 
 def overlap_metrics(bbox, *, box_w) -> dict:
@@ -90,8 +90,8 @@ def analyze_split(cfg: OverlapCfg, verbose=True):
     Leere Run-Liste heisst ALLE Runs des Splits, wie bei labels.build_labels.
     Rueckgabe: (results, categories). Schreibt nichts.
     """
-    from eventpiv import config
-    from eventpiv.data import load_bbox
+    from eventpiv.kern import config
+    from eventpiv.kern.data import load_bbox
 
     split, ov = cfg.selection.split, cfg.overlap
     runs = list(cfg.selection.runs) or config.available_runs(split)

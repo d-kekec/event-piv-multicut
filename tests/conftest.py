@@ -38,7 +38,7 @@ def mini_datensatz(tmp_path, monkeypatch):
 
     Rueckgabe: Namensraum mit data, out, kreuzung, sauber.
     """
-    from eventpiv import config
+    from eventpiv.kern import config
     data, out = tmp_path / "data", tmp_path / "out"
     runs = baue_mini_datensatz(data, "train")
     monkeypatch.setattr(config, "DATA_ROOT", data)

@@ -25,14 +25,14 @@ import resource
 import numpy as np
 from pathlib import Path
 
-from eventpiv import config
 from eventpiv.evaluate import (NAH_PX, abstand_im_fenster, cluster_metrics,
                                merge_metrics, min_abstand_je_partikel,
                                nah_maske)
 from eventpiv.fenster import Fenster, lade_fenster
-from eventpiv.runconfig import SolveCfg, identity_meta
+from eventpiv.kern import config
+from eventpiv.kern.runconfig import SolveCfg, identity_meta
+from eventpiv.kern.status import STATUS_AMBIG
 from eventpiv.solve import solve_window
-from eventpiv.status import STATUS_AMBIG
 
 @contextlib.contextmanager
 def _stumm():
@@ -175,7 +175,7 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
 
     raster_t = gt_ids = d_part = None
     if ganz.hat_gt:
-        from eventpiv.data import load_bbox
+        from eventpiv.kern.data import load_bbox
         raster_t, gt_ids, d_part = min_abstand_je_partikel(
             load_bbox(sel.split, sel.run_nr))
 
