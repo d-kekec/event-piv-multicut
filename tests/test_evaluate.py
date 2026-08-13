@@ -9,7 +9,7 @@ test_graph.py. Zusaetzlich Faelle mit von Hand ausgerechnetem Ergebnis.
 import numpy as np
 import pytest
 
-from eventpiv.evaluate import (align_gt_window, cluster_metrics,
+from eventpiv.bewerten.evaluate import (align_gt_window, cluster_metrics,
                                edge_gt_stats, merge_metrics)
 from eventpiv.kern.status import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
 
@@ -403,7 +403,7 @@ def _bbox_paar(t_und_positionen, box_w=11.0):
 def test_abstand_je_partikel_von_hand():
     """Drei Partikel: zwei nah beieinander, eines weit weg. Das globale
     Minimum waere 5 px fuer alle drei -- je Partikel ist es 5, 5 und 400."""
-    from eventpiv.evaluate import min_abstand_je_partikel
+    from eventpiv.bewerten.evaluate import min_abstand_je_partikel
 
     bbox = _bbox_paar([(1000, [(100.0, 100.0), (105.0, 100.0),
                                (500.0, 100.0)])])
@@ -415,7 +415,7 @@ def test_abstand_je_partikel_von_hand():
 
 
 def test_einzelnes_partikel_ist_unendlich_weit():
-    from eventpiv.evaluate import min_abstand_je_partikel
+    from eventpiv.bewerten.evaluate import min_abstand_je_partikel
 
     _, _, d = min_abstand_je_partikel(_bbox_paar([(1000, [(100.0, 100.0)])]))
     assert np.isinf(d[0, 0])
@@ -425,7 +425,7 @@ def test_fenster_umschliesst_das_raster():
     """DER Grund fuer die umschliessende statt filternde Auswahl: bei
     16 667 µs Raster und 10 000 µs Fenster enthaelt [20 000, 30 000) keinen
     einzigen Rasterpunkt."""
-    from eventpiv.evaluate import abstand_im_fenster
+    from eventpiv.bewerten.evaluate import abstand_im_fenster
 
     raster_t = np.array([0, 16667, 33334])
     ids = np.array([0, 1])
@@ -436,7 +436,7 @@ def test_fenster_umschliesst_das_raster():
 
 def test_nah_maske_je_event():
     """Die Maske haengt am PARTIKEL des Events, nicht an seiner Position."""
-    from eventpiv.evaluate import nah_maske
+    from eventpiv.bewerten.evaluate import nah_maske
 
     ids = np.array([1, 2, 3])
     d = np.array([5.0, 5.0, 400.0])          # 1 und 2 nah, 3 fern

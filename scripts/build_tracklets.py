@@ -19,9 +19,9 @@ from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig
 
 from _cli import to_cfg
+from eventpiv.bewerten.metrics import flatten
 from eventpiv.kern import config
 from eventpiv.kern.runconfig import SolveCfg, slug
-from eventpiv.metrics import flatten
 from eventpiv.model import load_checkpoint
 from eventpiv.solve import check_consistency, info_groups
 from eventpiv.tracklets import schreibe_tracklets, solve_run

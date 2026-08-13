@@ -3,8 +3,8 @@
 """Invariantentests fuer overlap.py -- synthetische bbox, ohne Datensatz."""
 import numpy as np
 
+from eventpiv.bewerten.overlap import classify, overlap_metrics
 from eventpiv.kern.runconfig import Overlap
-from eventpiv.overlap import classify, overlap_metrics
 
 # Default-Gruppe: box_w=11.0, cross_thresh=1.4, mean_clean_max=0.05.
 # Die Tests pruefen die Kennzahlen, nicht die Schwellenwahl -- deshalb

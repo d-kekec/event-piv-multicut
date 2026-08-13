@@ -270,7 +270,7 @@ def animate_clusters(cfg: AnimClustersCfg):
     Der Modellpfad wird ABGELEITET wie beim Solve; cfg.io.model_path ist der
     Notausgang. Rueckgabe: (gif_pfad, info) mit den Cluster-Metriken.
     """
-    from eventpiv.evaluate import cluster_metrics
+    from eventpiv.bewerten.evaluate import cluster_metrics
     from eventpiv.model import load_checkpoint
     from eventpiv.fenster import lade_fenster
     from eventpiv.solve import check_consistency, solve_window

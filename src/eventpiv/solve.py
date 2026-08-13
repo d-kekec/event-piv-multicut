@@ -25,8 +25,8 @@ import numpy as np
 import torch
 from pathlib import Path
 
+from eventpiv.bewerten.evaluate import cluster_metrics, edge_gt_stats, merge_metrics
 from eventpiv.kern import config
-from eventpiv.evaluate import cluster_metrics, edge_gt_stats, merge_metrics
 from eventpiv.fenster import Fenster, lade_fenster
 from eventpiv.kern.graph import edge_deltas, neighborhood_pairs
 from eventpiv.kern.runconfig import Neighborhood, SolveCfg, identity_meta

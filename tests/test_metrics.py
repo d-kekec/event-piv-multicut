@@ -14,7 +14,7 @@ import math
 import numpy as np
 import pytest
 
-from eventpiv.metrics import (class_balance, confusion, flatten, pair_report,
+from eventpiv.bewerten.metrics import (class_balance, confusion, flatten, pair_report,
                               rates, roc_auc)
 
 

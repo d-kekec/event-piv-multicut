@@ -10,7 +10,7 @@ from omegaconf import DictConfig
 
 from _cli import to_cfg
 from eventpiv.kern.runconfig import PairCfg, slug
-from eventpiv.metrics import flatten
+from eventpiv.bewerten.metrics import flatten
 from eventpiv.pairs import build_pair_dataset
 
 ConfigStore.instance().store(name="pairs_schema", node=PairCfg)
