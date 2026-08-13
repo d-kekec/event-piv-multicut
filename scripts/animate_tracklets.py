@@ -22,7 +22,7 @@ from omegaconf import DictConfig
 
 from _cli import to_cfg
 from eventpiv.kern.runconfig import AnimClustersCfg
-from eventpiv.visualize import animate_tracklets
+from eventpiv.zeigen.visualize import animate_tracklets
 
 ConfigStore.instance().store(name="animclusters_schema", node=AnimClustersCfg)
 

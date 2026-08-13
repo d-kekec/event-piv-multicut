@@ -17,7 +17,7 @@ from omegaconf import DictConfig
 from _cli import to_cfg
 from eventpiv.kern import config
 from eventpiv.kern.runconfig import AnimRunCfg
-from eventpiv.visualize import animate_run
+from eventpiv.zeigen.visualize import animate_run
 
 ConfigStore.instance().store(name="animrun_schema", node=AnimRunCfg)
 

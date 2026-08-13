@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from eventpiv.kern.status import STATUS_AMBIG, STATUS_CLEAN
-from eventpiv.visualize import (GREY, color_lookup, distinct_colors,
+from eventpiv.zeigen.visualize import (GREY, color_lookup, distinct_colors,
                                 majority_gt_colors)
 
 
