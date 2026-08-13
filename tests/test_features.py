@@ -10,7 +10,7 @@ aendern.
 import numpy as np
 import pytest
 
-from eventpiv.features import (off_zuordnung,
+from eventpiv.kette.features import (off_zuordnung,
                                tracklet_features)
 
 

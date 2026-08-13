@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""CLI-Huelle fuer eventpiv.labels -- Hydra + Aufruf."""
+"""CLI-Huelle fuer eventpiv.kette.labels -- Hydra + Aufruf."""
 import hydra
 from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig
 
 from _cli import to_cfg
-from eventpiv.labels import build_labels
 from eventpiv.kern.runconfig import LabelCfg
+from eventpiv.kette.labels import build_labels
 
 ConfigStore.instance().store(name="labels_schema", node=LabelCfg)
 

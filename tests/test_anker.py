@@ -40,7 +40,7 @@ ANKER = [
 
 @pytest.mark.parametrize("run_nr,t0,n_edges,p_cluster,p_event,frag", ANKER)
 def test_anker(run_nr, t0, n_edges, p_cluster, p_event, frag):
-    from eventpiv.solve import solve_and_evaluate
+    from eventpiv.kette.solve import solve_and_evaluate
 
     cfg = SolveCfg(selection=Selection(split="train", run_nr=run_nr),
                    window=Window(t0=t0, dt=10_000))

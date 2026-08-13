@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from eventpiv.kern.status import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
-from eventpiv.pairs import collect_pairs
+from eventpiv.kette.pairs import collect_pairs
 
 # ja_frac=1.0 in den meisten Tests: sie pruefen die Fensterlogik, nicht das
 # Ziehen, und sollen deterministisch sein. rng wird trotzdem gebraucht.
@@ -220,9 +220,9 @@ def test_verschiedene_labelings_fallen_auf(tmp_path):
 
     import numpy as np
 
-    from eventpiv.pairs import build_pair_dataset
     from eventpiv.kern.runconfig import (IO, Compute, Neighborhood, PairCfg,
                                     PairSampling)
+    from eventpiv.kette.pairs import build_pair_dataset
 
     def schreibe(run_nr, r_ambig):
         n = 400

@@ -28,11 +28,11 @@ from pathlib import Path
 from eventpiv.bewerten.evaluate import (NAH_PX, abstand_im_fenster, cluster_metrics,
                                merge_metrics, min_abstand_je_partikel,
                                nah_maske)
-from eventpiv.fenster import Fenster, lade_fenster
 from eventpiv.kern import config
 from eventpiv.kern.runconfig import SolveCfg, identity_meta
 from eventpiv.kern.status import STATUS_AMBIG
-from eventpiv.solve import solve_window
+from eventpiv.kette.fenster import Fenster, lade_fenster
+from eventpiv.kette.solve import solve_window
 
 @contextlib.contextmanager
 def _stumm():

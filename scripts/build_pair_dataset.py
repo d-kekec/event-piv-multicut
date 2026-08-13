@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""CLI-Huelle fuer eventpiv.pairs -- Hydra, W&B, Aufruf."""
+"""CLI-Huelle fuer eventpiv.kette.pairs -- Hydra, W&B, Aufruf."""
 from dataclasses import asdict
 
 import hydra
@@ -11,7 +11,7 @@ from omegaconf import DictConfig
 from _cli import to_cfg
 from eventpiv.kern.runconfig import PairCfg, slug
 from eventpiv.bewerten.metrics import flatten
-from eventpiv.pairs import build_pair_dataset
+from eventpiv.kette.pairs import build_pair_dataset
 
 ConfigStore.instance().store(name="pairs_schema", node=PairCfg)
 

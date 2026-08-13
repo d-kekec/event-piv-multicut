@@ -13,7 +13,7 @@ import mini_dataset as md
 from eventpiv.kern.data import load_events
 from eventpiv.kern.graph import neighborhood_pairs
 from eventpiv.kern.status import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
-from eventpiv.labels import assign_track_ids
+from eventpiv.kette.labels import assign_track_ids
 from eventpiv.psee_io.psee_loader import PSEELoader
 
 

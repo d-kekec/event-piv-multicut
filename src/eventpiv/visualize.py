@@ -271,9 +271,9 @@ def animate_clusters(cfg: AnimClustersCfg):
     Notausgang. Rueckgabe: (gif_pfad, info) mit den Cluster-Metriken.
     """
     from eventpiv.bewerten.evaluate import cluster_metrics
-    from eventpiv.model import load_checkpoint
-    from eventpiv.fenster import lade_fenster
-    from eventpiv.solve import check_consistency, solve_window
+    from eventpiv.kette.model import load_checkpoint
+    from eventpiv.kette.fenster import lade_fenster
+    from eventpiv.kette.solve import check_consistency, solve_window
 
     sel, win, an = cfg.selection, cfg.window, cfg.anim
     split, run_nr = sel.split, sel.run_nr
@@ -400,10 +400,10 @@ def animate_tracklets(cfg: AnimClustersCfg):
 
     Rueckgabe: (gif_pfad, lauf).
     """
-    from eventpiv.model import load_checkpoint
-    from eventpiv.fenster import lade_fenster
-    from eventpiv.solve import check_consistency
-    from eventpiv.tracklets import solve_run
+    from eventpiv.kette.model import load_checkpoint
+    from eventpiv.kette.fenster import lade_fenster
+    from eventpiv.kette.solve import check_consistency
+    from eventpiv.kette.tracklets import solve_run
 
     sel, win, an = cfg.selection, cfg.window, cfg.anim
     split, run_nr = sel.split, sel.run_nr

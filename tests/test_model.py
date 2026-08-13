@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 import torch
 
-from eventpiv.model import (FEATURE_MODES, EdgeMLP, build_features,
+from eventpiv.kette.model import (FEATURE_MODES, EdgeMLP, build_features,
                             feature_names, n_features)
 
 
@@ -95,7 +95,7 @@ def test_checkpoint_rundreise(tmp_path, deltas):
     oder wird sie vertauscht, sieht das Netz im Einsatz andere Zahlen als
     im Training -- ohne Absturz, nur mit schlechteren Kanten.
     """
-    from eventpiv.model import load_checkpoint, save_checkpoint
+    from eventpiv.kette.model import load_checkpoint, save_checkpoint
 
     dt, dx, dy, *_ = deltas
     f = torch.tensor(build_features(dt, dx, dy, mode="dr"))
@@ -125,5 +125,5 @@ def test_checkpoint_rundreise(tmp_path, deltas):
 def test_feature_modes_und_namen_stimmen_ueberein():
     """runconfig kennt die Liste (torch-frei), model.py die Namen. Die
     Doppelung ist von der Framework-Grenze erzwungen -- also pruefen."""
-    from eventpiv.model import _FEATURE_NAMES
+    from eventpiv.kette.model import _FEATURE_NAMES
     assert tuple(_FEATURE_NAMES) == FEATURE_MODES

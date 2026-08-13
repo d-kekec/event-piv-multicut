@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""CLI-Huelle fuer eventpiv.train.evaluate_on_dataset -- Hydra, W&B, Aufruf.
+"""CLI-Huelle fuer eventpiv.kette.train.evaluate_on_dataset -- Hydra, W&B, Aufruf.
 
 Liest configs/train.yaml, weil das Schema TrainCfg ist: bewertet wird ein
 Netz, und dessen Identitaet besteht aus neighborhood + pairs + training.
@@ -16,7 +16,7 @@ from omegaconf import DictConfig
 from _cli import konfusionstabelle, to_cfg
 from eventpiv.bewerten.metrics import flatten
 from eventpiv.kern.runconfig import TrainCfg, slug
-from eventpiv.train import evaluate_pairs_on_dataset
+from eventpiv.kette.train import evaluate_pairs_on_dataset
 
 ConfigStore.instance().store(name="train_schema", node=TrainCfg)
 

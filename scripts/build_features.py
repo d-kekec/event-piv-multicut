@@ -23,11 +23,11 @@ from pathlib import Path
 
 from _cli import to_cfg
 from eventpiv.bewerten.metrics import flatten
-from eventpiv.features import off_zuordnung, tracklet_features
 from eventpiv.kern import config
 from eventpiv.kern.graph import polarity_mask
 from eventpiv.kern.status import STATUS_NOISE
 from eventpiv.kern.runconfig import FeatureCfg, identity_meta, slug
+from eventpiv.kette.features import off_zuordnung, tracklet_features
 
 ConfigStore.instance().store(name="feature_schema", node=FeatureCfg)
 

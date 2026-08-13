@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from eventpiv.kern.status import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
-from eventpiv.labels import assign_track_ids
+from eventpiv.kette.labels import assign_track_ids
 
 
 

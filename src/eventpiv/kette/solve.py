@@ -27,11 +27,11 @@ from pathlib import Path
 
 from eventpiv.bewerten.evaluate import cluster_metrics, edge_gt_stats, merge_metrics
 from eventpiv.kern import config
-from eventpiv.fenster import Fenster, lade_fenster
 from eventpiv.kern.graph import edge_deltas, neighborhood_pairs
 from eventpiv.kern.runconfig import Neighborhood, SolveCfg, identity_meta
-from eventpiv.loeser import SOLVER_FUNKTIONEN
-from eventpiv.model import build_features
+from eventpiv.kette.fenster import Fenster, lade_fenster
+from eventpiv.kette.loeser import SOLVER_FUNKTIONEN
+from eventpiv.kette.model import build_features
 
 
 def edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, cp):
@@ -263,7 +263,7 @@ def solve_and_evaluate(cfg: SolveCfg, verbose=True) -> dict:
     fremde Netze -- bewusst ein sichtbarer Akt.
     """
 
-    from eventpiv.model import load_checkpoint
+    from eventpiv.kette.model import load_checkpoint
 
     mpath = (Path(cfg.io.model_path) if cfg.io.model_path
              else config.model_file(cfg.neighborhood, cfg.pairs, cfg.training,

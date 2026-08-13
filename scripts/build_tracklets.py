@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""CLI-Huelle fuer eventpiv.tracklets.solve_run -- Hydra, W&B, Aufruf.
+"""CLI-Huelle fuer eventpiv.kette.tracklets.solve_run -- Hydra, W&B, Aufruf.
 
 Stufe 1 ueber ganze Runs. Ein W&B-Lauf JE RUN, ein Fenster ist ein
 History-Schritt -- bei rund 800 Fenstern je Run waeren fensterweise Laeufe
@@ -22,9 +22,9 @@ from _cli import to_cfg
 from eventpiv.bewerten.metrics import flatten
 from eventpiv.kern import config
 from eventpiv.kern.runconfig import SolveCfg, slug
-from eventpiv.model import load_checkpoint
-from eventpiv.solve import check_consistency, info_groups
-from eventpiv.tracklets import schreibe_tracklets, solve_run
+from eventpiv.kette.model import load_checkpoint
+from eventpiv.kette.solve import check_consistency, info_groups
+from eventpiv.kette.tracklets import schreibe_tracklets, solve_run
 
 ConfigStore.instance().store(name="solve_schema", node=SolveCfg)
 

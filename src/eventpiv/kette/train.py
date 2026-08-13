@@ -30,7 +30,7 @@ from pathlib import Path
 from eventpiv.bewerten.metrics import class_balance, pair_report
 from eventpiv.kern import config
 from eventpiv.kern.runconfig import TrainCfg, identity_meta
-from eventpiv.model import (EdgeMLP, build_features, check_mode,
+from eventpiv.kette.model import (EdgeMLP, build_features, check_mode,
                             feature_names, load_checkpoint,
                             n_features, save_checkpoint)
 

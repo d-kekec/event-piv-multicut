@@ -11,7 +11,7 @@ beim Testlauf auf statt in sechs Wochen im Browser.
 from __future__ import annotations
 
 from eventpiv.bewerten.metrics import flatten
-from eventpiv.train import _epochenzeile
+from eventpiv.kette.train import _epochenzeile
 
 _METRIKEN = ("loss", "accuracy", "auc", "precision", "tpr", "tnr", "f1",
              "balanced_accuracy", "pred_neg_frac")

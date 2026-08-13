@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""CLI-Huelle fuer eventpiv.train -- Hydra, W&B, Aufruf.
+"""CLI-Huelle fuer eventpiv.kette.train -- Hydra, W&B, Aufruf.
 
 Die Framework-Grenze: hier sind Hydra UND W&B bekannt, in src/eventpiv/
 keines von beiden. train.py liefert verschachtelte Kennzahlen an zwei
@@ -16,7 +16,7 @@ from omegaconf import DictConfig
 from _cli import to_cfg, konfusionstabelle
 from eventpiv.bewerten.metrics import flatten
 from eventpiv.kern.runconfig import TrainCfg, slug
-from eventpiv.train import train_edge_nn
+from eventpiv.kette.train import train_edge_nn
 
 ConfigStore.instance().store(name="train_schema", node=TrainCfg)
 

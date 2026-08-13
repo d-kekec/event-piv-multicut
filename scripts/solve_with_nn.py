@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""CLI-Huelle fuer eventpiv.solve -- Hydra, W&B, Aufruf.
+"""CLI-Huelle fuer eventpiv.kette.solve -- Hydra, W&B, Aufruf.
 
 Hydra und W&B leben in scripts/. Ab to_cfg() sieht kein Modul mehr einen
 DictConfig (BA_Konfiguration.md §5).
@@ -18,7 +18,7 @@ from _cli import to_cfg              # scripts/ liegt beim Start auf sys.path
 from eventpiv.bewerten.metrics import flatten
 from eventpiv.kern import config
 from eventpiv.kern.runconfig import SolveCfg, identity_meta, slug
-from eventpiv.solve import info_groups, solve_and_evaluate
+from eventpiv.kette.solve import info_groups, solve_and_evaluate
 
 ConfigStore.instance().store(name="solve_schema", node=SolveCfg)
 

@@ -12,9 +12,9 @@ import torch
 from eventpiv.kern import config
 from eventpiv.kern.runconfig import (IO, Compute, Neighborhood, PairSampling,
                                 Selection, SolveCfg, Solver, Training, Window)
-from eventpiv.fenster import Fenster, lade_fenster
-from eventpiv.loeser import SOLVER_FUNKTIONEN, solve_cc
-from eventpiv.solve import solve_window
+from eventpiv.kette.fenster import Fenster, lade_fenster
+from eventpiv.kette.loeser import SOLVER_FUNKTIONEN, solve_cc
+from eventpiv.kette.solve import solve_window
 
 
 def test_formatzusicherungen():
@@ -130,7 +130,7 @@ def test_fenster_mit_gt_ist_ausgerichtet(mini_datensatz):
     """track_id und status haben Fensterlaenge, nicht Runlaenge -- die
     Ausrichtung ist die fehleranfaelligste Stelle der Stufe."""
     from eventpiv.kern.runconfig import LabelCfg, Labeling
-    from eventpiv.labels import build_labels
+    from eventpiv.kette.labels import build_labels
     build_labels(LabelCfg(io=IO(), labeling=Labeling(),
                           selection=Selection(split="train")), verbose=False)
 
@@ -148,7 +148,7 @@ def test_solve_window_braucht_keinen_datensatz():
     """Der eigentliche Gewinn der Aufteilung: die Funktion laedt nichts
     mehr und laesst sich auf von Hand gebauten Arrays pruefen -- ohne
     Datensatz, ohne Label-Datei, ohne Pfade."""
-    from eventpiv.model import EdgeMLP, n_features
+    from eventpiv.kette.model import EdgeMLP, n_features
 
     rng = np.random.default_rng(0)
     # Zwei dichte Wolken, weit auseinander.
@@ -174,7 +174,7 @@ def test_solve_window_braucht_keinen_datensatz():
 
 
 def test_leeres_fenster_bricht_nicht_ab():
-    from eventpiv.model import EdgeMLP, n_features
+    from eventpiv.kette.model import EdgeMLP, n_features
 
     leer = np.empty(0, np.float64)
     f = Fenster(t=leer, x=leer, y=leer, p=np.empty(0, np.uint8))
@@ -193,7 +193,7 @@ def test_leeres_fenster_bricht_nicht_ab():
 def test_kantenstatistik_kommt_aus_dem_fenster():
     """Ohne Senke: traegt das Fenster eine GT, misst solve_window die
     Kanten dagegen -- und laesst es sonst."""
-    from eventpiv.model import EdgeMLP, n_features
+    from eventpiv.kette.model import EdgeMLP, n_features
 
     rng = np.random.default_rng(1)
     t = np.repeat(np.arange(40, dtype=np.float64) * 100.0, 2)
@@ -237,7 +237,7 @@ def test_gt_bleibt_unter_der_maske_ausgerichtet(mini_datensatz):
     """Erst ausrichten, dann filtern. Andersherum bekaeme align_gt_window
     eine Teilfolge und liefe sofort auseinander."""
     from eventpiv.kern.runconfig import LabelCfg, Labeling
-    from eventpiv.labels import build_labels
+    from eventpiv.kette.labels import build_labels
     build_labels(LabelCfg(io=IO(), labeling=Labeling(),
                           selection=Selection(split="train")), verbose=False)
 
@@ -273,7 +273,7 @@ def test_cost_offset_steht_im_dateinamen():
 def test_negativer_versatz_schneidet_mehr():
     """Der Versatz verschiebt die Schwelle, ohne die Rangfolge zu aendern --
     er kann also nur MEHR Kanten negativ machen, nie andere."""
-    from eventpiv.model import EdgeMLP, n_features
+    from eventpiv.kette.model import EdgeMLP, n_features
 
     rng = np.random.default_rng(3)
     t = np.repeat(np.arange(40, dtype=np.float64) * 100.0, 2)
@@ -317,9 +317,9 @@ def test_solve_run_schreitet_ab(mini_datensatz):
     """Der Treiber auf dem Mini-Datensatz: 1 s bei alpha = 10 ms sind
     100 Fenster. Geprueft werden die Zusicherungen, nicht die Qualitaet."""
     from eventpiv.kern.runconfig import LabelCfg, Labeling
-    from eventpiv.labels import build_labels
-    from eventpiv.model import EdgeMLP, n_features
-    from eventpiv.tracklets import solve_run
+    from eventpiv.kette.labels import build_labels
+    from eventpiv.kette.model import EdgeMLP, n_features
+    from eventpiv.kette.tracklets import solve_run
 
     build_labels(LabelCfg(io=IO(), labeling=Labeling(),
                           selection=Selection(split="train")), verbose=False)
@@ -354,9 +354,9 @@ def test_tracklet_ids_sind_global(mini_datensatz):
     """Ein Tracklet darf nie ueber eine Fenstergrenze reichen, und zwei
     Fenster duerfen sich keine ID teilen."""
     from eventpiv.kern.runconfig import LabelCfg, Labeling
-    from eventpiv.labels import build_labels
-    from eventpiv.model import EdgeMLP, n_features
-    from eventpiv.tracklets import solve_run
+    from eventpiv.kette.labels import build_labels
+    from eventpiv.kette.model import EdgeMLP, n_features
+    from eventpiv.kette.tracklets import solve_run
 
     build_labels(LabelCfg(io=IO(), labeling=Labeling(),
                           selection=Selection(split="train")), verbose=False)
@@ -387,9 +387,9 @@ def test_tracklet_artefakt_rundreise(mini_datensatz):
 
     from eventpiv.kern.graph import polarity_mask
     from eventpiv.kern.runconfig import LabelCfg, Labeling
-    from eventpiv.labels import build_labels
-    from eventpiv.model import EdgeMLP, n_features
-    from eventpiv.tracklets import schreibe_tracklets, solve_run
+    from eventpiv.kette.labels import build_labels
+    from eventpiv.kette.model import EdgeMLP, n_features
+    from eventpiv.kette.tracklets import schreibe_tracklets, solve_run
 
     build_labels(LabelCfg(io=IO(), labeling=Labeling(),
                           selection=Selection(split="train")), verbose=False)
@@ -429,7 +429,7 @@ def test_tracklet_artefakt_rundreise(mini_datensatz):
 def test_stumm_gibt_den_deskriptor_zurueck(capfd):
     """Nach dem Block muss stdout wieder funktionieren -- ein verlorener
     Deskriptor machte den Rest des Prozesses stumm, ohne abzustuerzen."""
-    from eventpiv.tracklets import _stumm
+    from eventpiv.kette.tracklets import _stumm
 
     with _stumm():
         print("das darf niemand sehen")

@@ -33,10 +33,10 @@ from eventpiv.kern import config
 from eventpiv.kern.runconfig import (IO, Compute, LabelCfg, Labeling, Neighborhood,
                                 PairCfg, PairSampling, Selection, SolveCfg,
                                 Solver, TrainCfg, Training, Window, slug)
-from eventpiv.labels import LABEL_FORMAT
-from eventpiv.pairs import build_pair_dataset
-from eventpiv.solve import solve_and_evaluate
-from eventpiv.train import train_edge_nn
+from eventpiv.kette.labels import LABEL_FORMAT
+from eventpiv.kette.pairs import build_pair_dataset
+from eventpiv.kette.solve import solve_and_evaluate
+from eventpiv.kette.train import train_edge_nn
 
 # --- Der Arbeitspunkt des Tests ---------------------------------------
 # Nicht die Vorgabewerte: die sind auf 8-s-Runs geeicht, die Fixture ist
@@ -73,7 +73,7 @@ def test_kette_labels_paare_training_solve(mini_datensatz):
     # Leere Run-Liste heisst ALLE Runs des Splits -- das prueft zugleich
     # config.available_runs gegen echte Dateien.
     # ---------------------------------------------------------------
-    from eventpiv.labels import build_labels
+    from eventpiv.kette.labels import build_labels
     failed = build_labels(LabelCfg(io=IO(), labeling=Labeling(),
                                    selection=Selection(split="train")),
                           verbose=False)
@@ -200,7 +200,7 @@ def test_falsche_nachbarschaft_faellt_beim_solve_auf(mini_datensatz):
     nb, ps, tr = _gruppen(mini_datensatz)
     cp = Compute(device="cpu", cost_batch=1_000_000)
 
-    from eventpiv.labels import build_labels
+    from eventpiv.kette.labels import build_labels
     build_labels(LabelCfg(io=IO(), labeling=Labeling(),
                           selection=Selection(split="train")), verbose=False)
     pcfg = PairCfg(io=IO(), neighborhood=nb, pairs=ps, compute=cp)
