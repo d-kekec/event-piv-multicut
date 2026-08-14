@@ -70,6 +70,7 @@ FEATURE_MODES = ("dr", "absxy")
 IMBALANCE_MODES = ("sample", "weight")
 SOLVER_BACKENDS = ("rama", "cc")
 POOLINGS = ("cls", "mean")
+LABEL_MODI = ("streng", "mehrheit", "weich")
 
 @dataclass
 class Neighborhood(_Typed):
@@ -330,6 +331,17 @@ class Transformer(_Typed):
     Konstante, weil der Unterschied bei 65 Tokens vermutlich klein ist --
     NICHT gemessen, und eine billige Ablation.
 
+    label_modus entscheidet, welche Paare Gradienten bekommen -- eine
+    TRAININGS-, keine Datensatzentscheidung, deshalb hier und nicht in
+    Kandidaten. Das Artefakt traegt gt_track_id, gt_anteil und n_gt je
+    Knoten; Ziel und Maske entstehen daraus zur Trainingszeit.
+      streng    nur Knoten mit genau einem GT-Partikel (Entwurf, Vorgabe).
+                Der interessanteste Fall wird damit nie geuebt.
+      mehrheit  auch verschmolzene, hart nach Mehrheit, ab gt_min_anteil.
+      weich     auch verschmolzene, Zielwert zwischen 0 und 1. Der Logit
+                lernt dessen Log-Odds; bei 0,5 ist er null und RAMA sieht
+                eine Kante ohne Praeferenz.
+
     Kein feature_mode: die Baseline bekommt rohe, je Paar normierte
     (t, x, y). Ob eine Merkmalstabelle noetig ist, soll dieser Lauf
     beantworten.
@@ -343,6 +355,8 @@ class Transformer(_Typed):
     d_ff: int = 256
     dropout: float = 0.0
     pooling: str = "cls"
+    label_modus: str = "streng"
+    gt_min_anteil: float = 0.9
     imbalance: str = "sample"
     sample_ratio: float = 3.0
     epochs: int = 30
@@ -352,8 +366,8 @@ class Transformer(_Typed):
     seed: int = 0
 
     def short(self) -> str:
-        return (f"d{self.d_model}_l{self.n_layers}"
-                f"_{self.pooling}_{self.imbalance}")
+        return (f"d{self.d_model}_l{self.n_layers}_{self.pooling}"
+                f"_{self.imbalance}_{self.label_modus}")
 
     def __post_init__(self) -> None:
         super().__post_init__()          # Typcast aus _Typed zuerst
@@ -361,6 +375,10 @@ class Transformer(_Typed):
             raise ValueError(
                 f"transformer.pooling={self.pooling!r} unbekannt. "
                 f"Erlaubt: {POOLINGS}")
+        if self.label_modus not in LABEL_MODI:
+            raise ValueError(
+                f"transformer.label_modus={self.label_modus!r} unbekannt. "
+                f"Erlaubt: {LABEL_MODI}")
         if self.imbalance not in IMBALANCE_MODES:
             raise ValueError(
                 f"transformer.imbalance={self.imbalance!r} unbekannt. "
