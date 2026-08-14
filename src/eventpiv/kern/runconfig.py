@@ -262,14 +262,19 @@ class Kandidaten(_Typed):
     `polarity` hat auf Zentroiden keinen Sinn. Eine verschachtelte Gruppe,
     deren Haelfte nicht gilt, waere eine spaetere Falle.
 
-    alpha = 3x Stufe-1-alpha: ein Partikel, das in EINEM Fenster unter
-    min_events faellt, muss uebersprungen werden koennen. SETZUNG, keine
-    Messung -- gehoert ausgefahren.
+    alpha = 5x Stufe-1-alpha, AUSGEFAHREN und nicht gesetzt: die
+    Erreichbarkeit auf run61 steigt 95,6 -> 98,9 -> 100,0 % bei 30/40/50 ms
+    und bleibt bei 60 ms stehen. 50 000 µs ist der Saettigungspunkt; 60 000
+    kauft nichts mehr fuer 20 % mehr Paare. Physikalisch: ein Partikel darf
+    vier aufeinanderfolgende Fenster unter min_events verschwinden und wird
+    trotzdem weiterverbunden. (Journal 14.08.2026)
 
-    r_max wird nicht von der Drift gesetzt, sondern von der Partikelgroesse:
-    v_max * alpha sind 3,06 px, die Wolkenausdehnung (box_w = 11 px) ein
-    Mehrfaches davon. Daher hyperboloid -- Taille = Ausdehnung, Aufweitung
-    = Drift.
+    r_max ist GEMESSEN WIRKUNGSLOS und bleibt bei 15 px. 15, 20 und 25 px
+    liefern dieselbe Erreichbarkeit und dieselbe Komponentenzahl, bei nur
+    4 % mehr Kandidaten fuer 67 % mehr Radius: die Nachbarschaft ist
+    ZEITbegrenzt, nicht raumbegrenzt. Der frueher hier vermutete Engpass
+    (Wolkenausdehnung 11 px plus Drift 3 px gegen 15 px) existiert nicht.
+    geom bleibt hyperboloid -- Taille = Ausdehnung, Aufweitung = Drift.
 
     min_events = 15 und n_events = 32 sind gemessen (Journal 14.08.2026):
     unter 15 liegt das Mittel bei 1,8 Events, und 92,0 % der behaltenen
@@ -278,7 +283,7 @@ class Kandidaten(_Typed):
     split: str = "train"
     runs: list[int] = field(
         default_factory=lambda: [2, 11, 19, 30, 32, 35, 44, 59, 61, 76])
-    alpha: int = 30_000
+    alpha: int = 50_000
     r_max: float = 15.0
     geom: str = "hyperboloid"
     v_max: float = 1.02e-4
