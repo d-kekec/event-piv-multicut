@@ -69,6 +69,7 @@ POLARITIES = ("on", "both")
 FEATURE_MODES = ("dr", "absxy")
 IMBALANCE_MODES = ("sample", "weight")
 SOLVER_BACKENDS = ("rama", "cc")
+POOLINGS = ("cls", "mean")
 
 @dataclass
 class Neighborhood(_Typed):
@@ -245,6 +246,127 @@ class Features(_Typed):
 
     def short(self) -> str:
         return f"offs{_num(self.off_s)}_k{self.off_k}"
+
+
+@dataclass
+class Kandidaten(_Typed):
+    """Identitaet des Stufe-2-Datensatzes: welche Knoten, welche Kanten.
+
+    Von `Transformer` getrennt nach dem UEBEREINSTIMMUNGS-Kriterium, aus
+    demselben Grund wie PairSampling von Training: der Datensatz kostet
+    Minuten je Run, das Netz ist ein Sweep. In EINER Gruppe erzwaenge jedes
+    neue d_model einen Neubau der Kandidaten.
+
+    alpha/r_max/geom/v_max sind bewusst NICHT `Neighborhood`. Sie messen
+    hier den Abstand zweier TRACKLET-ZENTROIDE, nicht zweier Events, und
+    `polarity` hat auf Zentroiden keinen Sinn. Eine verschachtelte Gruppe,
+    deren Haelfte nicht gilt, waere eine spaetere Falle.
+
+    alpha = 3x Stufe-1-alpha: ein Partikel, das in EINEM Fenster unter
+    min_events faellt, muss uebersprungen werden koennen. SETZUNG, keine
+    Messung -- gehoert ausgefahren.
+
+    r_max wird nicht von der Drift gesetzt, sondern von der Partikelgroesse:
+    v_max * alpha sind 3,06 px, die Wolkenausdehnung (box_w = 11 px) ein
+    Mehrfaches davon. Daher hyperboloid -- Taille = Ausdehnung, Aufweitung
+    = Drift.
+
+    min_events = 15 und n_events = 32 sind gemessen (Journal 14.08.2026):
+    unter 15 liegt das Mittel bei 1,8 Events, und 92,0 % der behaltenen
+    Tracklets tragen mindestens 32, aber nur 68,3 % mindestens 64.
+    """
+    split: str = "train"
+    runs: list[int] = field(
+        default_factory=lambda: [2, 11, 19, 30, 32, 35, 44, 59, 61, 76])
+    alpha: int = 30_000
+    r_max: float = 15.0
+    geom: str = "hyperboloid"
+    v_max: float = 1.02e-4
+    min_events: int = 15
+    n_events: int = 32
+    seed: int = 0
+
+    def short(self) -> str:
+        return (f"{self.split}_r{len(self.runs)}_a{self.alpha}"
+                f"_r{_num(self.r_max)}_n{self.n_events}")
+
+    def __post_init__(self) -> None:
+        super().__post_init__()          # Typcast aus _Typed zuerst
+        if self.geom not in NEIGHBORHOOD_GEOMS:
+            raise ValueError(
+                f"kandidaten.geom={self.geom!r} unbekannt. "
+                f"Erlaubt: {NEIGHBORHOOD_GEOMS}")
+        if self.min_events < 2:
+            # Unter zwei Events hat ein Tracklet keine Ausdehnung und
+            # traegt keine Form -- dann ist der Transformer das falsche
+            # Werkzeug.
+            raise ValueError(
+                f"kandidaten.min_events={self.min_events} -- mindestens 2.")
+        if self.n_events < 1:
+            raise ValueError(
+                f"kandidaten.n_events={self.n_events} -- mindestens 1.")
+
+
+@dataclass
+class Transformer(_Typed):
+    """Identitaet des Stufe-2-Netzes.
+
+    Tokens sind EVENTS: 2*n_events Event-Tokens plus ein CLS-Token. Das
+    Segment-Token ist ein Etikett, das auf jedes Token seines Tracklets
+    ADDIERT wird -- es fasst nichts zusammen.
+
+    KEIN Positional Encoding im Sinne eines Sequenzindex: die Tokens
+    tragen ihre Koordinaten selbst, und die Reihenfolge der Stichprobe
+    darf das Ergebnis nicht aendern. Attention ist permutationsinvariant,
+    und das ist hier die richtige Eigenschaft.
+
+    pooling waehlt, was in den Kopf geht: "cls" liest das CLS-Token,
+    "mean" mittelt ueber die ECHTEN Tokens. Als Feld und nicht als
+    Konstante, weil der Unterschied bei 65 Tokens vermutlich klein ist --
+    NICHT gemessen, und eine billige Ablation.
+
+    Kein feature_mode: die Baseline bekommt rohe, je Paar normierte
+    (t, x, y). Ob eine Merkmalstabelle noetig ist, soll dieser Lauf
+    beantworten.
+
+    lr = 1e-3 statt der 1e-2 von Stufe 1: dort haengen 41 Parameter, hier
+    Zehntausende. Nicht durchsucht.
+    """
+    d_model: int = 64
+    n_layers: int = 2
+    n_heads: int = 4
+    d_ff: int = 256
+    dropout: float = 0.0
+    pooling: str = "cls"
+    imbalance: str = "sample"
+    sample_ratio: float = 3.0
+    epochs: int = 30
+    batch: int = 1024
+    lr: float = 1e-3
+    val_frac: float = 0.2
+    seed: int = 0
+
+    def short(self) -> str:
+        return (f"d{self.d_model}_l{self.n_layers}"
+                f"_{self.pooling}_{self.imbalance}")
+
+    def __post_init__(self) -> None:
+        super().__post_init__()          # Typcast aus _Typed zuerst
+        if self.pooling not in POOLINGS:
+            raise ValueError(
+                f"transformer.pooling={self.pooling!r} unbekannt. "
+                f"Erlaubt: {POOLINGS}")
+        if self.imbalance not in IMBALANCE_MODES:
+            raise ValueError(
+                f"transformer.imbalance={self.imbalance!r} unbekannt. "
+                f"Erlaubt: {IMBALANCE_MODES}")
+        if self.d_model % self.n_heads:
+            # Die Kopfbreite ist d_model/n_heads. Geht das nicht auf,
+            # bricht torch erst beim Bau des Netzes ab -- da steht der Slug
+            # schon und ein Verzeichnis heisst danach.
+            raise ValueError(
+                f"transformer.d_model={self.d_model} ist nicht durch "
+                f"n_heads={self.n_heads} teilbar.")
 
 
 @dataclass
@@ -432,6 +554,46 @@ class FeatureCfg:
     solver:       Solver       = field(default_factory=Solver)
     selection:    Selection    = field(default_factory=Selection)
     features:     Features     = field(default_factory=Features)
+    compute:      Compute      = field(default_factory=Compute)
+
+
+@dataclass
+class KandidatenCfg:
+    """[6a] Kandidatenpaare und Knotentensor, ein Artefakt je Run.
+
+    Traegt die ganze Kette von Stufe 1, weil die Tracklets der EINGABEpfad
+    sind -- der Baum haengt entsprechend unter tracklets/. Kein `window`:
+    das Artefakt deckt den ganzen Run ab, wie bei FeatureCfg.
+
+    Kein `features`: Stufe 2 liest (A), nicht (B). Die Labels rechnet sie
+    ueber dieselbe Mehrheitsmechanik selbst; off_s und off_k beruehren
+    keine Groesse, die hier gebraucht wird.
+    """
+    io:           IO           = field(default_factory=IO)
+    neighborhood: Neighborhood = field(default_factory=Neighborhood)
+    pairs:        PairSampling = field(default_factory=PairSampling)
+    training:     Training     = field(default_factory=Training)
+    solver:       Solver       = field(default_factory=Solver)
+    selection:    Selection    = field(default_factory=Selection)
+    kandidaten:   Kandidaten   = field(default_factory=Kandidaten)
+    compute:      Compute      = field(default_factory=Compute)
+
+
+@dataclass
+class Stufe2Cfg:
+    """[6b] Training des Transformers.
+
+    Kein `selection`: trainiert wird ueber alle Runs aus kandidaten.runs,
+    nicht ueber einen. Dieselbe Rolle wie TrainCfg eine Ebene tiefer --
+    `kandidaten` wird nicht gerechnet, sondern leitet den EINGABEpfad ab.
+    """
+    io:           IO           = field(default_factory=IO)
+    neighborhood: Neighborhood = field(default_factory=Neighborhood)
+    pairs:        PairSampling = field(default_factory=PairSampling)
+    training:     Training     = field(default_factory=Training)
+    solver:       Solver       = field(default_factory=Solver)
+    kandidaten:   Kandidaten   = field(default_factory=Kandidaten)
+    transformer:  Transformer  = field(default_factory=Transformer)
     compute:      Compute      = field(default_factory=Compute)
 
 

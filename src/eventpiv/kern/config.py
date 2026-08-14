@@ -213,6 +213,39 @@ def feature_file(nb, ps, tr, sel, sv, ft, create: bool = False) -> Path:
     return d / f"{sel.split}_run{sel.run_nr}_{sv.short()}.npz"
 
 
+def kandidaten_file(nb, ps, tr, sel, sv, kd, create: bool = False) -> Path:
+    """Kandidatenpaare und Knotentensor EINES Runs [6a].
+
+    Eigene Slug-Ebene wie bei feature_file: Reichweite, Mindestgroesse und
+    Stichprobengroesse unterscheiden zwei Kandidatensaetze desselben
+    Solves. Der Solver steht wie dort im DATEINAMEN -- er waehlt die
+    Quelle, nicht die Rechnung.
+
+    NEBEN features/ und nicht darunter: Stufe 2 liest das Tracklet-Artefakt
+    (A), nicht die Merkmalstabelle (B). Haenge man sie unter features/,
+    stuenden off_s und off_k in der Identitaet, obwohl sie keine hier
+    verwendete Groesse beruehren.
+    """
+    d = _ensure(wp_dir(nb, create) / "pairs" / slug(ps) / slug(tr)
+                / "tracklets" / "stufe2" / slug(kd), create)
+    return d / f"{sel.split}_run{sel.run_nr}_{sv.short()}.npz"
+
+
+def transformer_file(nb, ps, tr, sv, kd, tf, create: bool = False) -> Path:
+    """Das Stufe-2-Netz [6b]. Kein Run im Pfad.
+
+    Ein Netz ueber alle Runs des Kandidatensatzes -- dieselbe Granularitaet
+    wie model_file eine Ebene tiefer.
+
+    Der Solver steht im Dateinamen statt in einer Slug-Ebene: zwei Netze
+    desselben Kandidatensatzes, eines aus RAMA- und eines aus
+    CC-Tracklets, sollen nebeneinander liegen koennen.
+    """
+    d = _ensure(wp_dir(nb, create) / "pairs" / slug(ps) / slug(tr)
+                / "tracklets" / "stufe2" / slug(kd) / slug(tf), create)
+    return d / f"model_{sv.short()}.pt"
+
+
 # ============================================================
 # Metadaten (Code-Prinzip: jede erzeugte Datei traegt ihre Herkunft)
 # ============================================================
