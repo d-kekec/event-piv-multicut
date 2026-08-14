@@ -149,8 +149,17 @@ def stichprobe(knoten: Knoten, t_on, x_on, y_on, *, n_events, seed):
     """n_events Events je Knoten, ohne Zuruecklegen. Reine Funktion.
 
     Rueckgabe: (ev, maske)
-      ev     (m, n_events, 3) float32 -- t, x, y je Token, ROH
+      ev     (m, n_events, 3) float64 -- t, x, y je Token, ROH
       maske  (m, n_events) bool -- True = echtes Event
+
+    FLOAT64 UND NICHT FLOAT32, obwohl das Artefakt float32 ablegt: float32
+    hat 24 signifikante Bits und stellt ganze Zahlen exakt bis 2^24 =
+    16.777.216 dar. Ein Run ist 8.000.000 µs lang, der Abstand zur Grenze
+    betraegt also Faktor 2. Das reicht heute -- die Reserve ist aber
+    kleiner als eine Groessenordnung, und ueberschritten wuerde sie STILL:
+    jeder Zeitstempel raste auf gerade Vielfache, ohne Meldung. Der
+    Aufrufer subtrahiert t_min und castet danach; dann liegen alle Werte
+    unter alpha, wo float32 exakt ist. VERSICHERUNG, keine Reparatur.
 
     Knoten mit weniger als n_events Events fuellen die vorderen Spalten
     und lassen den Rest auf 0 stehen; die Maske traegt die Unterscheidung.
@@ -170,7 +179,7 @@ def stichprobe(knoten: Knoten, t_on, x_on, y_on, *, n_events, seed):
     """
     m = len(knoten)
     n_events = int(n_events)
-    ev = np.zeros((m, n_events, 3), np.float32)
+    ev = np.zeros((m, n_events, 3), np.float64)
     maske = np.zeros((m, n_events), bool)
     if m == 0 or n_events == 0:
         return ev, maske

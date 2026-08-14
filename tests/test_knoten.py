@@ -97,6 +97,9 @@ def test_stichprobe_zieht_ohne_zuruecklegen(n_events):
     ev, maske = stichprobe(kn, t, x, y, n_events=n_events, seed=0)
 
     assert ev.shape == (len(kn), n_events, 3)
+    # float64 ist hier kein Zufall: absolute Zeitstempel bis 8e6 liegen
+    # bei Faktor 2 unter der float32-Grenze von 2^24 = 16.777.216.
+    assert ev.dtype == np.float64
     np.testing.assert_array_equal(
         maske.sum(1), np.minimum(kn.tabelle["n_on"], n_events))
 
