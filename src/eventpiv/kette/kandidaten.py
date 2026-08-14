@@ -121,25 +121,41 @@ def _gt_komponenten(knoten, i, j) -> dict:
     vor dem Training fest.
 
     Gerechnet auf dem Teilgraphen der Kanten, deren beide Enden dasselbe
-    eindeutige GT-Partikel tragen: genau die Menge, die Stufe 2
-    idealerweise verbinden wuerde. Knoten ohne eindeutiges GT bleiben
-    aussen vor -- sie haben kein Partikel, dessen Zerfall man zaehlen
-    koennte.
+    MEHRHEITS-Partikel tragen. Beteiligt ist jeder Knoten mit n_gt >= 1,
+    teilverschmolzene eingeschlossen.
+
+    ANDERE MASKE ALS BEIM LOSS, und das ist Absicht: dort geht es um ein
+    LABEL, hier um ERREICHBARKEIT. Ein verschmolzenes Tracklet gehoert
+    seinem Mehrheitspartikel und ist als Bruecke voll brauchbar; es
+    herauszunehmen meldete Brueche, die der Kandidatengraph gar nicht hat.
+    Dieselbe Unterscheidung wie zwischen cluster_metrics und
+    merge_metrics in evaluate.py.
+
+    Fuer das MINDERHEITSPARTIKEL eines verschmolzenen Tracklets bleibt die
+    Kette trotzdem unterbrochen -- richtig so: der Knoten kann am Ende nur
+    in EINEM Cluster landen, dieses Partikel ist also wirklich nicht
+    vollstaendig rekonstruierbar. Eine Grenze von Stufe 1, die Stufe 2
+    nicht aufheben kann.
 
     Diese Zahl rechtfertigt kandidaten.alpha. Waere die Reichweite zu
     klein, saehe man es hier und an keiner anderen Kennzahl.
+
+    MITTEL UND MAXIMUM ALLEIN LUEGEN, wie ueberall bei schiefen
+    Verteilungen: wenige zersplitterte Partikel heben das Mittel, waehrend
+    der Median 1 bleibt. Deshalb stehen Median, p95 und die ZAHL der
+    Zersplitterten daneben.
     """
     tab = knoten.tabelle
     if "n_gt" not in tab:
         return {}
     m = len(knoten)
-    eindeutig = tab["n_gt"] == 1
-    k = np.flatnonzero(eindeutig)
+    beteiligt = tab["n_gt"] >= 1
+    k = np.flatnonzero(beteiligt)
     if len(k) == 0:
         return {}
 
     gt = tab["gt_track_id"]
-    gleich = eindeutig[i] & eindeutig[j] & (gt[i] == gt[j])
+    gleich = beteiligt[i] & beteiligt[j] & (gt[i] == gt[j])
     a = coo_array((np.ones(int(gleich.sum()), np.int8),
                    (i[gleich], j[gleich])), shape=(m, m))
     _, komp = connected_components(a, directed=False)
@@ -154,7 +170,10 @@ def _gt_komponenten(knoten, i, j) -> dict:
         "gt_n_partikel": int(len(gu)),
         "gt_tracklets_je_partikel_median": float(np.median(n_trk)),
         "gt_komponenten_mittel": float(n_komp.mean()),
+        "gt_komponenten_median": float(np.median(n_komp)),
+        "gt_komponenten_p95": float(np.percentile(n_komp, 95)),
         "gt_komponenten_max": int(n_komp.max()),
+        "gt_n_zersplittert": int((n_komp > 1).sum()),
         # 1,0 hiesse: Stufe 2 KANN jedes Partikel vollstaendig
         # rekonstruieren. Alles darunter ist eine Obergrenze, die das Netz
         # nicht mehr anheben kann.
@@ -314,9 +333,11 @@ def kandidaten_fuer_run(cfg: KandidatenCfg, run_nr: int, verbose=True):
                   flush=True)
         if "gt_frac_zusammenhaengend" in lauf:
             print(f"  OBERGRENZE: {lauf['gt_frac_zusammenhaengend']*100:.1f} % "
-                  f"der {lauf['gt_n_partikel']} Partikel haengen zusammen, "
-                  f"im Mittel {lauf['gt_komponenten_mittel']:.2f} Komponenten "
-                  f"(max {lauf['gt_komponenten_max']})", flush=True)
+                  f"der {lauf['gt_n_partikel']} Partikel haengen zusammen "
+                  f"({lauf['gt_n_zersplittert']} zersplittert); Komponenten "
+                  f"median {lauf['gt_komponenten_median']:.0f}, "
+                  f"p95 {lauf['gt_komponenten_p95']:.1f}, "
+                  f"max {lauf['gt_komponenten_max']}", flush=True)
     return daten, lauf, quelle
 
 

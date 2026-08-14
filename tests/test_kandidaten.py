@@ -147,3 +147,21 @@ def test_gt_komponenten_erkennt_den_zerfall():
     z2 = _gt_komponenten(kn, np.array([0, 1, 2]), np.array([1, 2, 3]))
     assert z2["gt_komponenten_mittel"] == 1.0
     assert z2["gt_frac_zusammenhaengend"] == 1.0
+
+
+def test_verschmolzenes_tracklet_bleibt_bruecke():
+    """Beim LOSS ist n_gt >= 2 ausgeschlossen, bei der ERREICHBARKEIT
+    nicht. Ein verschmolzenes Tracklet gehoert seinem Mehrheitspartikel
+    und traegt dessen Kette weiter -- es herauszunehmen meldete einen
+    Bruch, den der Kandidatengraph nicht hat."""
+    from eventpiv.kette.kandidaten import _gt_komponenten
+
+    kn = _knoten([0.0, 1000.0, 2000.0], [10.0, 11.0, 12.0], [10.0] * 3,
+                 n_gt=[1, 2, 1], gt=[7, 7, 7])
+    i, j = np.array([0, 1]), np.array([1, 2])
+
+    z = _gt_komponenten(kn, i, j)
+    assert z["gt_komponenten_mittel"] == 1.0
+    assert z["gt_n_zersplittert"] == 0
+    # Der Loss sieht dieselben Paare weiterhin als ungueltig.
+    assert not paar_labels(kn, i, j)["gueltig"].any()
