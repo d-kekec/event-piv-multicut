@@ -78,8 +78,13 @@ def off_zuordnung(t_on, x_on, y_on, tracklet_id, t_off, x_off, y_off, *,
             zaehl[zeile, best] / kk)
 
 
-def _mehrheit(kompakt, werte_n, schluessel):
+def mehrheit(kompakt, werte_n, schluessel):
     """Haeufigster Schluessel je Gruppe, plus sein Anteil. Ohne Schleife.
+
+    Oeffentlich, weil Stufe 2 dieselbe Rechnung braucht: dort wird je
+    TRACKLET-PAAR ein Label gebraucht, und das Tracklet-Label entsteht
+    hier. Eine zweite Umsetzung waere dieselbe Doppelung, gegen die
+    build_features und graph.neighborhood_pairs argumentieren.
 
     Dieselbe Kreuztabellen-Mechanik wie evaluate._kreuztabelle, hier aber
     je TRACKLET statt je Cluster: Paare (Gruppe, Schluessel) zaehlen, dann
@@ -204,7 +209,7 @@ def tracklet_features(t_on, x_on, y_on, tracklet_id,
     if track_id is not None and status_noise is not None:
         gt = np.asarray(track_id)[gilt]
         echt = ~np.asarray(status_noise)[gilt]
-        sieger, anteil, n_versch = _mehrheit(kompakt[echt], m, gt[echt])
+        sieger, anteil, n_versch = mehrheit(kompakt[echt], m, gt[echt])
         out["gt_track_id"] = sieger
         out["gt_anteil"] = anteil
         out["n_gt"] = n_versch.astype(np.int32)
