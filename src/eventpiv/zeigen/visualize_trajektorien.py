@@ -102,7 +102,14 @@ def animate_trajektorien(cfg: AnimTrajCfg):
     tpfad = config.tracklet_file(cfg.neighborhood, cfg.pairs, cfg.training,
                                  sel, cfg.solver)
     if not tpfad.exists():
-        raise SystemExit(f"{tpfad} fehlt. Erst scripts/build_tracklets.py.")
+        raise SystemExit(
+            f"{tpfad} fehlt.\n"
+            f"`solver` waehlt die QUELLE, also welche Stufe-1-Tracklets "
+            f"gelesen werden -- hier {cfg.solver.short()}. Den Solver von "
+            f"STUFE 2 stellt `solver2` ein (aktuell "
+            f"{cfg.solver2.short()}).\n"
+            "Sonst erst scripts/build_tracklets.py mit denselben "
+            "Parametern laufen lassen.")
     with np.load(tpfad) as d:
         tid_ev = d["tracklet_id"]
 
@@ -188,8 +195,11 @@ def animate_trajektorien(cfg: AnimTrajCfg):
     out_dir = (config.results_dir() / "animations" if cfg.io.out_path is None
                else Path(cfg.io.out_path))
     p_tag = "_" + "".join(w[0] for w in wahl)
+    # BEIDE Solver: Stufe 1 waehlt die Quelle, Stufe 2 die Rechnung. Ohne
+    # den ersten schrieben zwei cost_offset-Werte in dieselbe Datei.
     name = (f"traj_{sel.split}_run{run_nr}_{slug(cfg.kandidaten)}_"
-            f"{slug(cfg.transformer)}_{cfg.solver2.short()}{p_tag}.gif")
+            f"{slug(cfg.transformer)}_{cfg.solver.short()}_"
+            f"{cfg.solver2.short()}{p_tag}.gif")
     pfad = save_gif(frames, out_dir / name,
                     an.hold_ms or max(an.frame_ms * 2, 60))
     return pfad, lauf

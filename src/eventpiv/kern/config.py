@@ -254,13 +254,16 @@ def solve2_file(nb, ps, tr, sv, kd, tf, sel, sv2, create: bool = False) -> Path:
     Dateinamen, wie bei solve_file: sie gehoeren nicht zur Identitaet des
     Netzes.
 
-    Der Solver von STUFE 1 steckt bereits im Namen des Modells und taucht
-    hier nicht noch einmal auf.
+    BEIDE Solver stehen im Dateinamen. Der von Stufe 1 waehlt die QUELLE
+    (Tracklets und Kandidaten tragen ihn ebenfalls im Namen), der von
+    Stufe 2 die Rechnung. Sie stehen NEBENEINANDER unter demselben Netz --
+    solves/ liegt neben model_<solver>.pt, nicht darunter, und ohne beide
+    ueberschrieben sich zwei Solves desselben Runs still.
     """
     d = _ensure(wp_dir(nb, create) / "pairs" / slug(ps) / slug(tr)
                 / "tracklets" / "stufe2" / slug(kd) / slug(tf) / "solves",
                 create)
-    return d / f"{sel.split}_run{sel.run_nr}_{sv2.short()}.json"
+    return d / f"{sel.split}_run{sel.run_nr}_{sv.short()}_{sv2.short()}.json"
 
 
 # ============================================================

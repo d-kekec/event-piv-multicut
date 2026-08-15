@@ -136,7 +136,11 @@ def solve2_run(cfg: Solve2Cfg, model, norm, run_nr, verbose=True):
     kpfad = config.kandidaten_file(nb, cfg.pairs, cfg.training, sel,
                                    cfg.solver, kd)
     if not kpfad.exists():
-        raise SystemExit(f"{kpfad} fehlt. Erst scripts/build_kandidaten.py.")
+        raise SystemExit(
+            f"{kpfad} fehlt.\n"
+            f"`solver` waehlt die QUELLE (hier {cfg.solver.short()}), "
+            f"`solver2` den Solver von Stufe 2 (hier {sv2.short()}).\n"
+            "Sonst erst scripts/build_kandidaten.py mit denselben Gruppen.")
     with np.load(kpfad) as f:
         knoten_tid = f["tracklet_id"]
         i, j = f["paar_i"].astype(np.int64), f["paar_j"].astype(np.int64)
