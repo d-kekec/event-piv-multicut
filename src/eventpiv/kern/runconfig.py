@@ -559,6 +559,44 @@ class AnimClusters(_Typed):
     # drei nebeneinander sind auf einem geteilten Bildschirm zu klein.
     panels: str = "roh,tracklets,gt"
 
+
+@dataclass
+class AnimTraj(_Typed):
+    """Darstellung [D]: Tracklets gegen rekonstruierte Trajektorien.
+
+    Das Bild der Stufe: links wechseln alle Farben alle alpha µs, rechts
+    stehen sie ueber den ganzen Run. Wechselt rechts eine Farbe mitten in
+    einer Bahn oder laufen zwei zusammen, ist das ein Identitaetswechsel --
+    genau das, wofuer sonst IDSW noetig ist.
+
+    trail_ms ist GLEITEND, anders als bei AnimClusters: dort wird der Trail
+    an jeder Fenstergrenze zurueckgesetzt, damit die Grenze sichtbar
+    bleibt. Hier soll sie verschwinden. 0 zeigt Momentaufnahmen.
+
+    min_size wirkt auf BEIDE Panels, deren Cluster sich um Groessen-
+    ordnungen unterscheiden: ein Tracklet hat rund 150 Events, eine
+    Trajektorie ueber hunderttausend. Ein Wert, der rechts die Bruchstuecke
+    ausgraut, graut links fast alles aus. Vorgabe deshalb am
+    Kandidatenfilter orientiert.
+
+    ACHTUNG GROESSE: ein ganzer Run bei frame_ms=20 sind 400 Frames. Mit
+    drei Panels und downscale=1 wird das GIF dreistellig in MB. Fuer den
+    Bericht einzelne Panels waehlen.
+    """
+    frame_ms: float = 20.0
+    trail_ms: float = 100.0
+    # Anzeigedauer je Frame in ms. 0 = abgeleitet aus frame_ms. Getrennt,
+    # weil Abtastung und Abspielgeschwindigkeit nichts miteinander zu tun
+    # haben: dieselben 400 Frames koennen in 20 s oder in 2 min laufen.
+    hold_ms: float = 0.0
+    downscale: int = 2
+    point: int = 2
+    min_size: int = 15
+    crop: bool = True
+    # Komma-getrennt: roh, tracklets, trajektorien, gt.
+    panels: str = "tracklets,trajektorien,gt"
+
+
 # ============================================================
 # Stufen-Konfigurationen (Zusammensetzung = Abhaengigkeitskette §5)
 # ============================================================
@@ -715,6 +753,29 @@ class AnimClustersCfg:
     window:       Window       = field(default_factory=Window)
     compute:      Compute      = field(default_factory=Compute)
     anim:         AnimClusters = field(default_factory=AnimClusters)
+
+
+@dataclass
+class AnimTrajCfg:
+    """Wie Solve2Cfg, plus Darstellung: die Animation LOEST Stufe 2 selbst.
+
+    window schneidet nur die ANZEIGE zu -- geloest wird immer der ganze
+    Run. Anders herum waeren die Farben eines Ausschnitts andere als die
+    des vollen Laufs, und genau die Stabilitaet der Farben ist die Aussage.
+    """
+    io:           IO           = field(default_factory=IO)
+    neighborhood: Neighborhood = field(default_factory=Neighborhood)
+    pairs:        PairSampling = field(default_factory=PairSampling)
+    training:     Training     = field(default_factory=Training)
+    solver:       Solver       = field(default_factory=Solver)
+    kandidaten:   Kandidaten   = field(default_factory=Kandidaten)
+    transformer:  Transformer  = field(default_factory=Transformer)
+    selection:    Selection    = field(default_factory=Selection)
+    window:       Window       = field(
+        default_factory=lambda: Window(t0=None, dt=None))
+    solver2:      Solver2      = field(default_factory=Solver2)
+    compute:      Compute      = field(default_factory=Compute)
+    anim:         AnimTraj     = field(default_factory=AnimTraj)
 
 
 # ============================================================
