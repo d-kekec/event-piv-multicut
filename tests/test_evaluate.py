@@ -457,3 +457,33 @@ def test_merge_metrics_mit_teilmenge():
     assert teil["merge_event_frac"] == 0.0     # nur Partikel 1 uebrig
     assert teil["merge_n_events"] == 2
     assert ganz["merge_n_minderheit"] == 2
+
+
+def test_kreuztabelle_zellen_von_hand():
+    """Die ungefaltete Kreuztabelle, von Hand ausgezaehlt.
+
+    _kreuztabelle war bisher nur ueber cluster_metrics und merge_metrics
+    mitgeprueft. Die zell_-Felder gehen in keine der beiden ein, waeren
+    dort also unbeobachtet.
+
+      Cluster 0: 3x GT 5, 1x GT 7
+      Cluster 2: 2x GT 7
+    """
+    from eventpiv.bewerten.evaluate import _kreuztabelle
+
+    lab = np.array([0, 0, 0, 0, 2, 2])
+    gt = np.array([5, 5, 5, 7, 7, 7])
+    kt = _kreuztabelle(lab, gt, np.ones(6, bool))
+
+    np.testing.assert_array_equal(kt["lab_u"], [0, 2])
+    np.testing.assert_array_equal(kt["gt_u"], [5, 7])
+    zellen = dict(zip(zip(kt["zell_lab"], kt["zell_gt"]), kt["zell_anzahl"]))
+    assert zellen == {(0, 0): 3, (0, 1): 1, (1, 1): 2}
+    assert kt["zell_anzahl"].sum() == 6
+
+
+def test_kreuztabelle_zellen_ohne_bewertbare_events():
+    from eventpiv.bewerten.evaluate import _kreuztabelle
+
+    assert _kreuztabelle(np.array([-1, -1]), np.array([1, 1]),
+                         np.ones(2, bool)) is None

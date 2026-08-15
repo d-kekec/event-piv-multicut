@@ -56,7 +56,14 @@ def _kreuztabelle(labels, track_id, maske):
       frag             Zahl verschiedener Cluster je GT-Partikel
       gt_groessen      Eventzahl je GT-Partikel
       gt_groesster     groesstes Fragment je GT-Partikel
-      lab_u, gt_u, gt_idx, tt   fuer die abgeleiteten Felder
+      zell_anzahl      Eventzahl je (Cluster, GT)-Zelle
+      zell_lab         Clusterindex je Zelle (in lab_u)
+      zell_gt          GT-Index je Zelle (in gt_u)
+      lab_u, gt_u, gt_idx, gueltig   fuer die abgeleiteten Felder
+
+    Die drei zell_-Felder sind die ungefaltete Kreuztabelle. Wer sie
+    braucht, misst ueber ZUORDNUNGEN statt ueber Cluster oder Partikel --
+    die Assoziationsmasse der HOTA-Familie tun das.
     """
     labels = np.asarray(labels)
     lab = labels[maske]
@@ -92,6 +99,7 @@ def _kreuztabelle(labels, track_id, maske):
         "frag": np.bincount(k_gt, minlength=len(gt_u)),
         "gt_groessen": np.bincount(gt_idx, minlength=len(gt_u)),
         "gt_groesster": gt_groesster,
+        "zell_anzahl": anzahl, "zell_lab": k_lab, "zell_gt": k_gt,
         "lab_u": lab_u, "gt_u": gt_u, "gt_idx": gt_idx,
     }
 
