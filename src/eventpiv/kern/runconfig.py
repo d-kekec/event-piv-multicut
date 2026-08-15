@@ -69,6 +69,7 @@ POLARITIES = ("on", "both")
 FEATURE_MODES = ("dr", "absxy")
 IMBALANCE_MODES = ("sample", "weight")
 SOLVER_BACKENDS = ("rama", "cc")
+SOLVER_MODES = ("P", "PD", "PD+", "D")
 POOLINGS = ("cls", "mean")
 LABEL_MODI = ("streng", "mehrheit", "weich")
 
@@ -232,6 +233,10 @@ class Solver(_Typed):
             raise ValueError(
                 f"solver.backend={self.backend!r} unbekannt. "
                 f"Erlaubt: {SOLVER_BACKENDS}")
+        if self.mode not in SOLVER_MODES:
+                raise ValueError(
+                    f"solver.mode={self.mode!r} unbekannt. "
+                    f"Erlaubt: {SOLVER_MODES}")
 
 
 @dataclass
@@ -390,6 +395,45 @@ class Transformer(_Typed):
             raise ValueError(
                 f"transformer.d_model={self.d_model} ist nicht durch "
                 f"n_heads={self.n_heads} teilbar.")
+
+
+@dataclass
+class Solver2(_Typed):
+    """Der Solver von Stufe 2. Eigene Gruppe, nicht Solver wiederverwendet.
+
+    `solver` identifiziert den Arbeitspunkt von STUFE 1 und steht im
+    Dateinamen der Tracklets und Kandidaten -- cost_offset=-0.5 waehlt dort
+    die QUELLE. Dieselbe Gruppe fuer die Rueckseite von Stufe 2 zu nehmen
+    vermengte zwei Dinge, die getrennt gewaehlt werden muessen.
+
+    backend="cc" ist ein ERGEBNIS, kein Hilfsmittel: CC kann eine positive
+    Kante nie schneiden, zwei Trajektorien verschmelzen also, sobald EINE
+    Kante zwischen ihnen positiv ist. Der Abstand zu RAMA ist die Zahl, die
+    den Solver rechtfertigt.
+
+    cost_offset wirkt hier wie in Stufe 1 -- er wird auf jede Kante addiert
+    und verschiebt den Betriebspunkt Richtung Schneiden. NICHT gemessen auf
+    dieser Ebene.
+    """
+    backend: str = "rama"
+    mode: str = "P"
+    cost_offset: float = 0.0
+
+    def short(self) -> str:
+        return (f"{self.backend}{self.mode if self.backend == 'rama' else ''}"
+                + ("" if self.cost_offset == 0.0
+                   else f"_o{self.cost_offset:g}"))
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.backend not in SOLVER_BACKENDS:
+            raise ValueError(
+                f"solver2.backend={self.backend!r} unbekannt. "
+                f"Erlaubt: {SOLVER_BACKENDS}")
+        if self.mode not in SOLVER_MODES:
+            raise ValueError(
+                f"solver2.mode={self.mode!r} unbekannt. "
+                f"Erlaubt: {SOLVER_MODES}")
 
 
 @dataclass
@@ -617,6 +661,30 @@ class Stufe2Cfg:
     solver:       Solver       = field(default_factory=Solver)
     kandidaten:   Kandidaten   = field(default_factory=Kandidaten)
     transformer:  Transformer  = field(default_factory=Transformer)
+    compute:      Compute      = field(default_factory=Compute)
+
+
+@dataclass
+class Solve2Cfg:
+    """[6c] Ein Stufe-2-Solve, ein Run.
+
+    Traegt die ganze Kette: Arbeitspunkt, Netz von Stufe 1, dessen
+    Solver-Betriebspunkt, den Kandidatensatz und das Stufe-2-Netz. Erst
+    `solver2` gehoert zu diesem Schritt.
+
+    Kein `window`: Stufe 2 loest den GANZEN Run in einem Zug. Das ist der
+    Sinn der Stufe -- Trajektorien laufen ueber alle Fenster, und ein
+    Ausschnitt zerschnitte genau das, was hier zusammengefuegt werden soll.
+    """
+    io:           IO           = field(default_factory=IO)
+    neighborhood: Neighborhood = field(default_factory=Neighborhood)
+    pairs:        PairSampling = field(default_factory=PairSampling)
+    training:     Training     = field(default_factory=Training)
+    solver:       Solver       = field(default_factory=Solver)
+    kandidaten:   Kandidaten   = field(default_factory=Kandidaten)
+    transformer:  Transformer  = field(default_factory=Transformer)
+    selection:    Selection    = field(default_factory=Selection)
+    solver2:      Solver2      = field(default_factory=Solver2)
     compute:      Compute      = field(default_factory=Compute)
 
 

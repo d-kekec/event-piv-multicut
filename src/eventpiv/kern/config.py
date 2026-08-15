@@ -246,6 +246,23 @@ def transformer_file(nb, ps, tr, sv, kd, tf, create: bool = False) -> Path:
     return d / f"model_{sv.short()}.pt"
 
 
+def solve2_file(nb, ps, tr, sv, kd, tf, sel, sv2, create: bool = False) -> Path:
+    """Ergebnis EINES Stufe-2-Solves [6c]. JSON, kein npz.
+
+    Unter dem Netz, das die Kosten geliefert hat -- der Baum IST die
+    Abhaengigkeitskette. Laufauswahl und Stufe-2-Solver stehen im
+    Dateinamen, wie bei solve_file: sie gehoeren nicht zur Identitaet des
+    Netzes.
+
+    Der Solver von STUFE 1 steckt bereits im Namen des Modells und taucht
+    hier nicht noch einmal auf.
+    """
+    d = _ensure(wp_dir(nb, create) / "pairs" / slug(ps) / slug(tr)
+                / "tracklets" / "stufe2" / slug(kd) / slug(tf) / "solves",
+                create)
+    return d / f"{sel.split}_run{sel.run_nr}_{sv2.short()}.json"
+
+
 # ============================================================
 # Metadaten (Code-Prinzip: jede erzeugte Datei traegt ihre Herkunft)
 # ============================================================
