@@ -216,6 +216,119 @@ def cluster_metrics(labels, track_id, status, t=None) -> dict:
         out["gt_visible_ms_median"] = float(np.median(tmax - tmin) / 1000.0)
     return out
 
+
+def _voll(werte_u, werte):
+    """Eventzahl je Eintrag von werte_u. Fremde Werte fallen heraus.
+
+    werte_u kommt aus np.unique und ist damit sortiert. searchsorted
+    liefert auch fuer fremde Werte eine Position -- ohne den
+    Trefferabgleich zaehlte ein Partikel, das gar keinen Cluster
+    erreicht hat, auf seinen Nachbarn.
+    """
+    if len(werte_u) == 0:
+        return np.zeros(0, np.int64)
+    pos = np.clip(np.searchsorted(werte_u, werte), 0, len(werte_u) - 1)
+    treffer = werte_u[pos] == werte
+    return np.bincount(pos[treffer], minlength=len(werte_u))
+
+
+def tracking_metrics(labels, track_id, status) -> dict:
+    """Die HOTA-Familie auf EVENTEBENE. Reine Funktion.
+
+    Nach Luiten, Osep, Dendorfer, Torr, Geiger, Leal-Taixe, Leibe:
+    "HOTA: A Higher Order Metric for Evaluating Multi-Object Tracking",
+    IJCV 2021 (arXiv:2009.07736), Gleichungen 18 bis 27.
+
+    EINE DETEKTION IST EIN ON-EVENT, und dasselbe Event ist zugleich
+    gtDet und prDet. Daraus folgt dreierlei, und alles drei vereinfacht:
+
+      - Die Aehnlichkeit S ist binaer (dasselbe Event oder nicht). Die
+        Integration ueber Lokalisierungsschwellen alpha entfaellt, es
+        gibt genau EIN HOTA und kein LocA.
+      - Das bijektive Matching je Zeitschritt ist die Identitaet. Kein
+        ungarisches Verfahren, keine Kostenmatrix.
+      - Es gibt keine Zeitachse. TPA, FNA und FPA sind ueber Zellzahlen
+        der Kreuztabelle berechenbar; das Paper nennt diese Abkuerzung
+        selbst.
+
+    DIE DREI MENGEN, und die Abgrenzung zur Paar-Ebene ist der Kern:
+
+      event_tp  Event mit GT-Partikel UND in einem Cluster
+      event_fn  Event mit GT-Partikel, aber label < 0 -- gefiltertes
+                Tracklet (min_events) oder kantenloser Knoten
+      event_fp  RAUSCHevent, das in einen Cluster eingewandert ist
+
+    Ein MEHRDEUTIGES Event ist KEIN false positive. Es traegt eine
+    track_id (das naechste Zentrum) und ist damit ein gueltiges gtDet;
+    landet es im falschen Cluster, ist das ein ASSOZIATIONSfehler.
+    Detektion beantwortet "kam das Event in irgendeinen Cluster",
+    Assoziation "in den richtigen". Das Ueberlappungsproblem sitzt
+    vollstaendig auf der zweiten Seite -- det_a liegt bei uns nahe 1,
+    das Signal traegt ass_a. Das ist eine Eigenschaft der Aufgabe und
+    gehoert beim Berichten gesagt.
+
+    Deshalb dieselbe Maske wie merge_metrics (alles ausser Rauschen)
+    und NICHT die von cluster_metrics: mehrdeutig ist ein Event genau
+    im Kern einer Ueberlappung, und dort entscheidet sich die
+    Assoziation. Preis: die GT dieser Events ist selbst unsicher.
+
+    FN UND FP GEHEN IN DIE TRAJEKTORIENLAENGEN EIN. |g| zaehlt alle
+    Events des Partikels einschliesslich seiner unclusterten, |p| alle
+    Events des Clusters einschliesslich seiner Rauschevents -- nicht die
+    Zellsummen. Das Paper begruendet es in Abschnitt 7 ("Including vs
+    Excluding Detection Errors in the Association Score"): ohne diese
+    Terme ist die Metrik NICHT MONOTON, das Hinzufuegen einer richtigen
+    Detektion koennte den Wert senken.
+
+    ass_re faellt, wenn ein Partikel in mehrere Cluster zerfaellt.
+    ass_pr faellt, wenn ein Cluster sich ueber mehrere Partikel
+    erstreckt. Das sind die etablierten Gegenstuecke zu unserer
+    Fragmentierung und Verschmelzung -- rangkorreliert, aber NICHT
+    dieselben Zahlen (gemessen: purity_event_mean gegen ass_pr
+    Spearman 1,00 bei Pearson 0,998; frag_mean gegen ass_re nur 0,86).
+    Beide Saetze bleiben deshalb nebeneinander stehen.
+
+    Rueckgabe: flaches dict. Leeres dict, wenn nichts bewertbar ist --
+    dieselbe Politik wie cluster_metrics und merge_metrics.
+    """
+    labels = np.asarray(labels)
+    track_id = np.asarray(track_id)
+    ist_gt = np.asarray(status) != STATUS_NOISE
+    ist_pr = labels >= 0
+
+    kt = _kreuztabelle(labels, track_id, ist_gt)
+    if kt is None:
+        return {}
+
+    anz = kt["zell_anzahl"].astype(np.int64)
+    kl, kg = kt["zell_lab"], kt["zell_gt"]
+
+    n_tp = int(anz.sum())
+    n_fn = int((ist_gt & ~ist_pr).sum())
+    n_fp = int((~ist_gt & ist_pr).sum())
+
+    g_voll = _voll(kt["gt_u"], track_id[ist_gt])
+    p_voll = _voll(kt["lab_u"], labels[ist_pr])
+
+    # A(c) je ZELLE statt je TP: alle TPs einer Zelle haben dieselbe
+    # gtID und dieselbe prID, also denselben Wert. Die Gewichtung mit
+    # anz holt die Mittelung ueber Detektionen zurueck.
+    a = anz / (g_voll[kg] + p_voll[kl] - anz)
+
+    det_a = n_tp / (n_tp + n_fn + n_fp)
+    ass_a = float((anz * a).sum() / n_tp)
+    return {
+        "event_tp": n_tp, "event_fn": n_fn, "event_fp": n_fp,
+        "det_a": float(det_a),
+        "det_re": float(n_tp / (n_tp + n_fn)),
+        "det_pr": float(n_tp / (n_tp + n_fp)),
+        "ass_a": ass_a,
+        "ass_re": float((anz * (anz / g_voll[kg])).sum() / n_tp),
+        "ass_pr": float((anz * (anz / p_voll[kl])).sum() / n_tp),
+        "hota": float(np.sqrt(det_a * ass_a)),
+    }
+
+
 def align_gt_window(gt_t, event_t):
     """Findet den Index-Ausschnitt der Label-Datei, der zum Eventfenster passt.
 

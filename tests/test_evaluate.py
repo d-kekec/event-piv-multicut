@@ -487,3 +487,142 @@ def test_kreuztabelle_zellen_ohne_bewertbare_events():
 
     assert _kreuztabelle(np.array([-1, -1]), np.array([1, 1]),
                          np.ones(2, bool)) is None
+
+
+def hota_naiv(labels, track_id, status):
+    """Referenz nach den DEFINITIONEN des Papers, ueber Detektionspaare.
+
+    Gleichungen 10 bis 12: fuer jedes TP c werden TPA(c), FNA(c) und
+    FPA(c) explizit ausgezaehlt. Die produktive Fassung rechnet
+    stattdessen auf Zellzahlen der Kreuztabelle -- das ist die
+    Abkuerzung, die das Paper selbst nennt, und genau die gehoert
+    gegen die Definition geprueft.
+    """
+    labels, track_id = np.asarray(labels), np.asarray(track_id)
+    ist_gt = np.asarray(status) != STATUS_NOISE
+    ist_pr = labels >= 0
+    tp = np.flatnonzero(ist_gt & ist_pr)
+    fn = np.flatnonzero(ist_gt & ~ist_pr)
+    fp = np.flatnonzero(~ist_gt & ist_pr)
+    if len(tp) == 0:
+        return {}
+
+    aa, rr, pp = [], [], []
+    for c in tp:
+        g, p = track_id[c], labels[c]
+        n_tpa = sum(1 for k in tp if labels[k] == p and track_id[k] == g)
+        n_fna = (sum(1 for k in tp if labels[k] != p and track_id[k] == g)
+                 + sum(1 for k in fn if track_id[k] == g))
+        n_fpa = (sum(1 for k in tp if labels[k] == p and track_id[k] != g)
+                 + sum(1 for k in fp if labels[k] == p))
+        aa.append(n_tpa / (n_tpa + n_fna + n_fpa))
+        rr.append(n_tpa / (n_tpa + n_fna))
+        pp.append(n_tpa / (n_tpa + n_fpa))
+
+    det_a = len(tp) / (len(tp) + len(fn) + len(fp))
+    ass_a = float(np.mean(aa))
+    return {"event_tp": len(tp), "event_fn": len(fn), "event_fp": len(fp),
+            "det_a": float(det_a),
+            "det_re": float(len(tp) / (len(tp) + len(fn))),
+            "det_pr": float(len(tp) / (len(tp) + len(fp))),
+            "ass_a": ass_a, "ass_re": float(np.mean(rr)),
+            "ass_pr": float(np.mean(pp)),
+            "hota": float(np.sqrt(det_a * ass_a))}
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_hota_gegen_naive_referenz(seed):
+    """Zellrechnung == Definition ueber Detektionspaare, in ALLEN Feldern."""
+    from eventpiv.bewerten.evaluate import tracking_metrics
+
+    rng = np.random.default_rng(seed)
+    n = 200
+    lab = rng.integers(-1, 9, n)
+    gt = rng.integers(1, 5, n)
+    st = rng.choice([STATUS_CLEAN, STATUS_AMBIG, STATUS_NOISE], n,
+                    p=[0.7, 0.15, 0.15]).astype(np.uint8)
+    gt = np.where(st == STATUS_NOISE, -1, gt)   # Vertrag aus labels.py
+    a, b = tracking_metrics(lab, gt, st), hota_naiv(lab, gt, st)
+    assert set(a) == set(b), "Feld ungeprueft: " + str(set(a) ^ set(b))
+    for k in b:
+        assert a[k] == pytest.approx(b[k]), f"Abweichung in {k}"
+
+
+def test_hota_perfekte_partition():
+    from eventpiv.bewerten.evaluate import tracking_metrics
+
+    m = tracking_metrics(np.array([0, 0, 0, 1, 1, 1]),
+                         np.array([7, 7, 7, 9, 9, 9]),
+                         np.full(6, STATUS_CLEAN, np.uint8))
+    assert m["hota"] == m["det_a"] == m["ass_a"] == 1.0
+    assert m["event_fn"] == m["event_fp"] == 0
+
+
+def test_hota_reduziert_sich_bei_einem_partikel_auf_jaccard():
+    """Gleichung 31 des Papers: bei genau EINEM Partikel fallen
+    Detektions- und Assoziationsscore zusammen, die Wurzel hebt die
+    Doppelzaehlung auf, und HOTA ist der reine Jaccard-Index.
+
+    Zwei von vier Events eines Partikels sind zugeordnet:
+    2 / (2 + 2 + 0) = 0.5.
+    """
+    from eventpiv.bewerten.evaluate import tracking_metrics
+
+    m = tracking_metrics(np.array([0, 0, -1, -1]), np.ones(4, np.int64),
+                         np.full(4, STATUS_CLEAN, np.uint8))
+    assert m["hota"] == pytest.approx(0.5)
+    assert m["det_a"] == pytest.approx(0.5)
+
+
+def test_mehrdeutige_events_sind_keine_false_positives():
+    """DIE Abgrenzung. Ein mehrdeutiges Event traegt eine track_id und
+    ist ein gueltiges gtDet -- ein falsch zugeordnetes erzeugt einen
+    ASSOZIATIONS-, keinen Detektionsfehler.
+
+    Zwei Partikel in EINEM Cluster, die Haelfte davon mehrdeutig:
+    det_a bleibt perfekt, ass_pr faellt.
+    """
+    from eventpiv.bewerten.evaluate import tracking_metrics
+
+    m = tracking_metrics(np.zeros(4, np.int64), np.array([1, 1, 2, 2]),
+                         np.array([STATUS_CLEAN, STATUS_AMBIG,
+                                   STATUS_CLEAN, STATUS_AMBIG], np.uint8))
+    assert m["event_fp"] == 0 and m["event_fn"] == 0
+    assert m["det_a"] == 1.0
+    assert m["ass_pr"] == pytest.approx(0.5)   # jeder Cluster halb fremd
+
+
+def test_rauschen_im_cluster_ist_ein_false_positive():
+    """Die einzige FP-Quelle: ein Rauschevent in einer Trajektorie.
+    Nach Journal 15.08. sind Rausch-Tracklets in echte Trajektorien
+    eingewandert -- bisher erfasst das keine Kennzahl."""
+    from eventpiv.bewerten.evaluate import tracking_metrics
+
+    m = tracking_metrics(np.zeros(3, np.int64), np.array([1, 1, -1]),
+                         np.array([STATUS_CLEAN, STATUS_CLEAN,
+                                   STATUS_NOISE], np.uint8))
+    assert m["event_tp"] == 2 and m["event_fp"] == 1
+    assert m["det_pr"] == pytest.approx(2 / 3)
+    assert m["det_re"] == 1.0
+
+
+def test_die_drei_kennzahlensaetze_kollidieren_nicht():
+    """cluster_metrics, merge_metrics und tracking_metrics werden in
+    solve2 in EIN dict gemischt. Ein gemeinsamer Schluessel wuerde still
+    ueberschreiben."""
+    from eventpiv.bewerten.evaluate import tracking_metrics
+
+    lab = np.array([0, 0, 1, 1])
+    gt = np.array([1, 1, 2, 2])
+    st = np.full(4, STATUS_CLEAN, np.uint8)
+    a = set(cluster_metrics(lab, gt, st))
+    b = set(merge_metrics(lab, gt, st))
+    c = set(tracking_metrics(lab, gt, st))
+    assert a & b == set() and a & c == set() and b & c == set()
+
+
+def test_hota_leer():
+    from eventpiv.bewerten.evaluate import tracking_metrics
+
+    st = np.full(3, STATUS_NOISE, np.uint8)
+    assert tracking_metrics(np.full(3, -1), np.full(3, -1), st) == {}
