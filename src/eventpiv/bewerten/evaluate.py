@@ -477,6 +477,140 @@ def idf1_metrics(labels, track_id, status) -> dict:
     }
 
 
+def _einheiten(labels, track_id, t, ist_gt, delta):
+    """Zeitgeordnete Einheiten je GT-Partikel. Reine Funktion.
+
+    delta = None  eine Einheit ist ein EVENT (die woertliche Definition)
+    delta = Zahl  eine Einheit ist (Partikel, Zeitbin) mit dem
+                  MEHRHEITSCLUSTER seiner zugeordneten Events
+                  Gleichstand: die kleinste Cluster-ID gewinnt.
+
+    Rueckgabe: (g, lab), aufsteigend nach (Partikel, Zeit). lab < 0 heisst
+    "in dieser Einheit nicht verfolgt".
+    """
+    idx = np.flatnonzero(ist_gt)
+    g = np.asarray(track_id)[idx]
+    zeit = np.asarray(t)[idx].astype(np.int64)
+    lab = np.asarray(labels)[idx].astype(np.int64)
+    if delta is None:
+        return (lambda o: (g[o], lab[o]))(np.lexsort((zeit, g)))
+
+    b = (zeit - zeit.min()) // int(delta)
+    g_u, g_i = np.unique(g, return_inverse=True)
+    n_b = int(b.max()) + 1
+    # schl_u ist aufsteigend, die Einheiten sind damit ohne zweites
+    # Sortieren nach (Partikel, Bin) geordnet.
+    schl_u, schl_i = np.unique(g_i * n_b + b, return_inverse=True)
+
+    lab_e = np.full(len(schl_u), -1, np.int64)
+    m = lab >= 0
+    if m.any():
+        l_u, l_i = np.unique(lab[m], return_inverse=True)
+        k, c = np.unique(schl_i[m] * len(l_u) + l_i, return_counts=True)
+        # Aufsteigend nach Anzahl schreiben: der letzte Schreibvorgang je
+        # Einheit ist die Mehrheit. BEI GLEICHSTAND GEWINNT DIE KLEINSTE
+        # CLUSTER-ID -- willkuerlich, aber festgelegt. Ohne die zweite
+        # Sortierstufe entscheidet die Reihenfolge in `k`, und die ist
+        # keine Definition; sie wich von der naiven Referenz in 1694 von
+        # 300 Zufallsfaellen ab (gemessen 16.08.).
+        o = np.lexsort((-(k % len(l_u)), c))
+        lab_e[(k // len(l_u))[o]] = l_u[(k % len(l_u))[o]]
+    return g_u[schl_u // n_b], lab_e
+
+
+def idsw_metrics(labels, track_id, status, t, delta=None) -> dict:
+    """Identitaetswechsel und Fragmentierungen. Reine Funktion.
+
+    IDSW nach Bernardin & Stiefelhagen, "Evaluating Multiple Object
+    Tracking Performance: The CLEAR MOT Metrics", EURASIP J. Image Video
+    Process. 2008; formal in Luiten et al. 2021, Gl. 44.
+
+    Frag nach Li, Huang, Nevatia, "Learning to Associate:
+    HybridBoosted Multi-Target Tracker for Crowded Scene", CVPR 2009,
+    zurueckgehend auf Wu & Nevatia, CVPR 2006. NICHT zu verwechseln mit
+    FragA aus dem HOTA-Papier (Gl. 33/34) und nicht mit unserem
+    lhn_frag_mean -- drei verschiedene Groessen unter demselben Kurznamen:
+
+      lhn_frag_mean  Cluster je GT-Partikel, ZEITLOS (cluster_metrics)
+      lhn_frag       Zahl der UNTERBRECHUNGEN einer GT-Trajektorie (hier)
+      lhn_frag_a     Anteil der Assoziation im zusammenhaengenden Stueck
+                 (HOTA-Papier, Baustein von FA-HOTA)
+
+    IDSW: ein verfolgtes Ereignis zaehlt, wenn seine Cluster-ID von der
+    des ZULETZT verfolgten Ereignisses desselben Partikels abweicht.
+    EINE LUECKE SETZT NICHT ZURUECK -- verschwindet ein Partikel und
+    kommt mit anderer ID wieder, ist das ein Wechsel. So steht es in
+    Gl. 44 (`prev` ist das TP mit groesstem t, nicht das unmittelbar
+    vorangehende Ereignis).
+
+    Frag: Zahl der Uebergaenge "nicht verfolgt -> verfolgt" NACH dem
+    ersten verfolgten Ereignis. Gleichwertig: Zahl der zusammenhaengenden
+    verfolgten Abschnitte minus eins, je Partikel. Ein Abschnitt ohne
+    GT-Events ist keine Luecke -- das Partikel existiert dort nicht.
+
+    Die beiden sind ORTHOGONAL: eine Unterbrechung ohne ID-Wechsel ist
+    Frag ohne IDSW, ein Wechsel ohne Unterbrechung umgekehrt.
+
+    delta in µs rastert die Zeit; None rechnet auf Eventebene. Warum
+    ueberhaupt eine Rasterung, obwohl die Definition sie nicht verlangt:
+    liegen zwei Tracklets desselben Partikels innerhalb eines Fensters
+    zeitlich VERSCHRAENKT, springt die ID am Eventstrom mehrfach hin und
+    her, obwohl die Trajektorie nur einmal geteilt ist. Dazu kommen
+    Zeitgleichstaende -- rund vier Events je µs, und ihre Reihenfolge
+    ist willkuerlich. delta fasst beides zusammen. OB das ins Gewicht
+    faellt, ist eine Messung und keine Annahme; deshalb ist die
+    Voreinstellung None, die nichts hinzuerfindet.
+
+    delta beschleunigt NICHT. Die Rasterung braucht denselben Durchgang
+    und zusaetzlich die Mehrheitsbestimmung.
+
+    Rueckgabe: flaches dict, `delta_us` = 0 heisst Eventebene. Leeres
+    dict, wenn nichts bewertbar ist.
+    """
+    ist_gt = np.asarray(status) != STATUS_NOISE
+    if not ist_gt.any():
+        return {}
+    g_s, lab_s = _einheiten(labels, track_id, t, ist_gt, delta)
+    if len(g_s) == 0:
+        return {}
+
+    verfolgt = lab_s >= 0
+    gleich = np.zeros(len(g_s), bool)
+    gleich[1:] = g_s[1:] == g_s[:-1]
+    grp = np.zeros(len(g_s), np.int64)
+    grp[1:] = np.cumsum(~gleich[1:])
+    n_grp = int(grp[-1]) + 1
+
+    # --- IDSW: Vergleich mit der VORHERIGEN VERFOLGTEN Einheit, nicht mit
+    # der unmittelbar vorangehenden. Das Ausduennen auf `v` ueberspringt
+    # die Luecken, ohne sie zurueckzusetzen.
+    wechsel = np.zeros(len(g_s), bool)
+    v = np.flatnonzero(verfolgt)
+    if len(v) > 1:
+        wechsel[v[1:]] = ((g_s[v[1:]] == g_s[v[:-1]])
+                          & (lab_s[v[1:]] != lab_s[v[:-1]]))
+    idsw_je = np.bincount(grp[wechsel], minlength=n_grp)
+
+    # --- Frag: Abschnitte minus eins. Ein Abschnitt beginnt bei einer
+    # verfolgten Einheit, deren Vorgaenger fehlt, zu einem anderen
+    # Partikel gehoert oder nicht verfolgt war.
+    beginn = verfolgt.copy()
+    beginn[1:] &= ~(gleich[1:] & verfolgt[:-1])
+    abschnitte = np.bincount(grp[beginn], minlength=n_grp)
+    frag_je = np.maximum(abschnitte - 1, 0)
+
+    return {
+        "delta_us": float(delta) if delta else 0.0,
+        "n_einheiten": int(len(g_s)),
+        "idsw": int(idsw_je.sum()),
+        "idsw_max": int(idsw_je.max()),
+        "idsw_ptkl_betroffen": int((idsw_je > 0).sum()),
+        "lhn_frag": int(frag_je.sum()),
+        "lhn_frag_max": int(frag_je.max()),
+        "lhn_frag_ptkl_betroffen": int((frag_je > 0).sum()),
+    }
+
+
 def align_gt_window(gt_t, event_t):
     """Findet den Index-Ausschnitt der Label-Datei, der zum Eventfenster passt.
 

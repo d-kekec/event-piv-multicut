@@ -813,3 +813,154 @@ def test_idf1_bestraft_fragmentierung_haerter_als_hota():
     st = np.zeros(40, np.uint8)
     assert idf1_metrics(lab, gt, st)["idf1"] == pytest.approx(0.25)
     assert tracking_metrics(lab, gt, st)["hota"] > 0.4
+
+
+def idsw_naiv(labels, track_id, status, t, delta=None):
+    """Referenz: Schleife ueber Partikel, Einheiten in Zeitordnung.
+
+    Haelt sich woertlich an Gl. 44 -- `prev` ist die zuletzt VERFOLGTE
+    Einheit desselben Partikels, eine Luecke setzt nicht zurueck.
+    """
+    labels, track_id = np.asarray(labels), np.asarray(track_id)
+    t = np.asarray(t)
+    ist_gt = np.asarray(status) != STATUS_NOISE
+    idx = np.flatnonzero(ist_gt)
+    if len(idx) == 0:
+        return {}
+
+    einheiten = {}
+    for k in idx:
+        schl = int(t[k]) if delta is None else int(t[idx].min()) + \
+            int((int(t[k]) - int(t[idx].min())) // int(delta))
+        einheiten.setdefault(int(track_id[k]), {}).setdefault(schl, []).append(
+            int(labels[k]))
+
+    idsw_je, frag_je = [], []
+    for g, nach_zeit in einheiten.items():
+        idsw = frag = 0
+        letzte = None
+        war_verfolgt = False
+        for schl in sorted(nach_zeit):
+            zug = [l for l in nach_zeit[schl] if l >= 0]
+            if delta is None:
+                # Eventebene: jedes Event ist eine eigene Einheit; bei
+                # gleichem Zeitstempel in Stromreihenfolge.
+                folge = nach_zeit[schl]
+            else:
+                # Gleichstand: kleinste Cluster-ID. min() ueber die
+                # sortierten Kandidaten macht die Regel sichtbar, statt
+                # sie der Iterationsreihenfolge von set() zu ueberlassen.
+                folge = [min(sorted(set(zug)), key=lambda l: -zug.count(l))] \
+                    if zug else [-1]
+            for lab in folge:
+                if lab < 0:
+                    war_verfolgt = False
+                    continue
+                if letzte is not None and lab != letzte:
+                    idsw += 1
+                if letzte is not None and not war_verfolgt:
+                    frag += 1
+                letzte, war_verfolgt = lab, True
+        idsw_je.append(idsw)
+        frag_je.append(frag)
+
+    return {"idsw": sum(idsw_je), "idsw_max": max(idsw_je),
+            "lhn_frag": sum(frag_je), "lhn_frag_max": max(frag_je)}
+
+
+@pytest.mark.parametrize("delta", [None, 3, 10])
+@pytest.mark.parametrize("seed", range(6))
+def test_idsw_gegen_naive_referenz(seed, delta):
+    from eventpiv.bewerten.evaluate import idsw_metrics
+
+    rng = np.random.default_rng(seed)
+    n = 120
+    lab = rng.integers(-1, 4, n)
+    gt = rng.integers(1, 4, n)
+    st = rng.choice([STATUS_CLEAN, STATUS_AMBIG, STATUS_NOISE], n,
+                    p=[0.7, 0.15, 0.15]).astype(np.uint8)
+    gt = np.where(st == STATUS_NOISE, -1, gt)
+    t = np.sort(rng.integers(0, 60, n))          # mit Zeitgleichstaenden
+
+    a, b = idsw_metrics(lab, gt, st, t, delta), idsw_naiv(lab, gt, st, t, delta)
+    for k in b:
+        assert a[k] == b[k], f"{k}: {a[k]} != {b[k]} (delta={delta})"
+
+
+def test_idsw_luecke_setzt_nicht_zurueck():
+    """Gl. 44: prev ist das ZULETZT VERFOLGTE Ereignis. Verschwindet ein
+    Partikel und kommt mit anderer ID wieder, ist das ein Wechsel -- und
+    zugleich eine Fragmentierung. Die beiden sind orthogonal, hier
+    treten sie zusammen auf."""
+    from eventpiv.bewerten.evaluate import idsw_metrics
+
+    lab = np.array([0, 0, -1, -1, 1, 1])
+    gt = np.ones(6, np.int64)
+    st = np.zeros(6, np.uint8)
+    m = idsw_metrics(lab, gt, st, np.arange(6))
+    assert m["idsw"] == 1
+    assert m["lhn_frag"] == 1
+
+
+def test_frag_ohne_idsw():
+    """Unterbrechung, danach dieselbe ID: Frag zaehlt, IDSW nicht."""
+    from eventpiv.bewerten.evaluate import idsw_metrics
+
+    m = idsw_metrics(np.array([0, 0, -1, 0, 0]), np.ones(5, np.int64),
+                     np.zeros(5, np.uint8), np.arange(5))
+    assert m["lhn_frag"] == 1 and m["idsw"] == 0
+
+
+def test_idsw_ohne_frag():
+    """Wechsel ohne Unterbrechung: IDSW zaehlt, Frag nicht."""
+    from eventpiv.bewerten.evaluate import idsw_metrics
+
+    m = idsw_metrics(np.array([0, 0, 1, 1]), np.ones(4, np.int64),
+                     np.zeros(4, np.uint8), np.arange(4))
+    assert m["idsw"] == 1 and m["lhn_frag"] == 0
+
+
+def test_fuehrende_luecke_ist_keine_fragmentierung():
+    """Vor dem ersten verfolgten Ereignis existiert nichts, was
+    unterbrochen werden koennte."""
+    from eventpiv.bewerten.evaluate import idsw_metrics
+
+    m = idsw_metrics(np.array([-1, -1, 0, 0]), np.ones(4, np.int64),
+                     np.zeros(4, np.uint8), np.arange(4))
+    assert m["lhn_frag"] == 0 and m["idsw"] == 0
+
+
+def test_delta_glaettet_verschraenkte_tracklets():
+    """DER Grund fuer die Rasterung. Zwei Cluster desselben Partikels
+    liegen zeitlich verschraenkt: auf Eventebene sind das fuenf Wechsel,
+    mit delta = 10 wird daraus einer."""
+    from eventpiv.bewerten.evaluate import idsw_metrics
+
+    lab = np.array([0, 1, 0, 1, 0, 1, 1, 1, 1, 1])
+    gt = np.ones(10, np.int64)
+    st = np.zeros(10, np.uint8)
+    t = np.arange(10)
+    assert idsw_metrics(lab, gt, st, t)["idsw"] == 5
+    assert idsw_metrics(lab, gt, st, t, delta=10)["idsw"] == 0
+
+
+def test_idsw_leer():
+    from eventpiv.bewerten.evaluate import idsw_metrics
+
+    assert idsw_metrics(np.full(3, -1), np.full(3, -1),
+                        np.full(3, STATUS_NOISE, np.uint8), np.arange(3)) == {}
+
+
+def test_gleichstand_im_bin_waehlt_die_kleinste_cluster_id():
+    """Zwei Cluster mit derselben Eventzahl in einem Bin. Die Wahl ist
+    willkuerlich, aber sie muss FESTGELEGT sein -- ohne Regel entscheidet
+    die interne Reihenfolge, und produktive und naive Fassung liefen
+    auseinander."""
+    from eventpiv.bewerten.evaluate import idsw_metrics
+
+    # Bin 0: je zweimal Cluster 5 und 9. Bin 1: nur Cluster 5.
+    lab = np.array([9, 5, 9, 5, 5, 5])
+    gt = np.ones(6, np.int64)
+    st = np.zeros(6, np.uint8)
+    t = np.array([0, 1, 2, 3, 10, 11])
+    assert idsw_metrics(lab, gt, st, t, delta=10)["idsw"] == 0
