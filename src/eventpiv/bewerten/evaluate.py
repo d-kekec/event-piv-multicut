@@ -333,7 +333,18 @@ def tracking_metrics(labels, track_id, status) -> dict:
 
     det_a = n_tp / (n_tp + n_fn + n_fp)
     ass_a = float((anz * a).sum() / n_tp)
+    # Verteilung statt Mittel: ass_a allein unterscheidet "ueberall
+    # leicht unsauber" nicht von "zwei Ueberlappungen kaputt".
+    jp = _je_partikel(kt, anz, kl, kg, g_voll, p_voll)
+    aap = jp["ass_a_ptkl"]
     return {
+        "ass_a_min": float(aap.min()),
+        "ass_a_p10": float(np.percentile(aap, 10)),
+        "ass_a_lt90": int((aap < 0.90).sum()),
+        "ass_a_lt90_frac": float((aap < 0.90).mean()),
+        "ass_pr_min": float(jp["ass_pr_ptkl"].min()),
+        "ass_pr_lt90": int((jp["ass_pr_ptkl"] < 0.90).sum()),
+        "n_cluster_eff_max": float(jp["n_cluster_eff"].max()),
         "event_tp": n_tp, "event_fn": n_fn, "event_fp": n_fp,
         "det_a": float(det_a),
         "det_re": float(n_tp / (n_tp + n_fn)),
@@ -343,6 +354,71 @@ def tracking_metrics(labels, track_id, status) -> dict:
         "ass_pr": float((anz * (anz / p_voll[kl])).sum() / n_tp),
         "hota": float(np.sqrt(det_a * ass_a)),
     }
+
+
+def _je_partikel(kt, anz, kl, kg, g_voll, p_voll) -> dict:
+    """Die Assoziationsmasse je GT-Partikel, aus fertigen Zellen."""
+    n_g = len(kt["gt_u"])
+    a = anz / (g_voll[kg] + p_voll[kl] - anz)
+    n_ptkl = np.bincount(kg, weights=anz, minlength=n_g)
+
+    def mittel(werte):
+        # Gewicht ist die Eventzahl der Zelle -- dieselbe Mittelung ueber
+        # Detektionen wie im Laufwert, nur je Partikel abgebrochen.
+        return np.bincount(kg, weights=anz * werte, minlength=n_g) / n_ptkl
+
+    return {
+        "gt_track_id": kt["gt_u"],
+        "n_ptkl": n_ptkl.astype(np.int64),
+        "ass_re_ptkl": mittel(anz / g_voll[kg]),
+        "ass_pr_ptkl": mittel(anz / p_voll[kl]),
+        "ass_a_ptkl": mittel(a),
+        # EFFEKTIVE Clusterzahl: Kehrwert des Simpson-Index ueber die
+        # Verteilung der Events eines Partikels auf seine Cluster. Bei k
+        # gleich grossen Stuecken genau k; ein grosses Stueck plus Kruemel
+        # bleibt knapp ueber 1. Schwellenfrei und monoton in der
+        # Zersplitterung -- eine 10-%-Schwelle zaehlte dreizehn Stuecke
+        # zu 8 % als NULL und waere damit gegenlaeufig zum Zweck.
+        "n_cluster_eff": n_ptkl ** 2 / np.bincount(
+            kg, weights=(anz.astype(np.float64)) ** 2, minlength=n_g),
+    }
+
+
+def tracking_metrics_je_partikel(labels, track_id, status) -> dict:
+    """Die Assoziationsmasse AUFGESCHLUESSELT je GT-Partikel.
+
+    ERFINDET KEINE KENNZAHL. ass_a ist bereits das mit der Eventzahl
+    gewichtete Mittel ueber die GT-Partikel; diese Funktion unterlaesst
+    nur das Zusammenfassen:
+
+        ass_a == sum_p (n_ptkl[p] / n_tp) * ass_a_ptkl[p]
+
+    Der Grund: ein Laufmittel ueber Millionen Events kann "ueberall
+    leicht unsauber" nicht von "fast alles perfekt, zwei Ueberlappungen
+    kaputt" trennen -- beide erzeugen dieselbe Zahl. Die Summanden
+    trennen sie.
+
+    VIER SIGNATUREN, und nur eine davon ist der gesuchte Fall:
+
+      sauber rekonstruiert  ass_re ~1   ass_pr ~1   n_cluster_10 = 1
+      Kruemel abgesplittert ass_re ab   ass_pr ~1   n_cluster_10 = 1
+      IDENTITAETSWECHSEL    ass_re ab   ass_pr ab   n_cluster_10 = 2
+      fremdes Stueck geerbt ass_re ~1   ass_pr ab   n_cluster_10 = 1
+
+    Nur der Identitaetswechsel senkt BEIDE Masse gleichzeitig und hebt
+    die Zahl der substanziellen Cluster ueber eins -- und er tritt
+    PAARWEISE auf, an zwei Partikeln zugleich. Das macht ihn pruefbar
+    statt bloss plausibel.
+
+    Rueckgabe: dict von Arrays, alle parallel zu gt_track_id (aufsteigend).
+    Leeres dict, wenn nichts bewertbar ist. Partikel ohne ein einziges
+    zugeordnetes Event kommen NICHT vor -- sie haben kein TP und tragen zu
+    keiner Assoziation bei; sie stecken vollstaendig in event_fn.
+    """
+    z = _zellen(labels, track_id, status)
+    if z is None:
+        return {}
+    return _je_partikel(*z[:6])
 
 
 def align_gt_window(gt_t, event_t):

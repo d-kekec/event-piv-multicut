@@ -497,6 +497,11 @@ def hota_naiv(labels, track_id, status):
     stattdessen auf Zellzahlen der Kreuztabelle -- das ist die
     Abkuerzung, die das Paper selbst nennt, und genau die gehoert
     gegen die Definition geprueft.
+
+    Die fuenf Kennzahlen aus der Verteilung entstehen hier durch
+    Gruppierung per Schleife statt per bincount. Die Aggregation danach
+    (min, percentile, zaehlen) ist in beiden Fassungen derselbe Aufruf
+    und traegt keine eigene Definition.
     """
     labels, track_id = np.asarray(labels), np.asarray(track_id)
     ist_gt = np.asarray(status) != STATUS_NOISE
@@ -519,9 +524,37 @@ def hota_naiv(labels, track_id, status):
         rr.append(n_tpa / (n_tpa + n_fna))
         pp.append(n_tpa / (n_tpa + n_fpa))
 
+    # Dieselben A(c), nach GT-Partikel gruppiert -- per Schleife, damit
+    # die Gruppierung selbst geprueft wird und nicht nur die Aggregation.
+    a_je_ptkl = {}
+    for c, wert in zip(tp, aa):
+        a_je_ptkl.setdefault(int(track_id[c]), []).append(wert)
+    ass_a_ptkl = np.array([float(np.mean(v)) for v in a_je_ptkl.values()])
+
+    # Substanzielle Cluster je Partikel: >= 10 % seiner VOLLEN Eventzahl,
+    # unzugeordnete Events eingeschlossen.
+    eff, pr_je_ptkl = [], {}
+    for c, wert in zip(tp, pp):
+        pr_je_ptkl.setdefault(int(track_id[c]), []).append(wert)
+    for g in a_je_ptkl:
+        cl = {}
+        for k in tp:
+            if track_id[k] == g:
+                cl[int(labels[k])] = cl.get(int(labels[k]), 0) + 1
+        n_g = sum(cl.values())
+        eff.append(n_g ** 2 / sum(v * v for v in cl.values()))
+    ass_pr_ptkl = np.array([float(np.mean(v)) for v in pr_je_ptkl.values()])
+
     det_a = len(tp) / (len(tp) + len(fn) + len(fp))
     ass_a = float(np.mean(aa))
-    return {"event_tp": len(tp), "event_fn": len(fn), "event_fp": len(fp),
+    return {"ass_a_min": float(ass_a_ptkl.min()),
+            "ass_a_p10": float(np.percentile(ass_a_ptkl, 10)),
+            "ass_a_lt90": int((ass_a_ptkl < 0.90).sum()),
+            "ass_a_lt90_frac": float((ass_a_ptkl < 0.90).mean()),
+            "ass_pr_min": float(ass_pr_ptkl.min()),
+            "ass_pr_lt90": int((ass_pr_ptkl < 0.90).sum()),
+            "n_cluster_eff_max": float(max(eff)),
+            "event_tp": len(tp), "event_fn": len(fn), "event_fp": len(fp),
             "det_a": float(det_a),
             "det_re": float(len(tp) / (len(tp) + len(fn))),
             "det_pr": float(len(tp) / (len(tp) + len(fp))),
@@ -626,3 +659,74 @@ def test_hota_leer():
 
     st = np.full(3, STATUS_NOISE, np.uint8)
     assert tracking_metrics(np.full(3, -1), np.full(3, -1), st) == {}
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_zerlegung_ergibt_das_laufmittel(seed):
+    """Die Probe auf die ganze Idee: das eventgewichtete Mittel der
+    Partikelwerte IST ass_a. Weicht es ab, ist eine der beiden
+    Funktionen falsch."""
+    from eventpiv.bewerten.evaluate import (tracking_metrics,
+                                            tracking_metrics_je_partikel)
+    rng = np.random.default_rng(seed)
+    n = 400
+    lab = rng.integers(-1, 12, n)
+    gt = rng.integers(1, 7, n)
+    st = rng.choice([STATUS_CLEAN, STATUS_AMBIG, STATUS_NOISE], n,
+                    p=[0.7, 0.15, 0.15]).astype(np.uint8)
+    gt = np.where(st == STATUS_NOISE, -1, gt)
+
+    g, jp = tracking_metrics(lab, gt, st), tracking_metrics_je_partikel(lab, gt, st)
+    gewicht = jp["n_ptkl"] / g["event_tp"]
+    assert gewicht.sum() == pytest.approx(1.0)
+    for feld in ("ass_a", "ass_re", "ass_pr"):
+        assert (gewicht * jp[f"{feld}_ptkl"]).sum() == pytest.approx(g[feld])
+
+
+def test_signatur_identitaetswechsel():
+    """Zwei Partikel tauschen zur Haelfte die Cluster. BEIDE Masse fallen,
+    und beide Partikel bekommen zwei substanzielle Cluster -- die Signatur
+    tritt paarweise auf."""
+    from eventpiv.bewerten.evaluate import tracking_metrics_je_partikel
+
+    gt = np.array([1]*10 + [2]*10)
+    lab = np.array([0]*5 + [1]*5 + [1]*5 + [0]*5)
+    jp = tracking_metrics_je_partikel(lab, gt, np.zeros(20, np.uint8))
+    assert jp["n_cluster_eff"] == pytest.approx([2.0, 2.0])
+    assert jp["ass_re_ptkl"] == pytest.approx([0.5, 0.5])
+    assert jp["ass_pr_ptkl"] == pytest.approx([0.5, 0.5])
+
+
+def test_signatur_kruemel_unterscheidet_sich():
+    """Ein Partikel verliert ein einzelnes Event an einen Splitter:
+    ass_re faellt leicht, ass_pr bleibt 1, n_cluster_10 bleibt 1.
+    Genau das trennt den harmlosen Fall vom Identitaetswechsel."""
+    from eventpiv.bewerten.evaluate import tracking_metrics_je_partikel
+
+    gt = np.ones(20, np.int64)
+    lab = np.array([0]*19 + [1])
+    jp = tracking_metrics_je_partikel(lab, gt, np.zeros(20, np.uint8))
+    assert jp["n_cluster_eff"][0] < 1.15    # 19 + 1 Event: 1.108...
+    assert jp["ass_pr_ptkl"] == pytest.approx([1.0])
+    assert jp["ass_re_ptkl"][0] < 1.0
+
+
+def test_je_partikel_leer():
+    from eventpiv.bewerten.evaluate import tracking_metrics_je_partikel
+    assert tracking_metrics_je_partikel(
+        np.full(3, -1), np.full(3, -1), np.full(3, STATUS_NOISE, np.uint8)) == {}
+
+
+def test_viele_kleine_stuecke_werden_nicht_kleingerechnet():
+    """Der Fehler, den eine 10-%-Schwelle gemacht haette: dreizehn
+    Stuecke zu je 7,7 % lagen ALLE darunter und wurden als null
+    substanzielle Cluster gezaehlt -- je schlimmer der Fall, desto
+    kleiner die Zahl. n_cluster_eff ist monoton."""
+    from eventpiv.bewerten.evaluate import tracking_metrics_je_partikel
+
+    gt = np.ones(26, np.int64)
+    st = np.zeros(26, np.uint8)
+    zwei = tracking_metrics_je_partikel(np.repeat([0, 1], 13), gt, st)
+    dreizehn = tracking_metrics_je_partikel(np.repeat(np.arange(13), 2), gt, st)
+    assert zwei["n_cluster_eff"] == pytest.approx([2.0])
+    assert dreizehn["n_cluster_eff"] == pytest.approx([13.0])
