@@ -232,6 +232,36 @@ def _voll(werte_u, werte):
     return np.bincount(pos[treffer], minlength=len(werte_u))
 
 
+def _zellen(labels, track_id, status):
+    """Zellen der Kreuztabelle plus die VOLLEN Trajektorienlaengen.
+
+    Gemeinsame Vorarbeit der Tracking-Masse. _kreuztabelle ueber Millionen
+    Events zweimal zu bilden waere reine Verschwendung.
+
+    g_voll zaehlt alle Events des Partikels EINSCHLIESSLICH der
+    unzugeordneten, p_voll alle Events des Clusters EINSCHLIESSLICH der
+    Rauschevents -- nicht die Zellsummen.
+
+    Rueckgabe: None, wenn nichts bewertbar ist. Sonst
+    (kt, anz, kl, kg, g_voll, p_voll, n_tp, n_fn, n_fp).
+    """
+    labels = np.asarray(labels)
+    track_id = np.asarray(track_id)
+    ist_gt = np.asarray(status) != STATUS_NOISE
+    ist_pr = labels >= 0
+
+    kt = _kreuztabelle(labels, track_id, ist_gt)
+    if kt is None:
+        return None
+    anz = kt["zell_anzahl"].astype(np.int64)
+    return (kt, anz, kt["zell_lab"], kt["zell_gt"],
+            _voll(kt["gt_u"], track_id[ist_gt]),
+            _voll(kt["lab_u"], labels[ist_pr]),
+            int(anz.sum()),
+            int((ist_gt & ~ist_pr).sum()),
+            int((~ist_gt & ist_pr).sum()))
+
+
 def tracking_metrics(labels, track_id, status) -> dict:
     """Die HOTA-Familie auf EVENTEBENE. Reine Funktion.
 
@@ -291,24 +321,10 @@ def tracking_metrics(labels, track_id, status) -> dict:
     Rueckgabe: flaches dict. Leeres dict, wenn nichts bewertbar ist --
     dieselbe Politik wie cluster_metrics und merge_metrics.
     """
-    labels = np.asarray(labels)
-    track_id = np.asarray(track_id)
-    ist_gt = np.asarray(status) != STATUS_NOISE
-    ist_pr = labels >= 0
-
-    kt = _kreuztabelle(labels, track_id, ist_gt)
-    if kt is None:
+    z = _zellen(labels, track_id, status)
+    if z is None:
         return {}
-
-    anz = kt["zell_anzahl"].astype(np.int64)
-    kl, kg = kt["zell_lab"], kt["zell_gt"]
-
-    n_tp = int(anz.sum())
-    n_fn = int((ist_gt & ~ist_pr).sum())
-    n_fp = int((~ist_gt & ist_pr).sum())
-
-    g_voll = _voll(kt["gt_u"], track_id[ist_gt])
-    p_voll = _voll(kt["lab_u"], labels[ist_pr])
+    kt, anz, kl, kg, g_voll, p_voll, n_tp, n_fn, n_fp = z
 
     # A(c) je ZELLE statt je TP: alle TPs einer Zelle haben dieselbe
     # gtID und dieselbe prID, also denselben Wert. Die Gewichtung mit
