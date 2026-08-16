@@ -41,7 +41,8 @@ import numpy as np
 import torch
 from pathlib import Path
 
-from eventpiv.bewerten.evaluate import cluster_metrics, merge_metrics
+from eventpiv.bewerten.evaluate import (cluster_metrics, merge_metrics,
+                                        tracking_metrics)
 from eventpiv.bewerten.metrics import pair_report
 from eventpiv.kern import config
 from eventpiv.kern.graph import polarity_mask
@@ -196,7 +197,8 @@ def solve2_run(cfg: Solve2Cfg, model, norm, run_nr, verbose=True):
                 f"{len(tid_ev):,} im Artefakt {tpfad.name}.")
         for name, lab in (("stufe1", lab_vorher), ("stufe2", lab_ev)):
             lauf[name] = {**cluster_metrics(lab, tid_gt, status),
-                          **merge_metrics(lab, tid_gt, status)}
+                          **merge_metrics(lab, tid_gt, status),
+                          **tracking_metrics(lab, tid_gt, status)}
 
     lauf.update({
         "run": run_nr, "split": sel.split,
@@ -219,6 +221,10 @@ def solve2_run(cfg: Solve2Cfg, model, norm, run_nr, verbose=True):
                   f"{b['purity_event_mean']:.4f}   |   Merge "
                   f"{a['merge_event_frac']*100:.2f} -> "
                   f"{b['merge_event_frac']*100:.2f} %", flush=True)
+            print(f"  HOTA {a['hota']:.4f} -> {b['hota']:.4f}   |   "
+                  f"AssRe {a['ass_re']:.4f} -> {b['ass_re']:.4f}   |   "
+                  f"AssPr {a['ass_pr']:.4f} -> {b['ass_pr']:.4f}   |   "
+                  f"DetA {a['det_a']:.4f} -> {b['det_a']:.4f}", flush=True)
     return lab_ev, lauf
 
 
