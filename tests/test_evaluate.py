@@ -639,18 +639,21 @@ def test_rauschen_im_cluster_ist_ein_false_positive():
     assert m["det_re"] == 1.0
 
 
-def test_die_vier_kennzahlensaetze_kollidieren_nicht():
-    """cluster_metrics, merge_metrics, tracking_metrics und idf1_metrics werden in
-    solve2 in EIN dict gemischt. Ein gemeinsamer Schluessel wuerde still
-    ueberschreiben."""
+def test_die_fuenf_kennzahlensaetze_kollidieren_nicht():
+    """cluster_metrics, merge_metrics, tracking_metrics, idf1_metrics
+    und idsw_metrics werden in solve2 in EIN dict gemischt.
+    Ein gemeinsamer Schluessel wuerde still ueberschreiben."""
     from eventpiv.bewerten.evaluate import tracking_metrics
 
     lab = np.array([0, 0, 1, 1])
     gt = np.array([1, 1, 2, 2])
     st = np.full(4, STATUS_CLEAN, np.uint8)
-    from eventpiv.bewerten.evaluate import idf1_metrics
-    saetze = [set(cluster_metrics(lab, gt, st)), set(merge_metrics(lab, gt, st)),
-              set(tracking_metrics(lab, gt, st)), set(idf1_metrics(lab, gt, st))]
+    from eventpiv.bewerten.evaluate import idf1_metrics, idsw_metrics
+    t = np.arange(len(lab))
+    saetze = [set(cluster_metrics(lab, gt, st, t=t)),
+              set(merge_metrics(lab, gt, st)),
+              set(tracking_metrics(lab, gt, st)), set(idf1_metrics(lab, gt, st)),
+              set(idsw_metrics(lab, gt, st, t))]
     for i, x in enumerate(saetze):
         for y in saetze[i + 1:]:
             assert x & y == set(), f"gemeinsamer Schluessel: {x & y}"

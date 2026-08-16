@@ -601,7 +601,7 @@ def idsw_metrics(labels, track_id, status, t, delta=None) -> dict:
 
     return {
         "delta_us": float(delta) if delta else 0.0,
-        "n_einheiten": int(len(g_s)),
+        "n_metric_zeiteinheiten": int(len(g_s)),
         "idsw": int(idsw_je.sum()),
         "idsw_max": int(idsw_je.max()),
         "idsw_ptkl_betroffen": int((idsw_je > 0).sum()),

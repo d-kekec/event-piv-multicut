@@ -42,7 +42,8 @@ import torch
 from pathlib import Path
 
 from eventpiv.bewerten.evaluate import (cluster_metrics, idf1_metrics,
-                                        merge_metrics, tracking_metrics)
+                                        idsw_metrics, merge_metrics,
+                                        tracking_metrics)
 from eventpiv.bewerten.metrics import pair_report
 from eventpiv.kern import config
 from eventpiv.kern.graph import polarity_mask
@@ -191,15 +192,23 @@ def solve2_run(cfg: Solve2Cfg, model, norm, run_nr, verbose=True):
         with np.load(gtp) as g:
             mask_on = polarity_mask(g["p"], nb.polarity)
             tid_gt, status = g["track_id"][mask_on], g["status"][mask_on]
+            # Zeitstempel je ON-Event. Ohne sie sind IDSW und Frag nicht
+            # definiert; cluster_metrics gewinnt daraus zusaetzlich
+            # gt_visible_ms_median, das bisher nur in Stufe 1 anfiel.
+            t_gt = g["t"][mask_on]
         if len(tid_gt) != len(tid_ev):
             raise SystemExit(
                 f"VERTRAG VERLETZT: {len(tid_gt):,} ON-Events im Labelstrom, "
                 f"{len(tid_ev):,} im Artefakt {tpfad.name}.")
         for name, lab in (("stufe1", lab_vorher), ("stufe2", lab_ev)):
-            lauf[name] = {**cluster_metrics(lab, tid_gt, status),
+            lauf[name] = {**cluster_metrics(lab, tid_gt, status, t=t_gt),
                           **merge_metrics(lab, tid_gt, status),
                           **tracking_metrics(lab, tid_gt, status),
-                          **idf1_metrics(lab, tid_gt, status)}
+                          **idf1_metrics(lab, tid_gt, status),
+                          # delta=None: die woertliche Definition auf
+                          # Eventebene. Die Rasterung ist ein eigener
+                          # Versuch und noch keine Konfigurationsgroesse.
+                          **idsw_metrics(lab, tid_gt, status, t_gt)}
 
     lauf.update({
         "run": run_nr, "split": sel.split,
@@ -226,6 +235,10 @@ def solve2_run(cfg: Solve2Cfg, model, norm, run_nr, verbose=True):
                   f"AssRe {a['ass_re']:.4f} -> {b['ass_re']:.4f}   |   "
                   f"AssPr {a['ass_pr']:.4f} -> {b['ass_pr']:.4f}   |   "
                   f"DetA {a['det_a']:.4f} -> {b['det_a']:.4f}", flush=True)
+            print(f"  IDSW {a['idsw']:,} -> {b['idsw']:,}   |   "
+                  f"LHN-Frag {a['lhn_frag']:,} -> {b['lhn_frag']:,}   |   "
+                  f"betroffene Partikel {b['idsw_ptkl_betroffen']} / "
+                  f"{b['n_gt']}", flush=True)
     return lab_ev, lauf
 
 
