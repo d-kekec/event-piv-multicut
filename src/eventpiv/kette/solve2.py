@@ -41,8 +41,8 @@ import numpy as np
 import torch
 from pathlib import Path
 
-from eventpiv.bewerten.evaluate import (cluster_metrics, merge_metrics,
-                                        tracking_metrics)
+from eventpiv.bewerten.evaluate import (cluster_metrics, idf1_metrics,
+                                        merge_metrics, tracking_metrics)
 from eventpiv.bewerten.metrics import pair_report
 from eventpiv.kern import config
 from eventpiv.kern.graph import polarity_mask
@@ -198,7 +198,8 @@ def solve2_run(cfg: Solve2Cfg, model, norm, run_nr, verbose=True):
         for name, lab in (("stufe1", lab_vorher), ("stufe2", lab_ev)):
             lauf[name] = {**cluster_metrics(lab, tid_gt, status),
                           **merge_metrics(lab, tid_gt, status),
-                          **tracking_metrics(lab, tid_gt, status)}
+                          **tracking_metrics(lab, tid_gt, status),
+                          **idf1_metrics(lab, tid_gt, status)}
 
     lauf.update({
         "run": run_nr, "split": sel.split,

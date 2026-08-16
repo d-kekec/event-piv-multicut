@@ -639,8 +639,8 @@ def test_rauschen_im_cluster_ist_ein_false_positive():
     assert m["det_re"] == 1.0
 
 
-def test_die_drei_kennzahlensaetze_kollidieren_nicht():
-    """cluster_metrics, merge_metrics und tracking_metrics werden in
+def test_die_vier_kennzahlensaetze_kollidieren_nicht():
+    """cluster_metrics, merge_metrics, tracking_metrics und idf1_metrics werden in
     solve2 in EIN dict gemischt. Ein gemeinsamer Schluessel wuerde still
     ueberschreiben."""
     from eventpiv.bewerten.evaluate import tracking_metrics
@@ -648,10 +648,12 @@ def test_die_drei_kennzahlensaetze_kollidieren_nicht():
     lab = np.array([0, 0, 1, 1])
     gt = np.array([1, 1, 2, 2])
     st = np.full(4, STATUS_CLEAN, np.uint8)
-    a = set(cluster_metrics(lab, gt, st))
-    b = set(merge_metrics(lab, gt, st))
-    c = set(tracking_metrics(lab, gt, st))
-    assert a & b == set() and a & c == set() and b & c == set()
+    from eventpiv.bewerten.evaluate import idf1_metrics
+    saetze = [set(cluster_metrics(lab, gt, st)), set(merge_metrics(lab, gt, st)),
+              set(tracking_metrics(lab, gt, st)), set(idf1_metrics(lab, gt, st))]
+    for i, x in enumerate(saetze):
+        for y in saetze[i + 1:]:
+            assert x & y == set(), f"gemeinsamer Schluessel: {x & y}"
 
 
 def test_hota_leer():
@@ -730,3 +732,84 @@ def test_viele_kleine_stuecke_werden_nicht_kleingerechnet():
     dreizehn = tracking_metrics_je_partikel(np.repeat(np.arange(13), 2), gt, st)
     assert zwei["n_cluster_eff"] == pytest.approx([2.0])
     assert dreizehn["n_cluster_eff"] == pytest.approx([13.0])
+
+
+def idf1_naiv(labels, track_id, status):
+    """Referenz: das beste Matching durch vollstaendige AUFZAEHLUNG.
+
+    Alle injektiven Teilzuordnungen GT -> Cluster, Nichtzuordnung
+    ausdruecklich erlaubt. Nur fuer winzige Beispiele brauchbar --
+    genau deshalb ist es die richtige Probe darauf, dass das
+    rechteckige Zwangs-Matching der produktiven Fassung dasselbe
+    Optimum trifft.
+    """
+    import itertools
+
+    labels, track_id = np.asarray(labels), np.asarray(track_id)
+    ist_gt = np.asarray(status) != STATUS_NOISE
+    ist_pr = labels >= 0
+    tp = np.flatnonzero(ist_gt & ist_pr)
+    if len(tp) == 0:
+        return {}
+
+    gt_u = sorted(set(int(v) for v in track_id[tp]))
+    lab_u = sorted(set(int(v) for v in labels[tp]))
+    c = {(g, p): sum(1 for k in tp
+                     if track_id[k] == g and labels[k] == p)
+         for g in gt_u for p in lab_u}
+
+    bestes = 0
+    for wahl in itertools.product(lab_u + [None], repeat=len(gt_u)):
+        echt = [w for w in wahl if w is not None]
+        if len(echt) != len(set(echt)):
+            continue
+        bestes = max(bestes, sum(c[(g, w)] for g, w in zip(gt_u, wahl)
+                                 if w is not None))
+
+    n_gtdet = int(ist_gt.sum())
+    n_prdet = int(ist_pr.sum())
+    return {"idtp": bestes,
+            "idfn": n_gtdet - bestes, "idfp": n_prdet - bestes,
+            "idr": float(bestes / n_gtdet), "idp": float(bestes / n_prdet),
+            "idf1": float(2 * bestes / (n_gtdet + n_prdet))}
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_idf1_gegen_vollstaendige_aufzaehlung(seed):
+    from eventpiv.bewerten.evaluate import idf1_metrics
+
+    rng = np.random.default_rng(seed)
+    n = 40
+    lab = rng.integers(-1, 4, n)
+    gt = rng.integers(1, 4, n)
+    st = rng.choice([STATUS_CLEAN, STATUS_AMBIG, STATUS_NOISE], n,
+                    p=[0.7, 0.15, 0.15]).astype(np.uint8)
+    gt = np.where(st == STATUS_NOISE, -1, gt)
+
+    a, b = idf1_metrics(lab, gt, st), idf1_naiv(lab, gt, st)
+    assert set(a) == set(b), "Feld ungeprueft: " + str(set(a) ^ set(b))
+    for k in b:
+        assert a[k] == pytest.approx(b[k]), f"Abweichung in {k}"
+
+
+def test_idf1_perfekte_partition():
+    from eventpiv.bewerten.evaluate import idf1_metrics
+
+    m = idf1_metrics(np.array([0, 0, 0, 1, 1, 1]), np.array([7, 7, 7, 9, 9, 9]),
+                     np.full(6, STATUS_CLEAN, np.uint8))
+    assert m["idf1"] == 1.0 and m["idfn"] == 0 and m["idfp"] == 0
+
+
+def test_idf1_bestraft_fragmentierung_haerter_als_hota():
+    """DIE Kritik am Maß, als Test festgehalten. Ein Partikel in vier
+    gleichen Stuecken: IDF1 matcht genau EINEN Cluster, die uebrigen
+    drei Viertel der Events zaehlen als IDFP UND als IDFN -- obwohl
+    jeder Cluster perfekt rein ist. HOTA sieht dieselbe Partition
+    milder, weil es ueber alle Zuordnungen wertet."""
+    from eventpiv.bewerten.evaluate import idf1_metrics, tracking_metrics
+
+    lab = np.repeat(np.arange(4), 10)
+    gt = np.ones(40, np.int64)
+    st = np.zeros(40, np.uint8)
+    assert idf1_metrics(lab, gt, st)["idf1"] == pytest.approx(0.25)
+    assert tracking_metrics(lab, gt, st)["hota"] > 0.4
