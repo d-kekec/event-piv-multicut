@@ -967,3 +967,33 @@ def test_gleichstand_im_bin_waehlt_die_kleinste_cluster_id():
     st = np.zeros(6, np.uint8)
     t = np.array([0, 1, 2, 3, 10, 11])
     assert idsw_metrics(lab, gt, st, t, delta=10)["idsw"] == 0
+
+def _bbox_mit_zeiten(t):
+    """Minimales bbox-Array: nur das Feld t wird gelesen."""
+    return np.array([(tt,) for tt in t], dtype=[("t", np.int64)])
+
+
+def test_gt_raster_dt_von_hand():
+    """60 Hz auf ganzzahligen Zeitstempeln: die Abstaende wechseln
+    zwischen 16.666 und 16.667 µs. Eine Gleichheitspruefung scheiterte
+    daran, der Median nicht."""
+    from eventpiv.bewerten.evaluate import gt_raster_dt
+
+    t = np.round(np.arange(6) * 50_000 / 3).astype(np.int64)
+    assert set(np.diff(t)) == {16_666, 16_667}      # wirklich ungleich
+    assert gt_raster_dt(_bbox_mit_zeiten(t)) == pytest.approx(16_666.5, abs=1)
+
+
+def test_gt_raster_dt_meldet_luecke():
+    from eventpiv.bewerten.evaluate import gt_raster_dt
+
+    t = np.array([0, 16_666, 33_333, 100_000], np.int64)
+    with pytest.raises(ValueError, match="nicht gleichmaessig"):
+        gt_raster_dt(_bbox_mit_zeiten(t))
+
+
+def test_gt_raster_dt_braucht_zwei_punkte():
+    from eventpiv.bewerten.evaluate import gt_raster_dt
+
+    with pytest.raises(ValueError, match="nicht bestimmbar"):
+        gt_raster_dt(_bbox_mit_zeiten(np.array([0], np.int64)))

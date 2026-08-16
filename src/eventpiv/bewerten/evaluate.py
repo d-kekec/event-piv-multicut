@@ -693,6 +693,42 @@ def edge_gt_stats(i, j, t, x, y, track_id, status, pos=None) -> dict:
     return out
 
 
+def gt_raster_dt(bbox, toleranz=0.01) -> float:
+    """Abtastabstand der Ground Truth in µs, aus den bbox-Zeitstempeln.
+
+    Die GT ist auf diesem Raster ERZEUGT (labels.py ordnet jedes Event dem
+    zeitlich naechsten Rasterpunkt zu). Feiner als dieser Abstand ist die
+    Referenz nicht aufgeloest -- darunter wird gegen interpolierte
+    Positionen verglichen. Damit ist er die natuerliche Rasterweite fuer
+    idsw_metrics.
+
+    NICHT EXAKT AEQUIDISTANT, und eine Gleichheitspruefung waere deshalb
+    falsch: 60 Hz sind 16.666,67 µs, die Zeitstempel sind ganzzahlig, also
+    wechseln sich 16.666 und 16.667 ab. Genommen wird der Median; die
+    Toleranz faengt diese Quantisierung ab (relative Abweichung 6e-5) und
+    schlaegt bei einem echten Lueckenraster an.
+
+    toleranz : erlaubte relative Abweichung eines Einzelabstands vom Median.
+
+    Rueckgabe: float in µs. ValueError bei weniger als zwei Rasterpunkten
+    oder ungleichmaessigem Raster.
+    """
+    raster_t = np.unique(np.asarray(bbox["t"]).astype(np.int64))
+    if len(raster_t) < 2:
+        raise ValueError(
+            f"Rasterabstand nicht bestimmbar: {len(raster_t)} Rasterpunkt(e).")
+    d = np.diff(raster_t)
+    mitte = float(np.median(d))
+    abw = float(np.max(np.abs(d - mitte)) / mitte)
+    if abw > toleranz:
+        raise ValueError(
+            f"GT-Raster ist nicht gleichmaessig: Median {mitte:.1f} µs, "
+            f"groesste relative Abweichung {abw:.3f} > {toleranz}. "
+            "Fehlen Rasterpunkte, oder hat der Datensatz eine andere "
+            "Abtastung?")
+    return mitte
+
+
 def min_abstand_je_partikel(bbox, box_w=11.0):
     """Kleinster Abstand JE PARTIKEL zu irgendeinem anderen, je Rasterpunkt.
 
