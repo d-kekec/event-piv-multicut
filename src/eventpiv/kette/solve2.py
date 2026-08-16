@@ -48,7 +48,7 @@ from eventpiv.kern import config
 from eventpiv.kern.graph import polarity_mask
 from eventpiv.kern.runconfig import Solve2Cfg, identity_meta
 from eventpiv.kette.loeser import SOLVER_FUNKTIONEN
-from eventpiv.kette.transformer import baue_tokens, load_checkpoint
+from eventpiv.kette.transformer import baue_tokens
 
 
 def kanten_kosten(model, norm, daten, i, j, *, batch, device):
