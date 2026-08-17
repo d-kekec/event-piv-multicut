@@ -41,11 +41,12 @@ import numpy as np
 import torch
 from pathlib import Path
 
-from eventpiv.bewerten.evaluate import (cluster_metrics, idf1_metrics,
-                                        idsw_metrics, merge_metrics,
-                                        tracking_metrics)
+from eventpiv.bewerten.evaluate import (cluster_metrics, gt_raster_dt,
+                                        idf1_metrics, idsw_metrics,
+                                        merge_metrics, tracking_metrics)
 from eventpiv.bewerten.metrics import pair_report
 from eventpiv.kern import config
+from eventpiv.kern.data import load_bbox
 from eventpiv.kern.graph import polarity_mask
 from eventpiv.kern.runconfig import Solve2Cfg, identity_meta
 from eventpiv.kette.loeser import SOLVER_FUNKTIONEN
@@ -200,15 +201,22 @@ def solve2_run(cfg: Solve2Cfg, model, norm, run_nr, verbose=True):
             raise SystemExit(
                 f"VERTRAG VERLETZT: {len(tid_gt):,} ON-Events im Labelstrom, "
                 f"{len(tid_ev):,} im Artefakt {tpfad.name}.")
+        # Rasterweite fuer IDSW und Frag AUS DEM DATENSATZ, nicht aus einer
+        # Konstanten und nicht aus der Konfiguration. Feiner als die
+        # GT-Abtastung ist die Referenz nicht aufgeloest; darunter messen
+        # beide Masse die Abtastdichte statt des benannten Phaenomens
+        # (Journal 17.08.). Kein Konfigurationswert, weil delta die
+        # PARTITION nicht beruehrt: er gehoerte weder in die Identitaet --
+        # der Baum behauptete eine Abhaengigkeit, die es nicht gibt -- noch
+        # daneben, wo zwei Werte dieselbe Datei still ueberschrieben.
+        delta_gt = gt_raster_dt(load_bbox(sel.split, run_nr))
         for name, lab in (("stufe1", lab_vorher), ("stufe2", lab_ev)):
             lauf[name] = {**cluster_metrics(lab, tid_gt, status, t=t_gt),
                           **merge_metrics(lab, tid_gt, status),
                           **tracking_metrics(lab, tid_gt, status),
                           **idf1_metrics(lab, tid_gt, status),
-                          # delta=None: die woertliche Definition auf
-                          # Eventebene. Die Rasterung ist ein eigener
-                          # Versuch und noch keine Konfigurationsgroesse.
-                          **idsw_metrics(lab, tid_gt, status, t_gt)}
+                          **idsw_metrics(lab, tid_gt, status, t_gt,
+                                         delta=delta_gt)}
 
     lauf.update({
         "run": run_nr, "split": sel.split,
@@ -238,7 +246,8 @@ def solve2_run(cfg: Solve2Cfg, model, norm, run_nr, verbose=True):
             print(f"  IDSW {a['idsw']:,} -> {b['idsw']:,}   |   "
                   f"LHN-Frag {a['lhn_frag']:,} -> {b['lhn_frag']:,}   |   "
                   f"betroffene Partikel {b['idsw_ptkl_betroffen']} / "
-                  f"{b['n_gt']}", flush=True)
+                  f"{b['n_gt']}   [Raster {b['delta_us']:.0f} µs]",
+                  flush=True)
     return lab_ev, lauf
 
 
