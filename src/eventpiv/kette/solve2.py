@@ -41,9 +41,10 @@ import numpy as np
 import torch
 from pathlib import Path
 
-from eventpiv.bewerten.evaluate import (cluster_metrics, gt_raster_dt,
-                                        idf1_metrics, idsw_metrics,
-                                        merge_metrics, tracking_metrics)
+from eventpiv.bewerten.evaluate import (cluster_metrics, fa_hota_metrics,
+                                        gt_raster_dt, idf1_metrics,
+                                        idsw_metrics, merge_metrics,
+                                        tracking_metrics)
 from eventpiv.bewerten.metrics import pair_report
 from eventpiv.kern import config
 from eventpiv.kern.data import load_bbox
@@ -216,7 +217,13 @@ def solve2_run(cfg: Solve2Cfg, model, norm, run_nr, verbose=True):
                           **tracking_metrics(lab, tid_gt, status),
                           **idf1_metrics(lab, tid_gt, status),
                           **idsw_metrics(lab, tid_gt, status, t_gt,
-                                         delta=delta_gt)}
+                                         delta=delta_gt),
+                          # Ohne Rasterung, anders als idsw_metrics: eine
+                          # Rasterung muesste auch TPA, FNA und FPA
+                          # betreffen, sonst haetten Zaehler und Nenner von
+                          # F verschiedene Bezugsmengen -- und FA-HOTA waere
+                          # nicht mehr mit hota vergleichbar.
+                          **fa_hota_metrics(lab, tid_gt, status, t_gt)}
 
     lauf.update({
         "run": run_nr, "split": sel.split,
@@ -248,6 +255,10 @@ def solve2_run(cfg: Solve2Cfg, model, norm, run_nr, verbose=True):
                   f"betroffene Partikel {b['idsw_ptkl_betroffen']} / "
                   f"{b['n_gt']}   [Raster {b['delta_us']:.0f} µs]",
                   flush=True)
+            print(f"  FA-HOTA {a['fa_hota']:.4f} -> {b['fa_hota']:.4f}   |   "
+                  f"FragA {a['hota_frag_a']:.5f} -> {b['hota_frag_a']:.5f}"
+                  f"   |   Fragmente {b['hota_n_fragmente']:,}, Median "
+                  f"{b['hota_fragment_len_median']:.0f} Events", flush=True)
     return lab_ev, lauf
 
 

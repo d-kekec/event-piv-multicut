@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from eventpiv.bewerten.evaluate import (align_gt_window, cluster_metrics,
-                               edge_gt_stats, merge_metrics)
+                               edge_gt_stats, merge_metrics, fa_hota_metrics)
 from eventpiv.kern.status import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
 
 
@@ -639,9 +639,9 @@ def test_rauschen_im_cluster_ist_ein_false_positive():
     assert m["det_re"] == 1.0
 
 
-def test_die_fuenf_kennzahlensaetze_kollidieren_nicht():
-    """cluster_metrics, merge_metrics, tracking_metrics, idf1_metrics
-    und idsw_metrics werden in solve2 in EIN dict gemischt.
+def test_die_sechs_kennzahlensaetze_kollidieren_nicht():
+    """cluster_metrics, merge_metrics, tracking_metrics, idf1_metrics,
+     idsw_metrics und fa_hota_metrics werden in solve2 in EIN dict gemischt.
     Ein gemeinsamer Schluessel wuerde still ueberschreiben."""
     from eventpiv.bewerten.evaluate import tracking_metrics
 
@@ -653,7 +653,7 @@ def test_die_fuenf_kennzahlensaetze_kollidieren_nicht():
     saetze = [set(cluster_metrics(lab, gt, st, t=t)),
               set(merge_metrics(lab, gt, st)),
               set(tracking_metrics(lab, gt, st)), set(idf1_metrics(lab, gt, st)),
-              set(idsw_metrics(lab, gt, st, t))]
+              set(idsw_metrics(lab, gt, st, t)), set(fa_hota_metrics(lab, gt, st, t))]
     for i, x in enumerate(saetze):
         for y in saetze[i + 1:]:
             assert x & y == set(), f"gemeinsamer Schluessel: {x & y}"
@@ -997,3 +997,100 @@ def test_gt_raster_dt_braucht_zwei_punkte():
 
     with pytest.raises(ValueError, match="nicht bestimmbar"):
         gt_raster_dt(_bbox_mit_zeiten(np.array([0], np.int64)))
+
+
+def fa_hota_naiv(labels, track_id, status, t):
+    """Referenz nach der Definition: Fragmente durch Ablaufen der
+    verschmolzenen Zeitreihe je Zelle. Nur fuer winzige Beispiele."""
+    labels, track_id = np.asarray(labels), np.asarray(track_id)
+    t = np.asarray(t)
+    ist_gt = np.asarray(status) != STATUS_NOISE
+    ist_pr = labels >= 0
+    tp = [int(k) for k in np.flatnonzero(ist_gt & ist_pr)]
+    if not tp:
+        return {}
+    n_tp = len(tp)
+    n_fn = int((ist_gt & ~ist_pr).sum())
+    n_fp = int((~ist_gt & ist_pr).sum())
+
+    summe_f = summe_af = 0.0
+    laengen = []
+    zellen = sorted({(int(track_id[k]), int(labels[k])) for k in tp})
+    for g, p in zellen:
+        in_g = [k for k in range(len(labels)) if ist_gt[k] and track_id[k] == g]
+        in_p = [k for k in range(len(labels)) if ist_pr[k] and labels[k] == p]
+        reihe = sorted(set(in_g) | set(in_p), key=lambda k: (t[k], k))
+        c_zelle = set(in_g) & set(in_p)
+        nenner = len(in_g) + len(in_p) - len(c_zelle)
+        a = len(c_zelle) / nenner
+        lauf = 0
+        for k in reihe + [None]:
+            if k is not None and k in c_zelle:
+                lauf += 1
+                continue
+            if lauf:
+                laengen.append(lauf)
+                f = lauf / nenner
+                summe_f += lauf * f
+                summe_af += lauf * (a * f) ** 0.5
+            lauf = 0
+    return {"hota_frag_a": summe_f / n_tp,
+            "fa_hota": (summe_af / (n_tp + n_fn + n_fp)) ** 0.5,
+            "hota_n_fragmente": len(laengen),
+            "hota_fragment_len_median": float(np.median(laengen)),
+            "hota_fragment_len_max": int(max(laengen))}
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_fa_hota_gegen_naive_referenz(seed):
+    from eventpiv.bewerten.evaluate import fa_hota_metrics
+
+    rng = np.random.default_rng(seed)
+    n = 60
+    lab = rng.integers(-1, 4, n)
+    gt = rng.integers(1, 4, n)
+    st = rng.choice([STATUS_CLEAN, STATUS_AMBIG, STATUS_NOISE], n,
+                    p=[0.7, 0.15, 0.15]).astype(np.uint8)
+    gt = np.where(st == STATUS_NOISE, -1, gt)
+    t = np.sort(rng.integers(0, 40, n))
+
+    a, b = fa_hota_metrics(lab, gt, st, t), fa_hota_naiv(lab, gt, st, t)
+    assert set(a) == set(b), "Feld ungeprueft: " + str(set(a) ^ set(b))
+    for k in b:
+        assert a[k] == pytest.approx(b[k]), f"Abweichung in {k}"
+
+
+def test_fa_hota_gleich_hota_ohne_zerreissung():
+    """Kernaussage des Papiers: FA-HOTA faellt mit HOTA zusammen, wenn
+    keine Fragmentierung auftritt (F = A)."""
+    from eventpiv.bewerten.evaluate import fa_hota_metrics, tracking_metrics
+
+    lab = np.array([0, 0, 0, 1, 1, 1])
+    gt = np.array([7, 7, 7, 9, 9, 9])
+    st = np.zeros(6, np.uint8)
+    assert fa_hota_metrics(lab, gt, st, np.arange(6))["fa_hota"] == \
+        pytest.approx(tracking_metrics(lab, gt, st)["hota"])
+
+
+def test_fa_hota_unter_hota_bei_zerreissung():
+    """Fig. 5 des Papiers: gleiche Assoziation, verschiedene
+    Fragmentierung. Zwei Cluster im Wechsel gegen zwei Bloecke -- HOTA
+    identisch, FA-HOTA nicht."""
+    from eventpiv.bewerten.evaluate import fa_hota_metrics, tracking_metrics
+
+    gt = np.ones(8, np.int64)
+    st = np.zeros(8, np.uint8)
+    t = np.arange(8)
+    bloecke = np.array([0, 0, 0, 0, 1, 1, 1, 1])
+    wechsel = np.array([0, 1, 0, 1, 0, 1, 0, 1])
+    assert tracking_metrics(bloecke, gt, st)["hota"] == \
+        pytest.approx(tracking_metrics(wechsel, gt, st)["hota"])
+    assert (fa_hota_metrics(wechsel, gt, st, t)["fa_hota"] < fa_hota_metrics(bloecke, gt, st, t)["fa_hota"])
+
+
+def test_fa_hota_leer():
+    from eventpiv.bewerten.evaluate import fa_hota_metrics
+
+    assert fa_hota_metrics(np.full(3, -1), np.full(3, -1),
+                           np.full(3, STATUS_NOISE, np.uint8),
+                           np.arange(3)) == {}

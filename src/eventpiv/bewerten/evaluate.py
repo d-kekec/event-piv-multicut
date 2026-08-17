@@ -421,6 +421,106 @@ def tracking_metrics_je_partikel(labels, track_id, status) -> dict:
         return {}
     return _je_partikel(*z[:6])
 
+def _vorgaenger(schluessel, t, gueltig):
+    """Index des zeitlich vorangehenden Eintrags mit demselben Schluessel.
+
+    -1, wo es keinen gibt. Nur `gueltig` markierte Eintraege nehmen teil.
+    lexsort ist stabil: bei gleichem Zeitstempel entscheidet die Reihenfolge
+    im Eventstrom.
+    """
+    idx = np.flatnonzero(gueltig)
+    vor = np.full(len(schluessel), -1, np.int64)
+    if len(idx) < 2:
+        return vor
+    o = idx[np.lexsort((t[idx], schluessel[idx]))]
+    gleich = schluessel[o[1:]] == schluessel[o[:-1]]
+    vor[o[1:][gleich]] = o[:-1][gleich]
+    return vor
+
+
+def fa_hota_metrics(labels, track_id, status, t) -> dict:
+    """FA-HOTA und FragA. Reine Funktion.
+
+    Luiten et al., IJCV 2021, Gleichungen 32 bis 34.
+
+    HOTA misst Assoziation und AUSDRUECKLICH NICHT Fragmentierung: ein
+    Partikel, dessen Cluster durchgehend stimmt, und eines, dessen Cluster
+    in vier Bloecken zwischen zwei IDs springt, haben dieselbe AssA.
+    FA-HOTA unterscheidet sie, indem es je TP zusaetzlich
+
+        F(c) = |FrA(c)| / (|TPA(c)| + |FNA(c)| + |FPA(c)|)
+
+    wertet -- gleicher Nenner wie A(c), aber der Zaehler ist auf das
+    ZUSAMMENHAENGENDE Stueck eingeschraenkt. Ein Fragment ist ein Lauf von
+    TPAs, zwischen denen kein FNA und kein FPA liegt. Da F <= A gilt,
+    faellt FA-HOTA mit HOTA zusammen, wenn nichts zerrissen ist.
+
+    DIE FRAGMENTGRENZE OHNE SCHLEIFE UEBER ZELLEN. Fuer eine Detektion c
+    der Zelle (g, p) ist der Vorgaenger in der verschmolzenen Zeitreihe von
+    gtTraj(g) und prTraj(p) der SPAETERE von "voriger gtDet von g" und
+    "voriger prDet von p". Sind beide DASSELBE Ereignis, ist es ein TP
+    derselben Zelle und dazwischen liegt nichts -- das Fragment laeuft
+    weiter. Sind sie verschieden, ist der spaetere ein FNA oder FPA, also
+    ein Bruch. Damit ist die Bedingung global rechenbar; eine Schleife
+    ueber Zellen waere auf der stufe1-Basislinie mit rund 130.000 Zellen
+    nicht durchfuehrbar.
+
+    AUF EVENTEBENE MISST DAS MASS DIE FN-DICHTE. Jedes einzelne
+    unzugeordnete Event zerreisst ein Fragment; bei 0,6 bis 0,9 % isolierten
+    FN bricht es im Mittel alle rund hundert Events, unabhaengig davon, ob
+    die Trajektorie zusammenhaengt. Dieselbe Lage wie bei idsw_metrics mit
+    delta = 0. Eine Rasterung ist hier NICHT eingebaut: sie wuerde auch
+    TPA, FNA und FPA veraendern, und FA-HOTA waere dann nicht mehr mit
+    unserem HOTA vergleichbar. Der Wert ist als RELATIVE Groesse zwischen
+    Runs zu lesen, nicht als absoluter Zusammenhangsgrad.
+
+    Rueckgabe: flaches dict. Leeres dict, wenn nichts bewertbar ist.
+    """
+    labels = np.asarray(labels)
+    track_id = np.asarray(track_id)
+    t = np.asarray(t).astype(np.int64)
+    z = _zellen(labels, track_id, status)
+    if z is None:
+        return {}
+    kt, anz, kl, kg, g_voll, p_voll, n_tp, n_fn, n_fp = z
+
+    ist_gt = np.asarray(status) != STATUS_NOISE
+    ist_pr = labels >= 0
+    vor_g = _vorgaenger(track_id, t, ist_gt)
+    vor_p = _vorgaenger(labels, t, ist_pr)
+
+    tp = np.flatnonzero(ist_gt & ist_pr)
+    # Zellindex je TP. Die Zellschluessel aus _kreuztabelle sind aufsteigend,
+    # also ist searchsorted der Rueckweg.
+    schl_zelle = kl.astype(np.int64) * len(kt["gt_u"]) + kg
+    schl_tp = (np.searchsorted(kt["lab_u"], labels[tp]).astype(np.int64)
+               * len(kt["gt_u"])
+               + np.searchsorted(kt["gt_u"], track_id[tp]))
+    zelle = np.searchsorted(schl_zelle, schl_tp)
+
+    o = tp[np.lexsort((t[tp], zelle))]
+    z_o = zelle[np.lexsort((t[tp], zelle))]
+    neu = (vor_g[o] < 0) | (vor_g[o] != vor_p[o])
+    frag_id = np.cumsum(neu) - 1
+    laenge = np.bincount(frag_id).astype(np.float64)
+    # Zelle je Fragment: der erste Eintrag jedes Laufs.
+    zelle_je_frag = z_o[np.flatnonzero(neu)]
+
+    nenner = (g_voll[kg] + p_voll[kl] - anz).astype(np.float64)
+    s2 = np.bincount(zelle_je_frag, weights=laenge ** 2, minlength=len(anz))
+    s15 = np.bincount(zelle_je_frag, weights=laenge ** 1.5, minlength=len(anz))
+
+    frag_a = float((s2 / nenner).sum() / n_tp)
+    fa = float(np.sqrt((np.sqrt(anz) * s15 / nenner).sum()
+                       / (n_tp + n_fn + n_fp)))
+    return {
+        "hota_frag_a": frag_a,
+        "fa_hota": fa,
+        "hota_n_fragmente": int(len(laenge)),
+        "hota_fragment_len_median": float(np.median(laenge)),
+        "hota_fragment_len_max": int(laenge.max()),
+    }
+
 
 def idf1_metrics(labels, track_id, status) -> dict:
     """IDF1 und seine Bestandteile. Reine Funktion.
