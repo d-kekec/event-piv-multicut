@@ -218,12 +218,11 @@ def solve2_run(cfg: Solve2Cfg, model, norm, run_nr, verbose=True):
                           **idf1_metrics(lab, tid_gt, status),
                           **idsw_metrics(lab, tid_gt, status, t_gt,
                                          delta=delta_gt),
-                          # Ohne Rasterung, anders als idsw_metrics: eine
-                          # Rasterung muesste auch TPA, FNA und FPA
-                          # betreffen, sonst haetten Zaehler und Nenner von
-                          # F verschiedene Bezugsmengen -- und FA-HOTA waere
-                          # nicht mehr mit hota vergleichbar.
-                          **fa_hota_metrics(lab, tid_gt, status, t_gt)}
+                          # Dieselbe Rasterweite wie IDSW. Anders als dort
+                          # werden hier auch TPA, FNA und FPA gerastert;
+                          # der Bezugswert dafuer ist hota_einheiten.
+                          **fa_hota_metrics(lab, tid_gt, status, t_gt,
+                                            delta=delta_gt)}
 
     lauf.update({
         "run": run_nr, "split": sel.split,
@@ -255,7 +254,8 @@ def solve2_run(cfg: Solve2Cfg, model, norm, run_nr, verbose=True):
                   f"betroffene Partikel {b['idsw_ptkl_betroffen']} / "
                   f"{b['n_gt']}   [Raster {b['delta_us']:.0f} µs]",
                   flush=True)
-            print(f"  FA-HOTA {a['fa_hota']:.4f} -> {b['fa_hota']:.4f}   |   "
+            print(f"  FA-HOTA {a['fa_hota']:.4f} -> {b['fa_hota']:.4f} "
+                  f"(HOTA je Einheit {b['hota_einheiten']:.4f})   |   "
                   f"FragA {a['hota_frag_a']:.5f} -> {b['hota_frag_a']:.5f}"
                   f"   |   Fragmente {b['hota_n_fragmente']:,}, Median "
                   f"{b['hota_fragment_len_median']:.0f} Events", flush=True)

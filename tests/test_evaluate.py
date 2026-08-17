@@ -1013,7 +1013,7 @@ def fa_hota_naiv(labels, track_id, status, t):
     n_fn = int((ist_gt & ~ist_pr).sum())
     n_fp = int((~ist_gt & ist_pr).sum())
 
-    summe_f = summe_af = 0.0
+    summe_f = summe_af = summe_a = 0.0
     laengen = []
     zellen = sorted({(int(track_id[k]), int(labels[k])) for k in tp})
     for g, p in zellen:
@@ -1023,6 +1023,7 @@ def fa_hota_naiv(labels, track_id, status, t):
         c_zelle = set(in_g) & set(in_p)
         nenner = len(in_g) + len(in_p) - len(c_zelle)
         a = len(c_zelle) / nenner
+        summe_a += len(c_zelle) * a
         lauf = 0
         for k in reihe + [None]:
             if k is not None and k in c_zelle:
@@ -1036,6 +1037,8 @@ def fa_hota_naiv(labels, track_id, status, t):
             lauf = 0
     return {"hota_frag_a": summe_f / n_tp,
             "fa_hota": (summe_af / (n_tp + n_fn + n_fp)) ** 0.5,
+            "hota_einheiten": ((n_tp / (n_tp + n_fn + n_fp))
+                               * (summe_a / n_tp)) ** 0.5,
             "hota_n_fragmente": len(laengen),
             "hota_fragment_len_median": float(np.median(laengen)),
             "hota_fragment_len_max": int(max(laengen))}
@@ -1094,3 +1097,78 @@ def test_fa_hota_leer():
     assert fa_hota_metrics(np.full(3, -1), np.full(3, -1),
                            np.full(3, STATUS_NOISE, np.uint8),
                            np.arange(3)) == {}
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_fa_hota_gerastert_gegen_naive_referenz(seed):
+    """Die Rasterung KOMPONIERT: fa_hota_metrics(..., delta=d) ist
+    dasselbe wie die naive Fassung auf dem gerasterten Strom."""
+    from eventpiv.bewerten.evaluate import _raster_strom, fa_hota_metrics
+
+    rng = np.random.default_rng(seed)
+    n = 80
+    lab = rng.integers(-1, 4, n)
+    gt = rng.integers(1, 4, n)
+    st = rng.choice([STATUS_CLEAN, STATUS_AMBIG, STATUS_NOISE], n,
+                    p=[0.7, 0.15, 0.15]).astype(np.uint8)
+    gt = np.where(st == STATUS_NOISE, -1, gt)
+    t = np.sort(rng.integers(0, 40, n))
+
+    a = fa_hota_metrics(lab, gt, st, t, delta=5)
+    b = fa_hota_naiv(*_raster_strom(lab, gt, st, t, 5))
+    for k in b:
+        assert a[k] == pytest.approx(b[k]), f"Abweichung in {k}"
+
+
+def test_rasterung_rettet_fa_hota_vor_der_fn_dichte():
+    """DER Grund fuer die Rasterung, als Test. Eine ununterbrochene
+    Zuordnung mit einem verstreuten unzugeordneten Event je zehn: auf
+    Eventebene zerfaellt sie in lauter Kurzfragmente, gerastert bleibt
+    sie ein Stueck."""
+    from eventpiv.bewerten.evaluate import fa_hota_metrics
+
+    n = 200
+    lab = np.zeros(n, np.int64)
+    lab[::10] = -1                      # 10 % isolierte FN
+    gt = np.ones(n, np.int64)
+    st = np.zeros(n, np.uint8)
+    t = np.arange(n)
+
+    roh = fa_hota_metrics(lab, gt, st, t)
+    fein = fa_hota_metrics(lab, gt, st, t, delta=20)
+    assert roh["hota_n_fragmente"] > 15
+    assert fein["hota_n_fragmente"] == 1
+    # Gerastert ist die Zuordnung perfekt, weil jede Einheit einen
+    # zugeordneten Anteil hat; roh zerfaellt sie an den Einzel-FN.
+    assert fein["fa_hota"] == pytest.approx(fein["hota_einheiten"])
+    assert roh["fa_hota"] < roh["hota_einheiten"]
+    assert fein["fa_hota"] > roh["fa_hota"] + 0.3
+
+
+def test_fa_hota_hoechstens_hota_auf_demselben_strom():
+    """Die Invariante des Papiers: F <= A, also fa_hota <= hota_einheiten,
+    mit Gleichheit genau dann, wenn nichts zerrissen ist."""
+    from eventpiv.bewerten.evaluate import fa_hota_metrics
+
+    gt = np.ones(8, np.int64)
+    st = np.zeros(8, np.uint8)
+    t = np.arange(8)
+    ganz = fa_hota_metrics(np.zeros(8, np.int64), gt, st, t)
+    assert ganz["fa_hota"] == pytest.approx(ganz["hota_einheiten"])
+    riss = fa_hota_metrics(np.array([0, 0, -1, 0, 0, -1, 0, 0]), gt, st, t)
+    assert riss["fa_hota"] < riss["hota_einheiten"]
+
+
+def test_raster_strom_fuehrt_die_rauschseite_mit():
+    """FP muessen als Einheiten erhalten bleiben -- sonst faellt DetPr
+    aus der Rechnung und ein Cluster voller Rauschen kostet nichts."""
+    from eventpiv.bewerten.evaluate import _raster_strom
+
+    lab = np.array([0, 0, 3, 3])
+    gt = np.array([1, 1, -1, -1])
+    st = np.array([STATUS_CLEAN, STATUS_CLEAN, STATUS_NOISE, STATUS_NOISE],
+                  np.uint8)
+    lab_r, gt_r, st_r, _ = _raster_strom(lab, gt, st, np.arange(4), 10)
+    assert (st_r == STATUS_NOISE).sum() == 1        # (Bin 0, Cluster 3)
+    assert lab_r[st_r == STATUS_NOISE][0] == 3
+    assert (st_r != STATUS_NOISE).sum() == 1        # (Bin 0, Partikel 1)

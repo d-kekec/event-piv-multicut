@@ -438,7 +438,48 @@ def _vorgaenger(schluessel, t, gueltig):
     return vor
 
 
-def fa_hota_metrics(labels, track_id, status, t) -> dict:
+def _raster_strom(labels, track_id, status, t, delta):
+    """Eventstrom -> EINHEITENSTROM. Reine Funktion.
+
+    Baut aus dem Eventstrom einen synthetischen Strom, in dem eine
+    Detektion eine ZEITEINHEIT ist statt eines Events:
+
+      je (Zeitbin, GT-Partikel)  eine Einheit mit dem Mehrheitscluster
+                                 seiner zugeordneten Events, sonst -1
+      je (Zeitbin, Cluster)      eine Einheit fuer Rauschen, das dort
+                                 gelandet ist -- die FP-Seite
+
+    Der Ursprung der Bins ist fuer beide Seiten derselbe, sonst laegen
+    Rausch- und GT-Einheiten desselben Zeitraums in verschiedenen Bins.
+
+    Rueckgabe: (labels, track_id, status, t) auf Einheitenebene, in der
+    Form, die jede Metrik dieses Moduls erwartet.
+    """
+    labels, track_id = np.asarray(labels), np.asarray(track_id)
+    status, t = np.asarray(status), np.asarray(t).astype(np.int64)
+    ist_gt = status != STATUS_NOISE
+    if not ist_gt.any():
+        return labels[:0], track_id[:0], status[:0], t[:0]
+
+    g_s, lab_s, b_s = _einheiten(labels, track_id, t, ist_gt, delta)
+
+    ist_fp = (~ist_gt) & (labels >= 0)
+    if delta is None:
+        b_f, lab_f = t[ist_fp], labels[ist_fp]
+    else:
+        b = (t[ist_fp] - t[ist_gt].min()) // int(delta)
+        paar = np.unique(np.stack([b, labels[ist_fp].astype(np.int64)], 1),
+                         axis=0)
+        b_f, lab_f = paar[:, 0], paar[:, 1]
+
+    return (np.concatenate([lab_s, lab_f]).astype(np.int64),
+            np.concatenate([g_s, np.full(len(b_f), -1)]).astype(np.int64),
+            np.concatenate([np.full(len(g_s), STATUS_CLEAN, np.uint8),
+                            np.full(len(b_f), STATUS_NOISE, np.uint8)]),
+            np.concatenate([b_s, b_f]).astype(np.int64))
+
+
+def fa_hota_metrics(labels, track_id, status, t, delta=None) -> dict:
     """FA-HOTA und FragA. Reine Funktion.
 
     Luiten et al., IJCV 2021, Gleichungen 32 bis 34.
@@ -465,17 +506,24 @@ def fa_hota_metrics(labels, track_id, status, t) -> dict:
     ueber Zellen waere auf der stufe1-Basislinie mit rund 130.000 Zellen
     nicht durchfuehrbar.
 
-    AUF EVENTEBENE MISST DAS MASS DIE FN-DICHTE. Jedes einzelne
-    unzugeordnete Event zerreisst ein Fragment; bei 0,6 bis 0,9 % isolierten
-    FN bricht es im Mittel alle rund hundert Events, unabhaengig davon, ob
-    die Trajektorie zusammenhaengt. Dieselbe Lage wie bei idsw_metrics mit
-    delta = 0. Eine Rasterung ist hier NICHT eingebaut: sie wuerde auch
-    TPA, FNA und FPA veraendern, und FA-HOTA waere dann nicht mehr mit
-    unserem HOTA vergleichbar. Der Wert ist als RELATIVE Groesse zwischen
-    Runs zu lesen, nicht als absoluter Zusammenhangsgrad.
+    delta RASTERT DIE ZEIT, und ohne Rasterung ist das Mass unbrauchbar:
+    ein Fragment bricht bei jedem Ereignis, das nur zu einem der beiden
+    Partner gehoert, also auch bei einem einzelnen unzugeordneten Event.
+    Gemessen 18.08.: auf Eventebene folgt hota_frag_a exakt der Ordnung
+    von event_fn/event_tp und dreht die Rangfolge gegenueber hota um.
+    Gerastert ist eine Detektion eine ZEITEINHEIT, und ein Bruch verlangt
+    eine ganze Einheit ohne Zuordnung.
+
+    Anders als bei idsw_metrics werden dabei TPA, FNA und FPA MIT
+    gerastert -- ueber _raster_strom, der auch die Rauschseite als
+    Einheiten fuehrt. Nur so haben Zaehler und Nenner von F dieselbe
+    Bezugsmenge. hota_einheiten ist der Bezugswert auf demselben Strom.
 
     Rueckgabe: flaches dict. Leeres dict, wenn nichts bewertbar ist.
     """
+    if delta is not None:
+        labels, track_id, status, t = _raster_strom(labels, track_id,
+                                                    status, t, delta)
     labels = np.asarray(labels)
     track_id = np.asarray(track_id)
     t = np.asarray(t).astype(np.int64)
@@ -513,9 +561,17 @@ def fa_hota_metrics(labels, track_id, status, t) -> dict:
     frag_a = float((s2 / nenner).sum() / n_tp)
     fa = float(np.sqrt((np.sqrt(anz) * s15 / nenner).sum()
                        / (n_tp + n_fn + n_fp)))
+    # Bezugswert auf DEMSELBEN Strom. Ohne ihn waere fa_hota nicht
+    # einzuordnen: bei delta != None sind die Detektionen Zeiteinheiten,
+    # `hota` aus tracking_metrics zaehlt aber Events. Auf gemeinsamem
+    # Strom gilt fa_hota <= hota_einheiten mit Gleichheit genau dann,
+    # wenn nichts zerrissen ist.
+    ass_a_e = float((anz * (anz / nenner)).sum() / n_tp)
+    det_a_e = n_tp / (n_tp + n_fn + n_fp)
     return {
         "hota_frag_a": frag_a,
         "fa_hota": fa,
+        "hota_einheiten": float(np.sqrt(det_a_e * ass_a_e)),
         "hota_n_fragmente": int(len(laenge)),
         "hota_fragment_len_median": float(np.median(laenge)),
         "hota_fragment_len_max": int(laenge.max()),
@@ -585,15 +641,16 @@ def _einheiten(labels, track_id, t, ist_gt, delta):
                   MEHRHEITSCLUSTER seiner zugeordneten Events
                   Gleichstand: die kleinste Cluster-ID gewinnt.
 
-    Rueckgabe: (g, lab), aufsteigend nach (Partikel, Zeit). lab < 0 heisst
-    "in dieser Einheit nicht verfolgt".
+    Rueckgabe: (g, lab, zeit), aufsteigend nach (Partikel, Zeit). lab < 0
+    heisst "in dieser Einheit nicht verfolgt". zeit ist der Bin-Index bzw.
+    der Zeitstempel bei delta = None.
     """
     idx = np.flatnonzero(ist_gt)
     g = np.asarray(track_id)[idx]
     zeit = np.asarray(t)[idx].astype(np.int64)
     lab = np.asarray(labels)[idx].astype(np.int64)
     if delta is None:
-        return (lambda o: (g[o], lab[o]))(np.lexsort((zeit, g)))
+        return (lambda o: (g[o], lab[o], zeit[o]))(np.lexsort((zeit, g)))
 
     b = (zeit - zeit.min()) // int(delta)
     g_u, g_i = np.unique(g, return_inverse=True)
@@ -615,7 +672,7 @@ def _einheiten(labels, track_id, t, ist_gt, delta):
         # 300 Zufallsfaellen ab (gemessen 16.08.).
         o = np.lexsort((-(k % len(l_u)), c))
         lab_e[(k // len(l_u))[o]] = l_u[(k % len(l_u))[o]]
-    return g_u[schl_u // n_b], lab_e
+    return g_u[schl_u // n_b], lab_e, schl_u % n_b
 
 
 def idsw_metrics(labels, track_id, status, t, delta=None) -> dict:
@@ -670,7 +727,7 @@ def idsw_metrics(labels, track_id, status, t, delta=None) -> dict:
     ist_gt = np.asarray(status) != STATUS_NOISE
     if not ist_gt.any():
         return {}
-    g_s, lab_s = _einheiten(labels, track_id, t, ist_gt, delta)
+    g_s, lab_s, _ = _einheiten(labels, track_id, t, ist_gt, delta)
     if len(g_s) == 0:
         return {}
 
