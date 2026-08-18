@@ -41,11 +41,12 @@ from eventpiv.kern.runconfig import Selection, Stufe2Cfg, identity_meta
 from eventpiv.kette.transformer import (PaarTransformer, baue_tokens,
                                         save_checkpoint)
 
-# Obergrenze der Validierungsstichprobe. Der Holdout traegt bei zwei Runs
-# rund 4,5 Mio. Paare; sie alle je Epoche zu bewerten kostete so viel wie
-# das Training selbst. KONSTANTE und kein Feld: die Zahl beeinflusst nur
-# die Genauigkeit einer Kennzahl, nicht das Ergebnis, und gehoert damit
-# nicht in die Identitaet.
+# Obergrenze JEDER Bewertungsstichprobe -- Holdout wie Trainingsmenge. Der
+# Holdout traegt bei zwei Runs rund 4,5 Mio. Paare, die Trainingsmenge bei
+# dreissig Runs rund 12 Mio.; sie alle je Epoche zu bewerten kostete so
+# viel wie das Training selbst. KONSTANTE und kein Feld: die Zahl
+# beeinflusst nur die Genauigkeit einer Kennzahl, nicht das Ergebnis, und
+# gehoert damit nicht in die Identitaet -- der Slug bleibt unberuehrt.
 VAL_MAX = 1_000_000
 
 
@@ -341,6 +342,20 @@ def train_stufe2(cfg: Stufe2Cfg, on_start=None, on_epoch=None):
         idx_v = np.sort(rng.choice(idx_v, VAL_MAX, replace=False))
         daten["val_gestutzt_auf"] = VAL_MAX
 
+    # Die Trainingsmenge wird je Epoche zweimal angefasst: einmal lernend,
+    # einmal bewertend. Erst der zweite Durchlauf liefert train/ und
+    # holdout/ auf DEMSELBEN Gewichtsstand.
+    #
+    # EIGENER Generator, nicht `rng`: eine zusaetzliche Ziehung aus `rng`
+    # verschoebe jede folgende rng.permutation und damit die Reihenfolge der
+    # Minibatches -- das Training selbst waere ein anderes, und die
+    # Aenderung waere keine Messverbesserung mehr, sondern ein Eingriff.
+    idx_te = idx_t
+    if len(idx_te) > VAL_MAX:
+        idx_te = np.sort(np.random.default_rng(tf.seed).choice(
+            idx_t, VAL_MAX, replace=False))
+        daten["train_eval_gestutzt_auf"] = VAL_MAX
+
     model = PaarTransformer(d_model=tf.d_model, n_layers=tf.n_layers,
                             n_heads=tf.n_heads, d_ff=tf.d_ff,
                             dropout=tf.dropout, pooling=tf.pooling).to(device)
@@ -364,9 +379,16 @@ def train_stufe2(cfg: Stufe2Cfg, on_start=None, on_epoch=None):
     for epoche in range(1, tf.epochs + 1):
         t_ep = time.time()
         idx_e = idx_t[rng.permutation(len(idx_t))]
-        lg_t, verlust = _durchlauf(model, d, idx_e, tf.batch, device,
-                                   norm, opt, lossfn)
+        _, verlust_lauf = _durchlauf(model, d, idx_e, tf.batch, device,
+                                     norm, opt, lossfn)
         t_train = time.time() - t_ep
+        # BEIDE Mengen nach dem Durchlauf, mit festen Gewichten. Der Wert
+        # AUS dem Trainingsdurchlauf entsteht bei wechselnden Gewichten und
+        # ist mit holdout/loss nicht vergleichbar -- er bleibt als
+        # loss_running erhalten, weil er den Verlauf INNERHALB einer Epoche
+        # mittelt und nichts kostet.
+        lg_t, verlust = _durchlauf(model, d, idx_te, tf.batch * 4, device,
+                                   norm, None, lossfn)
         lg_v, verlust_v = _durchlauf(model, d, idx_v, tf.batch * 4, device,
                                      norm, None, lossfn)
         # Fuer die Kennzahlen wird hart geschwellt, auch bei weichen Zielen:
@@ -376,8 +398,8 @@ def train_stufe2(cfg: Stufe2Cfg, on_start=None, on_epoch=None):
             "epoch": epoche,
             "sec": round(time.time() - t_ep, 1),
             "sec_train": round(t_train, 1),
-            "train": {"loss": verlust,
-                      **pair_report((d.ziel[idx_e] >= 0.5).astype(np.int8),
+            "train": {"loss": verlust, "loss_running": verlust_lauf,
+                      **pair_report((d.ziel[idx_te] >= 0.5).astype(np.int8),
                                     lg_t)},
             "holdout": {"loss": verlust_v,
                         **pair_report((d.ziel[idx_v] >= 0.5).astype(np.int8),
