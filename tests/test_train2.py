@@ -9,6 +9,7 @@ bekommen, welchen Wert, und dass der Holdout nach RUNS trennt.
 import numpy as np
 import pytest
 
+from eventpiv.kern.runconfig import Stufe2Cfg
 from eventpiv.kette.train2 import paar_ziele, split_nach_runs, _untersampeln
 
 
@@ -86,6 +87,34 @@ def test_holdout_trennt_nach_runs():
     assert np.isin(run[iv], vr).all()
     assert len(it) + len(iv) == len(run)
 
+def test_fest_gesetzte_runs_bleiben_im_training():
+    """Die GROESSE des Holdouts folgt allen Runs, nur die Auswahl nicht."""
+    run = np.repeat([1, 2, 3, 4, 5], 20).astype(np.int16)
+    ziel = np.tile([1.0] * 15 + [0.0] * 5, 5).astype(np.float32)
+    g = np.ones(len(run), bool)
+    it, _, vr = split_nach_runs(run, ziel, g, val_frac=0.4, seed=0,
+                                fest=[2, 3])
+    assert len(vr) == 2
+    assert not np.isin([2, 3], vr).any()
+    assert np.isin(run[it], [2, 3]).all(axis=None) is not None
+    assert set(np.unique(run[it])) >= {2, 3}
+
+
+def test_unbekannter_fester_run_bricht_ab():
+    run = np.repeat([1, 2, 3, 4, 5], 20).astype(np.int16)
+    ziel = np.tile([1.0] * 15 + [0.0] * 5, 5).astype(np.float32)
+    with pytest.raises(SystemExit, match="nicht im Datensatz"):
+        split_nach_runs(run, ziel, np.ones(100, bool), val_frac=0.4, seed=0,
+                        fest=[7])
+
+
+def test_zu_wenige_waehlbare_runs_brechen_ab():
+    run = np.repeat([1, 2, 3, 4, 5], 20).astype(np.int16)
+    ziel = np.tile([1.0] * 15 + [0.0] * 5, 5).astype(np.float32)
+    with pytest.raises(SystemExit, match="waehlbar"):
+        split_nach_runs(run, ziel, np.ones(100, bool), val_frac=0.4, seed=0,
+                        fest=[1, 2, 3, 4])
+
 
 def test_holdout_bricht_bei_einer_klasse_ab():
     """Eine Seite ohne NEIN macht TPR, TNR und AUC ueber den GANZEN Lauf
@@ -105,3 +134,18 @@ def test_untersampeln_trifft_das_verhaeltnis():
     assert int((ziel[aus] < 0.5).sum()) == 100
     # NEIN bleibt vollstaendig -- es ist die knappe Klasse.
     assert set(np.flatnonzero(ziel < 0.5)) <= set(aus)
+
+    
+def test_vorhandener_checkpoint_bricht_ab(tmp_path, monkeypatch):
+    """Der Schutz muss VOR lade_kandidaten greifen. Danach waere er
+    wertlos: die Stunde Rechenzeit ist dann schon ausgegeben."""
+    from eventpiv.kern import config
+    from eventpiv.kette import train2
+
+    ziel = tmp_path / "model_P.pt"
+    ziel.write_bytes(b"")
+    monkeypatch.setattr(config, "transformer_file", lambda *a, **k: ziel)
+    monkeypatch.setattr(train2, "lade_kandidaten", lambda *a, **k:
+                        pytest.fail("lade_kandidaten darf nicht laufen"))
+    with pytest.raises(SystemExit, match="existiert bereits"):
+        train2.train_stufe2(Stufe2Cfg())

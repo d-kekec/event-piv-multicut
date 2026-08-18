@@ -496,6 +496,22 @@ class IO(_Typed):
     model_path ist der Notausgang auf dem LESEpfad: ein fremdes Netz laden,
     dessen Parameter nicht aus der Konfiguration folgen. Bewusst ein
     sichtbarer Akt, wie strict=false.
+
+    train_fest nennt Runs, die NICHT in den Holdout gezogen werden duerfen.
+    Die Auswahl ist sonst gleichverteilt, und die NEIN-reichen Runs tragen
+    den groessten Teil der knappen Klasse -- fallen zwei davon heraus, misst
+    die Holdout-TNR etwas anderes als beabsichtigt. Die GROESSE des Holdouts
+    bleibt val_frac ueber ALLE Runs; eingeschraenkt ist nur, woraus gezogen
+    wird. Leer heisst: keine Einschraenkung.
+
+    Es AENDERT das Ergebnis und steht trotzdem hier, nicht in `Transformer`:
+    was der Lauf tatsaechlich getan hat, steht als val_runs in `daten` und im
+    Checkpoint, und daraus laesst sich derselbe Split exakt wiederherstellen
+    (train_fest = alle Runs ohne val_runs). Das Mittel zusaetzlich in die
+    Identitaet zu ziehen braeche jeden vorhandenen Transformer-Hash, ohne
+    eine Frage zu beantworten, die val_runs nicht schon beantwortet. Dass
+    zwei Laeufe mit verschiedenem train_fest denselben Pfad haben, faengt
+    der overwrite-Schutz in train2.
     """
     strict: bool = True
     overwrite: bool = False
@@ -505,6 +521,7 @@ class IO(_Typed):
     out_path: str | None = None
     data_path: str | None = None    # Notausgang LESEpfad: fremder Paar-Datensatz
     list_runs: bool = False     # nur auflisten, nichts rechnen (animate_run)
+    train_fest: list[int] = field(default_factory=list)
 
 
 @dataclass

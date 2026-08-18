@@ -168,8 +168,13 @@ def lade_kandidaten(cfg: Stufe2Cfg, device="cpu") -> Daten:
         run=np.concatenate(run))
 
 
-def split_nach_runs(run, ziel, gueltig, val_frac, seed):
+def split_nach_runs(run, ziel, gueltig, val_frac, seed, fest=()):
     """Holdout nach RUNS. Rueckgabe: (idx_train, idx_val, val_runs).
+
+    `fest` nennt Runs, die im Training bleiben muessen. Die Groesse des
+    Holdouts folgt weiterhin ALLEN Runs -- sonst schruempfte er mit jedem
+    festgesetzten Run und val_frac hiesse hier etwas anderes als in
+    train.py.
 
     Beide Seiten muessen beide Klassen tragen, sonst sind TPR, TNR und AUC
     dort undefiniert -- und anders als bei einer einzelnen Epoche waere
@@ -181,11 +186,25 @@ def split_nach_runs(run, ziel, gueltig, val_frac, seed):
     gelesen. Ob sie passt, ist zu pruefen -- dann faellt diese hier weg.
     """
     runs = np.unique(run)
+    fest = np.asarray(fest, dtype=runs.dtype).reshape(-1)
+    unbekannt = np.setdiff1d(fest, runs)
+    if len(unbekannt):
+        # Ein Tippfehler bliebe sonst still folgenlos: der Run waere weder
+        # fest noch im Holdout, weil es ihn im Datensatz nicht gibt.
+        raise SystemExit(
+            f"train_fest nennt Runs {list(unbekannt)}, die nicht im "
+            f"Datensatz sind. Vorhanden: {list(runs)}")
+    waehlbar = np.setdiff1d(runs, fest)
     n_val = max(1, int(round(len(runs) * val_frac)))
     if n_val >= len(runs):
         raise SystemExit(f"val_frac={val_frac} nimmt alle {len(runs)} Runs.")
+    if n_val > len(waehlbar):
+        raise SystemExit(
+            f"val_frac={val_frac} verlangt {n_val} Holdout-Runs, aber nur "
+            f"{len(waehlbar)} von {len(runs)} sind waehlbar "
+            f"({len(fest)} in train_fest).")
     rng = np.random.default_rng(seed)
-    val_runs = np.sort(rng.choice(runs, n_val, replace=False))
+    val_runs = np.sort(rng.choice(waehlbar, n_val, replace=False))
 
     ist_val = np.isin(run, val_runs)
     idx_t = np.flatnonzero(gueltig & ~ist_val)
@@ -277,6 +296,15 @@ def train_stufe2(cfg: Stufe2Cfg, on_start=None, on_epoch=None):
     Hydra noch W&B.
     """
     tf, kd, cp = cfg.transformer, cfg.kandidaten, cfg.compute
+    # VOR dem Rechnen, nicht danach: ein Abbruch nach einer Stunde Training
+    # waere die teuerste Art, ueber einen Tippfehler zu stolpern. create
+    # bleibt False -- save_checkpoint legt das Verzeichnis selbst an.
+    pfad = config.transformer_file(cfg.neighborhood, cfg.pairs, cfg.training,
+                                   cfg.solver, kd, tf)
+    if pfad.exists() and not cfg.io.overwrite:
+        raise SystemExit(
+            f"{pfad} existiert bereits. Andere Konfiguration waehlen oder "
+            "io.overwrite=true setzen.")
     device = cp.device
     t0 = time.time()
     torch.manual_seed(tf.seed)
@@ -284,7 +312,7 @@ def train_stufe2(cfg: Stufe2Cfg, on_start=None, on_epoch=None):
 
     d = lade_kandidaten(cfg, device=device)
     idx_t, idx_v, val_runs = split_nach_runs(
-        d.run, d.ziel, d.gueltig, tf.val_frac, tf.seed)
+        d.run, d.ziel, d.gueltig, tf.val_frac, tf.seed, cfg.io.train_fest)
 
     daten = {
         "n_knoten": int(d.ev.shape[0]), "n_paare": int(len(d.paar_i)),
@@ -365,8 +393,6 @@ def train_stufe2(cfg: Stufe2Cfg, on_start=None, on_epoch=None):
               f"[{zeile['sec']:.0f}s]", flush=True)
         kennzahlen = {k: v for k, v in zeile.items() if k != "epoch"}
 
-    pfad = config.transformer_file(cfg.neighborhood, cfg.pairs, cfg.training,
-                                   cfg.solver, kd, tf, create=True)
     # EINMAL berechnen: zweimal gerufen lieferte zwei verschiedene
     # Sekundenzahlen, und Checkpoint und Kennzahlen widersprechen sich.
     diag = _diag(t0, device)
