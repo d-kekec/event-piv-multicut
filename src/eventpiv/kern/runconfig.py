@@ -604,18 +604,14 @@ class AnimTraj(_Typed):
     Trajektorie ueber hunderttausend. Ein Wert, der rechts die Bruchstuecke
     ausgraut, graut links fast alles aus. Vorgabe deshalb am
     Kandidatenfilter orientiert.
-
-    ACHTUNG GROESSE: ein ganzer Run bei frame_ms=20 sind 400 Frames. Mit
-    drei Panels und downscale=1 wird das GIF dreistellig in MB. Fuer den
-    Bericht einzelne Panels waehlen.
     """
     frame_ms: float = 20.0
-    trail_ms: float = 100.0
+    trail_ms: float = 20.0
     # Anzeigedauer je Frame in ms. 0 = abgeleitet aus frame_ms. Getrennt,
     # weil Abtastung und Abspielgeschwindigkeit nichts miteinander zu tun
     # haben: dieselben 400 Frames koennen in 20 s oder in 2 min laufen.
     hold_ms: float = 0.0
-    downscale: int = 2
+    downscale: int = 1
     point: int = 2
     min_size: int = 15
     crop: bool = True
