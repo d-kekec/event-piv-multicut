@@ -294,9 +294,19 @@ def tracking_metrics(labels, track_id, status) -> dict:
     landet es im falschen Cluster, ist das ein ASSOZIATIONSfehler.
     Detektion beantwortet "kam das Event in irgendeinen Cluster",
     Assoziation "in den richtigen". Das Ueberlappungsproblem sitzt
-    vollstaendig auf der zweiten Seite -- det_a liegt bei uns nahe 1,
-    das Signal traegt ass_a. Das ist eine Eigenschaft der Aufgabe und
-    gehoert beim Berichten gesagt.
+    vollstaendig auf der zweiten Seite.
+
+    DAS HEISST NICHT, DASS det_a NAHE 1 LIEGT. Gemessen 16.08. auf
+    val/run1: DetA 0,9859 gegen AssA 0,9821 -- beide gleichauf, HOTA ist
+    hier NICHT naeherungsweise sqrt(AssA). min_events filtert Tracklets
+    weg, und alle ihre Events fallen als event_fn an.
+
+    det_a, det_re, det_pr und die event_-Felder sind zwischen stufe1 und
+    stufe2 IDENTISCH, solange kein Knoten ohne Kante bleibt: beide
+    Partitionen laufen auf derselben Knotenmenge, und Detektion fragt
+    nicht, in WELCHEN Cluster ein Event kam. Im Vorher/Nachher-Vergleich
+    tragen sie deshalb keine Aussage; ueber Konfigurationen hinweg
+    (min_events, cost_offset) sehr wohl.
 
     Deshalb dieselbe Maske wie merge_metrics (alles ausser Rauschen)
     und NICHT die von cluster_metrics: mehrdeutig ist ein Event genau
