@@ -42,8 +42,12 @@ ANKER = [
 def test_anker(run_nr, t0, n_edges, p_cluster, p_event, frag):
     from eventpiv.kette.solve import solve_and_evaluate
 
+    # cost_offset AUSGESCHRIEBEN, obwohl es die Vorgabe frueher war: die
+    # Ankerzahlen wurden bei 0,0 gemessen. Seit die Vorgabe -0,5 ist, misst
+    # der Anker ohne diese Zeile etwas anderes, als seine Zahlen behaupten.
     cfg = SolveCfg(selection=Selection(split="train", run_nr=run_nr),
-                   window=Window(t0=t0, dt=10_000))
+                   window=Window(t0=t0, dt=10_000),
+                   solver=Solver(cost_offset=0.0))
     mpath = config.model_file(cfg.neighborhood, cfg.pairs, cfg.training)
     if not mpath.exists():
         pytest.skip(f"{mpath} fehlt -- erst [2] und [3] bauen.")
@@ -63,9 +67,15 @@ def test_anker(run_nr, t0, n_edges, p_cluster, p_event, frag):
 
 def test_arbeitspunkt_ist_der_erwartete():
     """Faengt den Fall, dass eine Vorgabe wandert und der Anker deshalb
-    etwas anderes misst, als sein Name behauptet."""
+    etwas anderes misst, als sein Name behauptet.
+
+    cost_offset ist davon seit dem Wechsel der Vorgabe auf -0,5
+    AUSGENOMMEN -- der Anker schreibt ihn selbst aus. Die Zusicherung
+    bleibt trotzdem stehen: sie haelt fest, welche Vorgabe gilt, und faengt
+    ein unbeabsichtigtes Zurueckwandern.
+    """
     nb = Neighborhood()
     assert (nb.alpha, nb.r_max, nb.geom, nb.polarity) == \
         (10_000, 5.0, "cylinder", "on")
-    assert Solver().mode == "P" and Solver().cost_offset == 0.0
+    assert Solver().mode == "P" and Solver().cost_offset == -0.5
     assert PairSampling().split == "train" and Training().feature_mode == "dr"

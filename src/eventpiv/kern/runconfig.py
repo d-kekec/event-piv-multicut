@@ -200,6 +200,15 @@ class Solver(_Typed):
     Kante addiert und verschiebt damit die Schwelle zwischen Schneiden und
     Verbinden, ohne die Rangfolge der Kanten zu aendern.
 
+    VORGABE -0,5, gemessen und nicht gewaehlt: bei 0,0 bleiben 4 von 9
+    Partikeln auf run61 unerreichbar, weil ihre Tracklets in mindestens
+    einem Fenster unter min_events fallen; bei -0,5 sind es 0 von 9 ueber
+    alle geprueften Runs, bei viermal so vielen NEIN-Paaren fuer Stufe 2.
+    Die Fragmentierung steigt dabei um 37 %, und genau die nimmt Stufe 2
+    wieder zurueck (gemessen 1733 -> 1,13 auf val/run1). 0,0 ist damit
+    kein Arbeitspunkt der Kette mehr, sondern eine Ablation -- und muss
+    ausgeschrieben werden, wie jede Ablation.
+
     Denselben Effekt hat das Klassenverhaeltnis im Training -- Untersampeln
     auf P(JA)=0.75 verschiebt jeden gelernten Logit gegenueber P(JA)=0.5 um
     logit(0.75). Der Unterschied ist der Preis: das Verhaeltnis kostet ein
@@ -215,7 +224,7 @@ class Solver(_Typed):
     use_knn: bool = False
     k_max: int = 24
     backend: str = "rama"
-    cost_offset: float = 0.0
+    cost_offset: float = -0.5
 
     def short(self) -> str:
         # Kein Suffix im Vorgabefall, damit bestehende Dateinamen bleiben.

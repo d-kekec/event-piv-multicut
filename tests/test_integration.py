@@ -174,10 +174,12 @@ def test_kette_labels_paare_training_solve(mini_datensatz):
     # die JSON legt scripts/solve_with_nn.py an. Die Kette schreibt also bis
     # einschliesslich [3] echte Dateien, und die letzte Ausgabe bleibt
     # jenseits der Framework-Grenze. Geprueft wird deshalb der ABGELEITETE
-    # Pfad -- samt _cc-Suffix, das den Anker-Dateinamen unberuehrt laesst.
+    # Pfad -- samt _cc-Suffix, das den Anker-Dateinamen unberuehrt laesst,
+    # und samt _o-0.5 aus der Vorgabe: der Test faehrt den Arbeitspunkt
+    # der Kette, nicht einen eigenen.
     sjson = config.solve_file(nb, ps, tr, sel, win, sv)
     assert sjson == (mpath.parent / "solves"
-                     / "train_run1_t450000_dt20000_P_cc.json")
+                     / "train_run1_t450000_dt20000_P_cc_o-0.5.json")
     assert not sjson.parent.exists(), \
         "Pfadableitung hat ein Verzeichnis angelegt -- create=False gilt nicht"
 
