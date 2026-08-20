@@ -101,7 +101,7 @@ class Neighborhood(_Typed):
     def short(self) -> str:
         # polarity immer im Kern: das Feld aendert den Hash ohnehin, ein
         # unterdruecktes Suffix erspart also keinen Umzug.
-        return (f"a{self.alpha}_r{_num(self.r_max)}_{self.geom}"
+        return (f"a{self.alpha}_rmax{_num(self.r_max)}_{self.geom}"
                 f"_{self.polarity}")
 
     def __post_init__(self) -> None:
@@ -148,7 +148,12 @@ class PairSampling(_Typed):
     seed: int = 0
 
     def short(self) -> str:
-        return f"{self.split}_r{len(self.runs)}"
+        # "rn" statt "r" fuer die ANZAHL Runs: "r" bezeichnet im Projekt
+        # sonst einen Radius (r_max) oder einen einzelnen Run (run32).
+        # "split_" ausgeschrieben, damit "train" nicht wie ein Name aussieht.
+        # Der Hash bleibt unberuehrt -- short() ist eine Methode und steht
+        # nicht in asdict(), also nicht in canonical().
+        return f"split_{self.split}_rn{len(self.runs)}"
 
 
 @dataclass
@@ -307,8 +312,11 @@ class Kandidaten(_Typed):
     seed: int = 0
 
     def short(self) -> str:
-        return (f"{self.split}_r{len(self.runs)}_a{self.alpha}"
-                f"_r{_num(self.r_max)}_n{self.n_events}")
+        # "_r" stand hier ZWEIMAL mit verschiedener Bedeutung -- einmal fuer
+        # die Anzahl Runs, einmal fuer den Radius. Jetzt "rn" fuer die
+        # Anzahl, "rmax" fuer den Radius.
+        return (f"split_{self.split}_rn{len(self.runs)}_a{self.alpha}"
+                f"_rmax{_num(self.r_max)}_n{self.n_events}")
 
     def __post_init__(self) -> None:
         super().__post_init__()          # Typcast aus _Typed zuerst
