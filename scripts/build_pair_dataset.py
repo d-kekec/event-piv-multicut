@@ -24,19 +24,21 @@ def ausbeute_tabelle(je_run):
     Eine Tabelle und keine Kurve: die Runs haben keine Ordnung in der Zeit.
     ROH neben BEHALTEN je Klasse: JA wird schon beim Sammeln geduennt
     (ja_frac), NEIN erst am Deckel. Erst beide Zahlen sagen, ob das
-    Klassenverhaeltnis aus den DATEN folgt oder aus max_yes/max_no.
+    Klassenverhaeltnis aus den DATEN folgt oder aus ja_vorrat/max_no.
     """
     t = wandb.Table(columns=["run", "Fenster", "ohne NEIN",
                              "JA roh", "JA behalten", "NEIN roh",
                              "NEIN behalten", "NEIN aus ambig",
                              "JA aus ambig", "Kanten mit Rausch",
-                             "JA gedeckelt", "NEIN gedeckelt", "Sekunden"])
+                             "JA:NEIN ist", "Vorrat erreicht",
+                             "NEIN gedeckelt", "Sekunden"])
     for z in je_run:
         t.add_data(z["run"], z["n_fenster"], z["n_fenster_ohne_nein"],
                    z["n_roh_ja"], z["n_ja"], z["n_roh_nein"], z["n_nein"],
                    z["n_roh_nein_ambig"], z["n_roh_ja_ambig"],
                    z["n_roh_rausch"],
-                   z["gedeckelt_ja"], z["gedeckelt_nein"], z["sec"])
+                   round(z["vorrat_ist"], 2), z["vorrat_erreicht"],
+                   z["gedeckelt_nein"], z["sec"])
     return t
 
 

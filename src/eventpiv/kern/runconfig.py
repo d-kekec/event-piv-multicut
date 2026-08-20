@@ -124,12 +124,16 @@ class PairSampling(_Typed):
 
     `runs` sind AUSSCHLIESSLICH Overlap-Runs. Saubere Runs liefern
     physikalisch null NEIN, und die Overlap-Runs tragen selbst reichlich JA
-    (gemessen 263:1 bis 1785:1). Beide Klassen stammen damit aus DENSELBEN
+    (gemessen 94:1 bis 307:1). Beide Klassen stammen damit aus DENSELBEN
     Fenstern -- nur so sieht das Netz eine Eingangsverteilung und nicht zwei.
 
     `ja_frac` ist keine Feinabstimmung, sondern die Speicherbedingung: ein
     Run liefert bei voller Abdeckung ueber eine Milliarde JA-Paare. NEIN
-    wird vollstaendig behalten, es ist die knappe Klasse.
+    wird vollstaendig behalten (bis `max_no`), es ist die knappe Klasse.
+
+    Das Klassenverhaeltnis setzt `ja_vorrat`, nicht ein JA-Deckel. Eine
+    obere Schranke fuer JA folgt daraus von selbst: n_nein <= max_no, also
+    max_ja <= ja_vorrat * max_no.
 
     KEIN Sammelfenster mehr: gesammelt wird in anstossenden Fenstern der
     Laenge `neighborhood.alpha` ueber den ganzen Run -- genau die Fenster,
@@ -140,12 +144,20 @@ class PairSampling(_Typed):
     split: str = "train"
     runs: list[int] = field(
         default_factory=lambda: [2, 11, 19, 30, 32, 35, 44, 59, 61, 76])
-    # So gewaehlt, dass die Ausbeute je Run nahe am Deckel landet: bei
-    # 5e-3 rechnete run61 11,2 Mio. JA und warf neun davon wieder weg.
-    ja_frac: float = 1e-3
-    max_yes: int = 1_000_000
+    ja_frac: float = 1e-2
     max_no: int = 1_000_000
+    # Groesser als training.sample_ratio: [2] legt Vorrat an, [3] setzt den
+    # Arbeitspunkt.
+    ja_vorrat: float = 4.0
     seed: int = 0
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.ja_vorrat <= 0:
+            raise ValueError(f"pairs.ja_vorrat={self.ja_vorrat} muss > 0 sein.")
+        if not 0.0 <= self.ja_frac <= 1.0:
+            raise ValueError(
+                f"pairs.ja_frac={self.ja_frac} muss in [0, 1] liegen.")
 
     def short(self) -> str:
         # "rn" statt "r" fuer die ANZAHL Runs: "r" bezeichnet im Projekt

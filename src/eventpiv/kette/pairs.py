@@ -27,7 +27,8 @@ saubere Runs liefern physikalisch null NEIN. Fenster ohne NEIN gehoeren
 dazu: ihre JA-Paare sind Teil der Einsatzverteilung.
 
 RAM: ein Run liefert bei voller Abdeckung ueber eine Milliarde JA-Paare.
-Geduennt wird deshalb IM Fenster (`ja_frac`), NEIN vollstaendig. Die ROHEN
+Geduennt wird deshalb IM Fenster (`ja_frac`), NEIN vollstaendig. Am Ende
+jedes Runs wird JA auf `ja_vorrat` mal NEIN getrimmt. Die ROHEN
 Klassenzahlen laufen mit, sonst waere die Einsatzverteilung danach nicht
 mehr rekonstruierbar.
 """
@@ -222,7 +223,7 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
 
     if verbose:
         print(f"Paare aus {len(ps.runs)} Run(s), Fenster {nb.alpha/1000:.0f}ms, "
-              f"ja_frac={ps.ja_frac:g}:")
+              f"ja_frac={ps.ja_frac:g}, ja_vorrat={ps.ja_vorrat:g}:1:")
     for r in ps.runs:
         tic = time.time()
         roh, z, lb = build_pairs_for_run(cfg, r, rng)
@@ -237,15 +238,20 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
                 f"die vorigen Runs: {lb} gegen {labeling}. Label-Dateien "
                 "einheitlich neu bauen (scripts/build_event_labels.py "
                 "io.overwrite=true).")
-        # VOR dem Deckel zaehlen: sonst waere ein greifender max_yes nicht
+        # VOR dem Deckel zaehlen: sonst waere ein greifender Deckel nicht
         # von der ja_frac-Duennung zu unterscheiden.
         vor_deckel = roh["label"]
         n_gezogen_ja = int((vor_deckel == 1).sum())
         n_gezogen_nein = int((vor_deckel == 0).sum())
 
-        d = cap_per_class(roh, ps.max_yes, ps.max_no, rng)
+        # NEIN zuerst: der JA-Deckel wird daraus abgeleitet.
+        n_nein_ziel = (min(n_gezogen_nein, ps.max_no)
+                       if ps.max_no is not None else n_gezogen_nein)
+        max_ja = int(ps.ja_vorrat * n_nein_ziel)
+        d = cap_per_class(roh, max_ja, n_nein_ziel, rng)
         lab = d["label"]
         n_ja, n_nein = int((lab == 1).sum()), int((lab == 0).sum())
+        vorrat_erreicht = n_ja >= max_ja
         d["run"] = np.full(len(lab), r, np.int16)
         teile.append(d)
 
@@ -267,12 +273,15 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
             "n_roh_rausch": z["n_roh_rausch"],
             "n_gezogen_ja": n_gezogen_ja, "n_gezogen_nein": n_gezogen_nein,
             "n_ja": n_ja, "n_nein": n_nein,
-            "gedeckelt_ja": bool(n_ja < n_gezogen_ja),
+            "vorrat_ist": (n_ja / n_nein) if n_nein else float("nan"),
+            "vorrat_erreicht": bool(vorrat_erreicht),
             "gedeckelt_nein": bool(n_nein < n_gezogen_nein),
             "sec": round(time.time() - tic, 2)})
         z_ = je_run[-1]
         deckel = "".join([
-            "  (JA gedeckelt)" if z_["gedeckelt_ja"] else "",
+            "" if z_["vorrat_erreicht"] else
+            f"  (JA-VORRAT VERFEHLT: {z_['vorrat_ist']:.2f}:1 statt "
+            f"{ps.ja_vorrat:g}:1 -- pairs.ja_frac erhoehen)",
             "  (NEIN gedeckelt)" if z_["gedeckelt_nein"] else ""])
         if verbose:
             print(f"  run{r:<3d}: {n_ja:>9,} JA / {n_nein:>9,} NEIN behalten "
@@ -293,8 +302,8 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
     n_no = int((data["label"] == 0).sum())
 
     leer = [z["run"] for z in je_run if z["n_ja"] + z["n_nein"] == 0]
-    gedeckelt = [z["run"] for z in je_run
-                 if z["gedeckelt_ja"] or z["gedeckelt_nein"]]
+    gedeckelt = [z["run"] for z in je_run if z["gedeckelt_nein"]]
+    vorrat_verfehlt = [z["run"] for z in je_run if not z["vorrat_erreicht"]]
 
     if verbose:
         print("=" * 52)
@@ -318,6 +327,7 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
         "n_runs": len(je_run),
         "n_runs_leer": len(leer),
         "n_runs_gedeckelt": len(gedeckelt),
+        "n_runs_vorrat_verfehlt": len(vorrat_verfehlt),
         "n_roh_ja": roh_ja, "n_roh_nein": roh_nein,
         "n_roh_ja_ambig": roh_ja_ambig,
         "n_roh_nein_ambig": roh_nein_ambig,

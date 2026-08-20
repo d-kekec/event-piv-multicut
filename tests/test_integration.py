@@ -58,7 +58,7 @@ MIND_JA, MIND_NEIN = 300, 50
 def _gruppen(mini_datensatz):
     nb = Neighborhood(**NB)
     ps = PairSampling(split="train", runs=list(mini_datensatz.kreuzung),
-                      ja_frac=0.02, max_yes=200_000, max_no=200_000, seed=0)
+                      ja_frac=0.02, max_no=200_000, ja_vorrat=4.0, seed=0)
     tr = Training(feature_mode="dr", imbalance="sample", sample_ratio=3.0,
                   hidden=4, epochs=3, batch=4096, val_frac=0.2, seed=0)
     return nb, ps, tr

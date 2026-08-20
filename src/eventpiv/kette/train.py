@@ -314,9 +314,9 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
         # Das Klassenverhaeltnis SETZT die Entscheidungsschwelle des Netzes:
         # bei 3:1 lernt es log-Odds gegen P(JA)=0.75, bei 1:1 gegen 0.5, und
         # die Differenz verschiebt jeden Logit um logit(0.75)-logit(0.5).
-        # Reicht der Datensatz nicht, folgt die Schwelle also aus max_yes und
-        # ja_frac statt aus sample_ratio -- ein Betriebspunkt, den niemand
-        # gewaehlt hat. Das muss auffallen.
+        # Reicht der Datensatz nicht, folgt die Schwelle also aus ja_vorrat
+        # und ja_frac statt aus sample_ratio -- ein Betriebspunkt, den
+        # niemand gewaehlt hat. Das muss auffallen.
         erreicht = n_keep >= n_verlangt
         if verbose:
             print(f"Sampling: JA {n_keep:,} : NEIN {len(nein_i):,} "
@@ -325,7 +325,7 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
                 print(f"  WARN: sample_ratio={tr.sample_ratio} verlangt "
                       f"{n_verlangt:,} JA, vorhanden sind {len(ja_i):,}. Das "
                       f"Verhaeltnis folgt damit aus dem DATENSATZ, nicht aus "
-                      f"sample_ratio -- pairs.ja_frac oder pairs.max_yes "
+                      f"sample_ratio -- pairs.ja_vorrat oder pairs.ja_frac "
                       f"erhoehen, sonst ist der Betriebspunkt geerbt statt "
                       f"gewaehlt.")
     else:

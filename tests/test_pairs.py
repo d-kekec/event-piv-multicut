@@ -297,3 +297,80 @@ def test_verschiedene_labelings_fallen_auf(tmp_path):
                   compute=Compute(device="cpu"))
     with pytest.raises(ValueError, match="Labeling"):
         build_pair_dataset(cfg, verbose=False)
+
+
+def _mini_labeldatei(pfad, run_nr, n=4_000):
+    """Ein Run mit JA-Ueberhang: track_id ueberwiegend 1, jedes siebte
+    Event traegt 2. Ohne den Ueberhang greift der ja_vorrat-Trim nicht."""
+    import json
+
+    rng = np.random.default_rng(run_nr)
+    t = np.sort(rng.integers(0, 20_000, n)).astype(np.uint32)
+    tid = np.ones(n, np.int16)
+    tid[::7] = 2
+    np.savez(pfad / f"run{run_nr}_eventlabels.npz", t=t,
+             x=rng.integers(100, 104, n).astype(np.uint16),
+             y=rng.integers(100, 104, n).astype(np.uint16),
+             p=np.ones(n, np.uint8), track_id=tid,
+             status=np.zeros(n, np.uint8),
+             meta=json.dumps({"labeling": {"r_assign": 8.0},
+                              "label_format": 2}))
+
+
+def _pair_cfg(tmp_path, runs, **ps_kw):
+    from eventpiv.kern.runconfig import (IO, Compute, Neighborhood, PairCfg,
+                                    PairSampling)
+    return PairCfg(io=IO(label_dir=str(tmp_path),
+                         out_path=str(tmp_path / "pairs.npz")),
+                   neighborhood=Neighborhood(alpha=10_000, r_max=5.0,
+                                             geom="cylinder", polarity="on"),
+                   pairs=PairSampling(split="train", runs=runs, seed=0,
+                                      **ps_kw),
+                   compute=Compute(device="cpu"))
+
+
+def test_ja_vorrat_trimmt_je_run(tmp_path):
+    """Der Trim laeuft JE RUN. Nur dadurch traegt jede Teilmenge von Runs
+    dasselbe Verhaeltnis, und der Holdout-Schnitt in [3] kann es nicht
+    verschieben."""
+    from eventpiv.kette.pairs import build_pair_dataset
+
+    for r in (1, 2):
+        _mini_labeldatei(tmp_path, r)
+    _, data = build_pair_dataset(
+        _pair_cfg(tmp_path, [1, 2], ja_frac=1.0, ja_vorrat=2.0,
+                  max_no=1_000_000), verbose=False)
+
+    for r in (1, 2):
+        m = data["run"] == r
+        n_ja = int((data["label"][m] == 1).sum())
+        n_nein = int((data["label"][m] == 0).sum())
+        assert n_nein > 0, "Testszene liefert kein NEIN"
+        assert n_ja == 2 * n_nein
+
+
+def test_ja_deckel_folgt_dem_gedeckelten_nein(tmp_path):
+    """max_ja wird aus dem GEDECKELTEN n_nein abgeleitet -- sonst gaelte die
+    Schranke ja_vorrat * max_no nicht."""
+    from eventpiv.kette.pairs import build_pair_dataset
+
+    _mini_labeldatei(tmp_path, 1)
+    _, data = build_pair_dataset(
+        _pair_cfg(tmp_path, [1], ja_frac=1.0, ja_vorrat=2.0, max_no=100),
+        verbose=False)
+    assert int((data["label"] == 0).sum()) == 100
+    assert int((data["label"] == 1).sum()) == 200
+
+
+def test_verfehlter_vorrat_meldet_sich(tmp_path):
+    """Reicht ja_frac nicht, folgt das Verhaeltnis aus der Duennung statt
+    aus ja_vorrat."""
+    from eventpiv.kette.pairs import build_pair_dataset
+
+    _mini_labeldatei(tmp_path, 1)
+    k = {}
+    build_pair_dataset(_pair_cfg(tmp_path, [1], ja_frac=1e-6, ja_vorrat=4.0,
+                                 max_no=1_000_000),
+                       verbose=False, on_summary=k.update)
+    assert k["n_runs_vorrat_verfehlt"] == 1
+    assert k["per_run"][0]["vorrat_erreicht"] is False

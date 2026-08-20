@@ -38,6 +38,13 @@ def test_unbekannte_auswahlwerte_fallen_zur_konfigurationszeit_auf():
     with pytest.raises(ValueError, match="imbalance"):
         Training(imbalance="egal")
 
+    from eventpiv.kern.runconfig import PairSampling
+
+    with pytest.raises(ValueError, match="ja_vorrat"):
+        PairSampling(ja_vorrat=0.0)
+    with pytest.raises(ValueError, match="ja_frac"):
+        PairSampling(ja_frac=1.5)
+
 
 def test_stufe2_typcast_wie_bei_neighborhood():
     """r_max=15 und r_max=15.0 duerfen nicht zwei Verzeichnisse ergeben --
