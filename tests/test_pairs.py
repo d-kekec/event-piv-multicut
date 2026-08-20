@@ -159,12 +159,58 @@ def test_fenster_werden_gezaehlt(szene):
     assert z["n_fenster"] == 2
 
 
+def test_mehrdeutige_endpunkte_kommen_herein(szene):
+    """Der Kern des Umbaus.
+
+    Die Szene traegt bei t=600 ein MEHRDEUTIGES Event. Markiert man
+    dasselbe Event stattdessen als RAUSCH, fallen seine Paare weg -- die
+    Differenz ist genau der Zuwachs, um den es geht. Verglichen wird
+    gegen RAUSCH und nicht gegen SAUBER, weil nur so ein einziges Bit
+    umschlaegt.
+    """
+    t, x, y, tid, sta = szene
+    mit, _ = collect_pairs(t, x, y, tid, sta, **PARAMS)
+    ohne_sta = sta.copy()
+    ohne_sta[4] = STATUS_NOISE
+    ohne, _ = collect_pairs(t, x, y, tid, ohne_sta, **PARAMS)
+    assert len(mit["label"]) > len(ohne["label"])
+
+
+def test_zwei_rauschevents_ergeben_kein_ja():
+    """Die Falle, wegen der RAUSCH draussen bleibt.
+
+    Rauschevents tragen alle track_id = -1. Liesse man sie zu, waere
+    tid[i] == tid[j] fuer je zwei von ihnen wahr, und der Datensatz
+    bekaeme JA-Paare zwischen Events, die zu gar keinem Partikel gehoeren.
+    """
+    t = np.array([0.0, 100.0, 200.0])
+    x = np.array([100.0, 100.5, 101.0])
+    y = np.full(3, 100.0)
+    tid = np.array([-1, -1, 5], dtype=np.int16)
+    sta = np.array([STATUS_NOISE, STATUS_NOISE, STATUS_CLEAN], np.uint8)
+    d, z = collect_pairs(t, x, y, tid, sta, **PARAMS)
+    assert len(d["label"]) == 0
+    assert z["n_roh_rausch"] == 3        # alle drei Paare beruehren Rausch
+
+
+def test_ambig_zaehler_trennt_den_zuwachs(szene):
+    """Ohne diese Zaehler waere nach dem Sammeln nicht mehr zu sagen,
+    welcher Teil der NEIN-Paare ueberhaupt erst durch die Zulassung
+    mehrdeutiger Endpunkte entsteht -- die Kennzahl des Umbaus."""
+    t, x, y, tid, sta = szene
+    _, z = collect_pairs(t, x, y, tid, sta, **PARAMS)
+    assert z["n_roh_ja_ambig"] + z["n_roh_nein_ambig"] > 0
+    assert z["n_roh_ja_ambig"] <= z["n_roh_ja"]
+    assert z["n_roh_nein_ambig"] <= z["n_roh_nein"]
+    assert z["n_roh_rausch"] > 0
+
+
 def _bruteforce(t, x, y, tid, sta, *, alpha, r_max):
     """O(n^2)-Referenz: welche Paare MUESSEN herauskommen.
 
     Unabhaengig von collect_pairs aufgebaut -- Fenster als Zeitmaske statt
     ueber searchsorted, Nachbarschaft als Ellipsoid von Hand. Prueft damit
-    Fenstergrenzen, Sauberkeitsfilter und Doppelzaehlung in einem Zug.
+    Fenstergrenzen, Rauschfilter und Doppelzaehlung in einem Zug.
 
     Rueckgabe: sortierte Liste von (dt, dx, dy, label), i = frueheres Event.
     """
@@ -175,7 +221,7 @@ def _bruteforce(t, x, y, tid, sta, *, alpha, r_max):
         for pos_a in range(len(m)):
             for pos_b in range(pos_a + 1, len(m)):
                 a, b = m[pos_a], m[pos_b]
-                if sta[a] != STATUS_CLEAN or sta[b] != STATUS_CLEAN:
+                if sta[a] == STATUS_NOISE or sta[b] == STATUS_NOISE:
                     continue
                 dt = abs(t[a] - t[b])
                 dr2 = (x[a] - x[b]) ** 2 + (y[a] - y[b]) ** 2

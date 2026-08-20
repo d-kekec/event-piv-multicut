@@ -8,7 +8,13 @@ Erzeugt Trainingspaare aus gelabelten Runs. Jedes Paar:
     graph.neighborhood_pairs -- DIESELBE Funktion, die spaeter in solve die
     Graphkanten baut. Damit ist Training/Einsatz-Konsistenz strukturell
     erzwungen statt nur konventionell zugesichert.
-  - beide Events SAUBER (status == 0), sonst kein verlaessliches Label
+  - kein Endpunkt RAUSCH (status == 2). MEHRDEUTIGE Endpunkte sind
+    ZUGELASSEN: ein mehrdeutiges Event sitzt im KERN einer Ueberlappung,
+    also genau dort, wo Stufe 1 trennen muss. Seine track_id ist eine
+    Schaetzung (naechstes Boxzentrum) -- die beste, die es gibt.
+    Rausch bleibt draussen, und der Grund ist nicht Unsicherheit sondern
+    ein FALSCHES Label: Rauschevents tragen track_id = -1, und
+    tid[i] == tid[j] zaehlte zwei davon als JA.
   - Label 1 = gleiche track_id (JA), 0 = verschieden (NEIN)
 
 GESAMMELT WIRD IN DEN FENSTERN DES EINSATZES: anstossende Fenster der
@@ -37,7 +43,7 @@ import numpy as np
 from eventpiv.kern import config
 from eventpiv.kern.graph import neighborhood_pairs, polarity_mask
 from eventpiv.kern.runconfig import PairCfg, identity_meta
-from eventpiv.kern.status import STATUS_CLEAN
+from eventpiv.kern.status import STATUS_AMBIG, STATUS_NOISE
 
 
 FIELDS = ("dt", "dx", "dy", "label", "run")
@@ -52,7 +58,8 @@ def collect_pairs(t, x, y, track_id, status, *, alpha, r_max, geom,
     Randes -- genau die Fenster, die Stufe 1 im Einsatz bildet.
 
     ja_frac : Anteil der je Fenster gezogenen JA-Paare. NEIN bleibt
-        vollstaendig, es ist die knappe Klasse (gemessen 263:1 bis 1785:1).
+        vollstaendig, es ist die knappe Klasse -- mit mehrdeutigen
+        Endpunkten gemessen 94:1 (run32) bis 307:1 (run61).
     rng : vom Aufrufer, damit die ganze Sammlung an EINEM Seed haengt.
 
     Rueckgabe: (data, zaehler). data hat dt, dx, dy, label (ohne 'run');
@@ -69,8 +76,13 @@ def collect_pairs(t, x, y, track_id, status, *, alpha, r_max, geom,
         raise ValueError("collect_pairs erwartet aufsteigend sortierte t")
 
     acc = {k: [] for k in FIELDS if k != "run"}
+    # ambig-Zaehler getrennt: sie beziffern, was dieser Filter
+    # hereinlaesst, und ohne sie waere der Zuwachs nach dem Sammeln nicht
+    # mehr vom Rest zu unterscheiden.
     zaehler = {"n_roh_ja": 0, "n_roh_nein": 0, "n_fenster": 0,
-               "n_fenster_ohne_nein": 0}
+               "n_fenster_ohne_nein": 0,
+               "n_roh_ja_ambig": 0, "n_roh_nein_ambig": 0,
+               "n_roh_rausch": 0}
     if len(t) < 2:
         leer = {k: np.empty(0, np.float32) for k in acc}
         leer["label"] = np.empty(0, np.int8)
@@ -96,16 +108,23 @@ def collect_pairs(t, x, y, track_id, status, *, alpha, r_max, geom,
             zaehler["n_fenster_ohne_nein"] += 1
             continue
 
-        keep = (staw[i] == STATUS_CLEAN) & (staw[j] == STATUS_CLEAN)
+        keep = (staw[i] != STATUS_NOISE) & (staw[j] != STATUS_NOISE)
+        zaehler["n_roh_rausch"] += int((~keep).sum())
         i, j = i[keep], j[keep]
         if len(i) == 0:
             zaehler["n_fenster_ohne_nein"] += 1
             continue
 
+        # NACH dem Rauschfilter: die Kanten, die es hier noch gibt und die
+        # es vorher nicht gab.
+        ambig = (staw[i] == STATUS_AMBIG) | (staw[j] == STATUS_AMBIG)
+
         ja = tidw[i] == tidw[j]
         n_ja, n_nein = int(ja.sum()), int((~ja).sum())
         zaehler["n_roh_ja"] += n_ja
         zaehler["n_roh_nein"] += n_nein
+        zaehler["n_roh_ja_ambig"] += int((ja & ambig).sum())
+        zaehler["n_roh_nein_ambig"] += int((~ja & ambig).sum())
         if n_nein == 0:
             zaehler["n_fenster_ohne_nein"] += 1
 
@@ -198,6 +217,7 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
     teile = []
     je_run = []
     roh_ja = roh_nein = n_fenster = 0
+    roh_ja_ambig = roh_nein_ambig = roh_rausch = 0
     labeling = None
 
     if verbose:
@@ -232,6 +252,9 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
         roh_ja += z["n_roh_ja"]
         roh_nein += z["n_roh_nein"]
         n_fenster += z["n_fenster"]
+        roh_ja_ambig += z["n_roh_ja_ambig"]
+        roh_nein_ambig += z["n_roh_nein_ambig"]
+        roh_rausch += z["n_roh_rausch"]
         # Erst die ROHEN Zahlen sagen, welches Klassenverhaeltnis das Netz
         # im EINSATZ vorfindet -- ohne sie ist der Betriebspunkt nicht
         # rekonstruierbar.
@@ -239,6 +262,9 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
             "run": int(r), "n_fenster": z["n_fenster"],
             "n_fenster_ohne_nein": z["n_fenster_ohne_nein"],
             "n_roh_ja": z["n_roh_ja"], "n_roh_nein": z["n_roh_nein"],
+            "n_roh_ja_ambig": z["n_roh_ja_ambig"],
+            "n_roh_nein_ambig": z["n_roh_nein_ambig"],
+            "n_roh_rausch": z["n_roh_rausch"],
             "n_gezogen_ja": n_gezogen_ja, "n_gezogen_nein": n_gezogen_nein,
             "n_ja": n_ja, "n_nein": n_nein,
             "gedeckelt_ja": bool(n_ja < n_gezogen_ja),
@@ -293,6 +319,14 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
         "n_runs_leer": len(leer),
         "n_runs_gedeckelt": len(gedeckelt),
         "n_roh_ja": roh_ja, "n_roh_nein": roh_nein,
+        "n_roh_ja_ambig": roh_ja_ambig,
+        "n_roh_nein_ambig": roh_nein_ambig,
+        "n_roh_rausch": roh_rausch,
+        # Die Kennzahl des Umbaus: welcher Anteil der NEIN-Paare ueberhaupt
+        # erst durch mehrdeutige Endpunkte entsteht. Gemessen 0,65 (run32)
+        # bis 0,83 (run61).
+        "ambig_anteil_nein": (roh_nein_ambig / roh_nein
+                              if roh_nein else float("nan")),
         # DIAGNOSE, kein Sollwert: die Schwelle setzt bereits das
         # Untersampeln, und ein Versatz hierauf machte fast jede Kante
         # positiv.
