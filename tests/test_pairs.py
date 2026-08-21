@@ -374,3 +374,14 @@ def test_verfehlter_vorrat_meldet_sich(tmp_path):
                        verbose=False, on_summary=k.update)
     assert k["n_runs_vorrat_verfehlt"] == 1
     assert k["per_run"][0]["vorrat_erreicht"] is False
+
+
+def test_fenster_schritt_ueberspringt_ganze_fenster(szene):
+    """Ein Fenster bleibt vollstaendig, es sind nur weniger davon: bei
+    Schritt 2 ueber zwei Fenster bleibt genau das erste."""
+    t, x, y, tid, sta = szene
+    ganz, z_ganz = collect_pairs(t, x, y, tid, sta, **PARAMS)
+    halb, z_halb = collect_pairs(t, x, y, tid, sta,
+                                 **{**PARAMS, "fenster_schritt": 2})
+    assert z_ganz["n_fenster"] == 2 and z_halb["n_fenster"] == 1
+    assert len(halb["label"]) < len(ganz["label"])

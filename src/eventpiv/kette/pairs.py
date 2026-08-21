@@ -56,7 +56,7 @@ FIELDS = ("dt", "dx", "dy", "jac", "label", "run")
 
 
 def collect_pairs(t, x, y, track_id, status, *, alpha, r_max, geom,
-                  ja_frac, rng):
+                  ja_frac, rng, fenster_schritt=1):
     """Schreitet EINEN Run in anstossenden Fenstern der Laenge alpha ab.
 
     Harter Schnitt, keine Ueberlappung, keine Erweiterung des rechten
@@ -65,6 +65,8 @@ def collect_pairs(t, x, y, track_id, status, *, alpha, r_max, geom,
     ja_frac : Anteil der je Fenster gezogenen JA-Paare. NEIN bleibt
         vollstaendig, es ist die knappe Klasse -- mit mehrdeutigen
         Endpunkten gemessen 94:1 (run32) bis 307:1 (run61).
+    fenster_schritt : jedes n-te Fenster. Betrifft nur, WIE VIELE Fenster
+        abgeschritten werden, nicht ihren Inhalt.
     rng : vom Aufrufer, damit die ganze Sammlung an EINEM Seed haengt.
 
     Rueckgabe: (data, zaehler). data hat dt, dx, dy, label (ohne 'run');
@@ -99,7 +101,9 @@ def collect_pairs(t, x, y, track_id, status, *, alpha, r_max, geom,
     grenzen = np.searchsorted(t, np.arange(t[0], t[-1], alpha))
     grenzen = np.append(grenzen, len(t))
 
-    for lo, hi in zip(grenzen[:-1], grenzen[1:]):
+    for k, (lo, hi) in enumerate(zip(grenzen[:-1], grenzen[1:])):
+        if k % fenster_schritt:
+            continue
         if hi - lo < 2:
             continue
         zaehler["n_fenster"] += 1
@@ -204,7 +208,8 @@ def build_pairs_for_run(cfg: PairCfg, run_nr, rng):
         daten, zaehler = collect_pairs(
             d["t"][m], d["x"][m], d["y"][m], d["track_id"][m], d["status"][m],
             alpha=nb.alpha, r_max=nb.r_max, geom=nb.geom,
-            ja_frac=ps.ja_frac, rng=rng)
+            ja_frac=ps.ja_frac, rng=rng,
+            fenster_schritt=ps.fenster_schritt)
     return daten, zaehler, lb
 
 
@@ -233,7 +238,8 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
 
     if verbose:
         print(f"Paare aus {len(ps.runs)} Run(s), Fenster {nb.alpha/1000:.0f}ms, "
-              f"ja_frac={ps.ja_frac:g}, ja_vorrat={ps.ja_vorrat:g}:1:")
+              f"ja_frac={ps.ja_frac:g}, ja_vorrat={ps.ja_vorrat:g}:1, "
+              f"jedes {ps.fenster_schritt}. Fenster:")
     for r in ps.runs:
         tic = time.time()
         roh, z, lb = build_pairs_for_run(cfg, r, rng)

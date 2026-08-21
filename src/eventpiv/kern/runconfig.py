@@ -146,6 +146,10 @@ class PairSampling(_Typed):
         default_factory=lambda: [2, 11, 19, 30, 32, 35, 44, 59, 61, 76])
     ja_frac: float = 1e-2
     max_no: int = 1_000_000
+    # Jedes n-te Fenster abschreiten. Ein Fenster bleibt vollstaendig, es
+    # sind nur weniger davon. Bei 4 liegt der knappste Run (run35) noch am
+    # max_no-Deckel.
+    fenster_schritt: int = 4
     # Groesser als training.sample_ratio: [2] legt Vorrat an, [3] setzt den
     # Arbeitspunkt.
     ja_vorrat: float = 4.0
@@ -158,6 +162,9 @@ class PairSampling(_Typed):
         if not 0.0 <= self.ja_frac <= 1.0:
             raise ValueError(
                 f"pairs.ja_frac={self.ja_frac} muss in [0, 1] liegen.")
+        if self.fenster_schritt < 1:
+            raise ValueError(
+                f"pairs.fenster_schritt={self.fenster_schritt} muss >= 1 sein.")
 
     def short(self) -> str:
         # "rn" statt "r" fuer die ANZAHL Runs: "r" bezeichnet im Projekt
