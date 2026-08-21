@@ -16,9 +16,11 @@ derselben Formel, verbunden nur durch Sorgfalt. build_features() ist
 backend-agnostisch (xp=np oder xp=torch), also gibt es jetzt genau eine.
 Dasselbe Argument wie bei graph.neighborhood_pairs.
 
-FEATURE-MODI, gemessen:
-  "dr"    (dt, dr)            AUC 0.792 -- Arbeitspunkt
-  "absxy" (dt, |dx|, |dy|)    AUC 0.788 -- gleichauf
+FEATURE-MODI:
+  "dr"    (dt, dr)            Arbeitspunkt bis 21.08.
+  "absxy" (dt, |dx|, |dy|)
+  "drjac" (dt, dr, jac)       jac = graph.jaccard_paare, je Fenster
+                              gerechnet und mit den Kanten mitgefuehrt
 
 SYMMETRIE c_ij == c_ji ist eine Eigenschaft der MERKMALE, kein Laufzeit-
 thema: |dx|, |dy| und dr sind invariant unter i<->j, und dt >= 0
@@ -39,6 +41,7 @@ from eventpiv.kern.runconfig import FEATURE_MODES
 _FEATURE_NAMES = {
     "dr":    ("dt", "dr"),
     "absxy": ("dt", "|dx|", "|dy|"),
+    "drjac": ("dt", "dr", "jac"),
 }
 
 
@@ -57,10 +60,13 @@ def n_features(mode: str) -> int:
     return len(_FEATURE_NAMES[check_mode(mode)])
 
 
-def build_features(dt, dx, dy, *, mode, xp=np):
+def build_features(dt, dx, dy, *, mode, xp=np, jac=None):
     """Baut die Feature-Matrix (n, n_in) aus den Kanten-Deltas.
 
     dt, dx, dy : 1D-Arrays/Tensoren, dt >= 0 (graph.py-Kontrakt)
+    jac        : nur fuer mode="drjac". Anders als dt/dx/dy keine Groesse
+        je Kante, sondern eine des ganzen FENSTERS -- der Aufrufer rechnet
+        sie einmal ueber die volle Kantenmenge und reicht sie herein.
     xp         : Backend -- numpy (Training) oder torch (Einsatz auf GPU).
 
     Rueckgabe: Matrix im dtype der Eingaben (Caller castet auf float32).
@@ -68,6 +74,10 @@ def build_features(dt, dx, dy, *, mode, xp=np):
     check_mode(mode)
     if mode == "dr":
         cols = [dt, xp.sqrt(dx * dx + dy * dy)]
+    elif mode == "drjac":
+        if jac is None:
+            raise ValueError("feature_mode 'drjac' braucht jac")
+        cols = [dt, xp.sqrt(dx * dx + dy * dy), jac]
     else:                                    # absxy
         cols = [dt, xp.abs(dx), xp.abs(dy)]
     return xp.stack(cols, 1)

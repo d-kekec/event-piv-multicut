@@ -27,7 +27,8 @@ from pathlib import Path
 
 from eventpiv.bewerten.evaluate import cluster_metrics, edge_gt_stats, merge_metrics
 from eventpiv.kern import config
-from eventpiv.kern.graph import edge_deltas, neighborhood_pairs
+from eventpiv.kern.graph import (edge_deltas, jaccard_paare,
+                                 neighborhood_pairs)
 from eventpiv.kern.runconfig import Neighborhood, SolveCfg, identity_meta
 from eventpiv.kette.fenster import Fenster, lade_fenster
 from eventpiv.kette.loeser import SOLVER_FUNKTIONEN
@@ -44,6 +45,8 @@ def edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, cp):
     Sigmoid+BCE ist er die Log-Odds, also genau die von RAMA erwartete
     Kalibrierung. Die Features entstehen ueber dieselbe build_features wie
     im Training, nur mit xp=torch statt xp=numpy.
+    Bei feature_mode="drjac" entsteht jac EINMAL vor der Stapelschleife:
+    es ist eine Groesse des Fensters, keine je Kante.
 
     STAPELWEISE, und das ist bei grossen Fenstern kein Detail: die versteckte
     Schicht ist (n, hidden) gross, bei 80 Mio. Kanten und hidden=8 also
@@ -55,6 +58,10 @@ def edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, cp):
     n_edges = len(i)
     out = torch.empty(n_edges, dtype=torch.float32, device=device)
 
+    # VOR der Schleife: jac braucht die vollstaendige Nachbarschaft des
+    # Fensters, ein Stapel allein traegt sie nicht. 4 Byte je Kante.
+    jac = jaccard_paare(i, j, len(t)) if feature_mode == "drjac" else None
+
     for s in range(0, n_edges, batch):
         sl = slice(s, min(s + batch, n_edges))
         ii, jj = i[sl], j[sl]
@@ -63,7 +70,8 @@ def edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, cp):
                                        device=device)
         dt, dx, dy = (zu(a) for a in edge_deltas(t, x, y, ii, jj))
 
-        feats = build_features(dt, dx, dy, mode=feature_mode, xp=torch)
+        feats = build_features(dt, dx, dy, mode=feature_mode, xp=torch,
+                               jac=None if jac is None else zu(jac[sl]))
         feats = (feats - mu) / sig
 
         with torch.no_grad():

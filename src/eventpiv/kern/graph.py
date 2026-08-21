@@ -22,6 +22,7 @@ KONTRAKT der Rueckgabe (auf den sich alle Aufrufer verlassen):
 from __future__ import annotations
 
 import numpy as np
+from scipy.sparse import csr_matrix
 from scipy.spatial import cKDTree
 from eventpiv.kern.runconfig import (NEIGHBORHOOD_GEOMS, POLARITIES, Neighborhood,
                                 Solver)
@@ -183,3 +184,46 @@ def edge_deltas(t, x, y, i, j):
     Feature-Modi bauen darauf auf (model.build_features).
     """
     return (t[j] - t[i]), (x[j] - x[i]), (y[j] - y[i])
+
+
+def jaccard_paare(i, j, n, chunk: int = 50_000):
+    """Anteil gemeinsamer Nachbarn je Kante: |N(i) ∩ N(j)| / |N(i) ∪ N(j)|.
+
+    Liegt aus demselben Grund hier wie neighborhood_pairs: [2] und [4]
+    muessen dieselbe Rechnung benutzen. Die Nachbarschaft IST die
+    Kantenmenge, kein zweiter KDTree.
+
+    i, j : Indexpaare aus neighborhood_pairs, VOR jedem Filter -- solve
+        kennt keinen Status und sieht alle Events als Knoten.
+    n    : Knotenzahl des Fensters.
+
+    Symmetrisch unter i<->j und skalenfrei: der Nenner kuerzt die lokale
+    Dichte weg, an der raw6 gescheitert ist.
+
+    Blockweise ueber die KANTEN, nicht ueber die Nachbarn: A[i_c] traegt
+    die vollstaendigen Zeilen, das Ergebnis ist exakt. chunk steuert nur
+    den Zwischenspeicher.
+
+    Rueckgabe: float32-Array der Laenge len(i), Werte in [0, 1].
+    """
+    i = np.asarray(i, dtype=np.int64)
+    j = np.asarray(j, dtype=np.int64)
+    if len(i) == 0:
+        return np.empty(0, np.float32)
+
+    # Beide Richtungen: A[k] soll die volle Nachbarschaft von k tragen,
+    # neighborhood_pairs liefert jede Kante aber nur einmal.
+    A = csr_matrix((np.ones(2 * len(i), np.int8),
+                    (np.concatenate([i, j]), np.concatenate([j, i]))),
+                   shape=(n, n))
+    # getnnz statt sum(axis=1): zaehlt Eintraege, nicht Werte -- gegen
+    # doppelte Kanten unempfindlich.
+    grad = A.getnnz(axis=1).astype(np.float64)
+
+    c = np.empty(len(i), np.float64)
+    for s in range(0, len(i), chunk):
+        sl = slice(s, min(s + chunk, len(i)))
+        c[sl] = np.asarray(A[i[sl]].multiply(A[j[sl]]).sum(axis=1)).ravel()
+
+    vereinigung = grad[i] + grad[j] - c
+    return (c / np.maximum(vereinigung, 1.0)).astype(np.float32)

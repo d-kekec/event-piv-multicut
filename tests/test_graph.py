@@ -221,3 +221,68 @@ def test_on_only_entfernt_die_gemischtpolaren_kanten(wolke):
     assert gefiltert == {(a, b) for a, b in ungerichtet(voll)
                          if p[a] == 1 and p[b] == 1}
     assert len(gefiltert) < len(voll)
+
+
+# --- jaccard_paare: der gemeinsame Nachbaranteil -----------------------
+
+def _jaccard_brute(i, j, n):
+    """O(Grad)-Referenz ueber echte Mengen -- unabhaengig von scipy.sparse."""
+    nachbarn = [set() for _ in range(n)]
+    for a, b in zip(i.tolist(), j.tolist()):
+        nachbarn[a].add(b)
+        nachbarn[b].add(a)
+    return np.array(
+        [len(nachbarn[a] & nachbarn[b]) / max(len(nachbarn[a] | nachbarn[b]), 1)
+         for a, b in zip(i.tolist(), j.tolist())], np.float32)
+
+
+def test_jaccard_gegen_brute_force(wolke):
+    """Die Nachbarschaft ist die Kantenmenge selbst -- gegen eine Referenz
+    aus echten Mengen statt gegen eine zweite Matrixrechnung."""
+    from eventpiv.kern.graph import jaccard_paare
+
+    t, x, y = wolke
+    i, j = neighborhood_pairs(t, x, y, 10_000, 7.0)
+    assert len(i) > 0
+    np.testing.assert_allclose(jaccard_paare(i, j, len(t)),
+                               _jaccard_brute(i, j, len(t)), atol=1e-6)
+
+
+def test_jaccard_ist_symmetrisch(wolke):
+    """c_ij == c_ji: Multicut setzt EINEN Preis je Kante voraus. Ein
+    unsymmetrisches Merkmal muss hier auffallen und nicht erst an
+    schlechteren Partitionen."""
+    from eventpiv.kern.graph import jaccard_paare
+
+    t, x, y = wolke
+    i, j = neighborhood_pairs(t, x, y, 10_000, 7.0)
+    np.testing.assert_array_equal(jaccard_paare(i, j, len(t)),
+                                  jaccard_paare(j, i, len(t)))
+
+
+def test_jaccard_liegt_in_null_bis_eins(wolke):
+    from eventpiv.kern.graph import jaccard_paare
+
+    t, x, y = wolke
+    i, j = neighborhood_pairs(t, x, y, 10_000, 7.0)
+    J = jaccard_paare(i, j, len(t))
+    assert J.dtype == np.float32
+    assert (J >= 0).all() and (J <= 1).all()
+
+
+def test_jaccard_haengt_nicht_an_der_blockgroesse(wolke):
+    """chunk steuert nur den Zwischenspeicher. Waere das Ergebnis davon
+    abhaengig, schnitte der Block Nachbarn weg."""
+    from eventpiv.kern.graph import jaccard_paare
+
+    t, x, y = wolke
+    i, j = neighborhood_pairs(t, x, y, 10_000, 7.0)
+    np.testing.assert_array_equal(jaccard_paare(i, j, len(t), chunk=7),
+                                  jaccard_paare(i, j, len(t), chunk=10_000))
+
+
+def test_jaccard_leere_kantenmenge():
+    from eventpiv.kern.graph import jaccard_paare
+
+    leer = np.empty(0, np.int64)
+    assert len(jaccard_paare(leer, leer, 5)) == 0

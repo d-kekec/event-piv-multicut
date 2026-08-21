@@ -299,7 +299,7 @@ def test_verschiedene_labelings_fallen_auf(tmp_path):
         build_pair_dataset(cfg, verbose=False)
 
 
-def _mini_labeldatei(pfad, run_nr, n=4_000):
+def _mini_labeldatei(pfad, run_nr, n=400):
     """Ein Run mit JA-Ueberhang: track_id ueberwiegend 1, jedes siebte
     Event traegt 2. Ohne den Ueberhang greift der ja_vorrat-Trim nicht."""
     import json

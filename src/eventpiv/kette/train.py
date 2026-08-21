@@ -79,10 +79,17 @@ def load_features(path, feature_mode: str):
             "lassen (gleiche neighborhood/pairs-Gruppe).")
     
     with np.load(path, allow_pickle=False) as d:
+        if feature_mode == "drjac" and "jac" not in d:
+            raise ValueError(
+                f"{path} traegt keine jac-Spalte, feature_mode='drjac' "
+                "braucht sie -- Datensatz mit dem aktuellen Stand von [2] "
+                "neu bauen.")
+        jac = d["jac"].astype(np.float32) if "jac" in d else None
         feats = build_features(d["dt"].astype(np.float32),
                                d["dx"].astype(np.float32),
                                d["dy"].astype(np.float32),
-                               mode=feature_mode, xp=np).astype(np.float32)
+                               mode=feature_mode, xp=np,
+                               jac=jac).astype(np.float32)
         return (feats, d["label"].astype(np.float32), d["run"],
                 json.loads(str(d["meta"])))
 

@@ -22,13 +22,14 @@ def deltas():
     dt = rng.uniform(0, 10_000, n).astype(np.float32)      # >= 0, Kontrakt
     dx = rng.uniform(-7, 7, n).astype(np.float32)
     dy = rng.uniform(-7, 7, n).astype(np.float32)
-    return dt, dx, dy
+    jac = rng.uniform(0, 1, n).astype(np.float32)
+    return dt, dx, dy, jac
 
 
 @pytest.mark.parametrize("mode", FEATURE_MODES)
 def test_form_passt_zu_n_features(deltas, mode):
-    dt, dx, dy = deltas
-    f = build_features(dt, dx, dy, mode=mode)
+    dt, dx, dy, jac = deltas
+    f = build_features(dt, dx, dy, mode=mode, jac=jac)
     assert f.shape == (len(dt), n_features(mode))
     assert len(feature_names(mode)) == n_features(mode)
 
@@ -46,10 +47,10 @@ def test_numpy_und_torch_identisch(deltas, mode):
     Auswirkung auf die Kantenkosten: ~1e-6 im Logit -- irrelevant, ausser
     exakt an der Nullstelle, wo die Kante ohnehin maximal unsicher ist.
     """
-    dt, dx, dy = deltas
-    f_np = build_features(dt, dx, dy, mode=mode, xp=np)
+    dt, dx, dy, jac = deltas
+    f_np = build_features(dt, dx, dy, mode=mode, xp=np, jac=jac)
     f_t = build_features(*[torch.tensor(a) for a in (dt, dx, dy)], mode=mode,
-                         xp=torch)
+                         xp=torch, jac=torch.tensor(jac))
     np.testing.assert_allclose(f_np, f_t.numpy(), rtol=1e-6, atol=1e-6)
 
 
@@ -62,9 +63,9 @@ def test_symmetrie_unter_vertauschung(deltas, mode):
     eine Kante EINEN Preis hat. Ein neuer unsymmetrischer Modus muss hier
     auffallen und nicht erst an schlechteren Partitionen.
     """
-    dt, dx, dy = deltas
-    a = build_features(dt, dx, dy, mode=mode)
-    b = build_features(dt, -dx, -dy, mode=mode)
+    dt, dx, dy, jac = deltas
+    a = build_features(dt, dx, dy, mode=mode, jac=jac)
+    b = build_features(dt, -dx, -dy, mode=mode, jac=jac)
     np.testing.assert_allclose(a, b, rtol=1e-6, atol=1e-6)
 
 
@@ -127,3 +128,11 @@ def test_feature_modes_und_namen_stimmen_ueberein():
     Doppelung ist von der Framework-Grenze erzwungen -- also pruefen."""
     from eventpiv.kette.model import _FEATURE_NAMES
     assert tuple(_FEATURE_NAMES) == FEATURE_MODES
+
+
+def test_drjac_verlangt_jac(deltas):
+    """Ohne jac saehe das Netz zwei Spalten statt drei -- der Fehler muss
+    beim Bauen auffallen, nicht an schlechteren Kanten."""
+    dt, dx, dy, _ = deltas
+    with pytest.raises(ValueError, match="jac"):
+        build_features(dt, dx, dy, mode="drjac")

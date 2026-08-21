@@ -16,6 +16,9 @@ Erzeugt Trainingspaare aus gelabelten Runs. Jedes Paar:
     ein FALSCHES Label: Rauschevents tragen track_id = -1, und
     tid[i] == tid[j] zaehlte zwei davon als JA.
   - Label 1 = gleiche track_id (JA), 0 = verschieden (NEIN)
+  - traegt `jac`, den Anteil gemeinsamer Nachbarn im Fenster. Gerechnet
+    auf der UNGEFILTERTEN Kantenmenge, sonst weicht die Nachbarschaft vom
+    Einsatz ab.
 
 GESAMMELT WIRD IN DEN FENSTERN DES EINSATZES: anstossende Fenster der
 Laenge `neighborhood.alpha`, harter Schnitt. Ein Paar ueber eine
@@ -42,12 +45,13 @@ from pathlib import Path
 import numpy as np
 
 from eventpiv.kern import config
-from eventpiv.kern.graph import neighborhood_pairs, polarity_mask
+from eventpiv.kern.graph import (jaccard_paare, neighborhood_pairs,
+                                 polarity_mask)
 from eventpiv.kern.runconfig import PairCfg, identity_meta
 from eventpiv.kern.status import STATUS_AMBIG, STATUS_NOISE
 
 
-FIELDS = ("dt", "dx", "dy", "label", "run")
+FIELDS = ("dt", "dx", "dy", "jac", "label", "run")
 
 
 
@@ -109,9 +113,14 @@ def collect_pairs(t, x, y, track_id, status, *, alpha, r_max, geom,
             zaehler["n_fenster_ohne_nein"] += 1
             continue
 
+        # VOR dem Rauschfilter: solve kennt keinen Status und sieht alle
+        # Events als Knoten. Danach gerechnet haette dasselbe Event im
+        # Training eine kleinere Nachbarschaft als im Einsatz.
+        jac = jaccard_paare(i, j, hi - lo)
+
         keep = (staw[i] != STATUS_NOISE) & (staw[j] != STATUS_NOISE)
         zaehler["n_roh_rausch"] += int((~keep).sum())
-        i, j = i[keep], j[keep]
+        i, j, jac = i[keep], j[keep], jac[keep]
         if len(i) == 0:
             zaehler["n_fenster_ohne_nein"] += 1
             continue
@@ -143,6 +152,7 @@ def collect_pairs(t, x, y, track_id, status, *, alpha, r_max, geom,
         acc["dt"].append((tw[j] - tw[i]).astype(np.float32))   # >= 0
         acc["dx"].append((xw[j] - xw[i]).astype(np.float32))
         acc["dy"].append((yw[j] - yw[i]).astype(np.float32))
+        acc["jac"].append(jac[sel])
         acc["label"].append(lab)
 
     if not acc["dt"]:
