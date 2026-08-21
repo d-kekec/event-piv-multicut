@@ -60,7 +60,8 @@ def edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, cp):
 
     # VOR der Schleife: jac braucht die vollstaendige Nachbarschaft des
     # Fensters, ein Stapel allein traegt sie nicht. 4 Byte je Kante.
-    jac = jaccard_paare(i, j, len(t)) if feature_mode == "drjac" else None
+    jac = (jaccard_paare(i, j, len(t), device=device)
+           if feature_mode == "drjac" else None)
 
     for s in range(0, n_edges, batch):
         sl = slice(s, min(s + batch, n_edges))

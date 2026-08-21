@@ -56,7 +56,7 @@ FIELDS = ("dt", "dx", "dy", "jac", "label", "run")
 
 
 def collect_pairs(t, x, y, track_id, status, *, alpha, r_max, geom,
-                  ja_frac, rng, fenster_schritt=1):
+                  ja_frac, rng, fenster_schritt=1, device="cpu"):
     """Schreitet EINEN Run in anstossenden Fenstern der Laenge alpha ab.
 
     Harter Schnitt, keine Ueberlappung, keine Erweiterung des rechten
@@ -120,7 +120,7 @@ def collect_pairs(t, x, y, track_id, status, *, alpha, r_max, geom,
         # VOR dem Rauschfilter: solve kennt keinen Status und sieht alle
         # Events als Knoten. Danach gerechnet haette dasselbe Event im
         # Training eine kleinere Nachbarschaft als im Einsatz.
-        jac = jaccard_paare(i, j, hi - lo)
+        jac = jaccard_paare(i, j, hi - lo, device=device)
 
         keep = (staw[i] != STATUS_NOISE) & (staw[j] != STATUS_NOISE)
         zaehler["n_roh_rausch"] += int((~keep).sum())
@@ -209,7 +209,8 @@ def build_pairs_for_run(cfg: PairCfg, run_nr, rng):
             d["t"][m], d["x"][m], d["y"][m], d["track_id"][m], d["status"][m],
             alpha=nb.alpha, r_max=nb.r_max, geom=nb.geom,
             ja_frac=ps.ja_frac, rng=rng,
-            fenster_schritt=ps.fenster_schritt)
+            fenster_schritt=ps.fenster_schritt,
+            device=cfg.compute.device)
     return daten, zaehler, lb
 
 
