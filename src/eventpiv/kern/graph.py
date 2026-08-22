@@ -198,7 +198,8 @@ def jaccard_paare(i, j, n, device: str = "cpu", puffer_mb: int = 512,
     n    : Knotenzahl des Fensters.
     device : Torch-Geraet. Gemessen auf run61/3820ms (3,35 Mio. Kanten,
         23.031 Knoten, 4070 Ti): 22,3 s ueber scipy.sparse, 2,6 s als
-        bool-Maske, 0,58 s so.
+        bool-Maske, 0,58 s als Matrixprodukt in float16 -- letzteres
+        rundet aber ab Knotengrad 2048, siehe unten.
     puffer_mb : Groesse eines Zeilenblocks von S. Bestimmt `block`, wenn
         dieses 0 ist.
     block : Zeilen je Matrixprodukt. 0 heisst: aus puffer_mb ableiten.
@@ -212,11 +213,14 @@ def jaccard_paare(i, j, n, device: str = "cpu", puffer_mb: int = 512,
     allen Knoten, daraus werden die gebrauchten Kanten gelesen. Dafuer
     muessen die Kanten nach i gruppiert sein.
 
-    Auf cuda float16, weil die Tensorkerne nur dort ihren Durchsatz
-    erreichen; auf cpu float32, weil float16-Matmul dort langsam bis nicht
-    vorhanden ist. Die Zahlen sind in beiden Faellen dieselben, solange
-    kein Knotengrad 2048 erreicht -- bis dahin zaehlt float16 ganzzahlig.
-    Darueber bricht die Funktion ab, statt still falsch zu zaehlen.
+    float32, nicht float16: das Matrixprodukt gibt bei float16-Eingaben ein
+    float16-ERGEBNIS zurueck, und das zaehlt nur bis 2048 ganzzahlig. Der
+    hoechste gemessene Knotengrad liegt bei 3659 (run61, 10-ms-Fenster) --
+    float16 zaehlte dort still falsch. float32 zaehlt bis 2^24, also
+    jenseits jedes moeglichen Grades. Die Faktoren sind 0 und 1 und damit
+    auch unter TF32 exakt.
+
+    Speicher: A belegt n^2 * 4 Byte, bei n = 23.031 rund 2,1 GB.
 
     import torch im Rumpf: kern/ bleibt beim Importieren torch-frei.
 
@@ -229,21 +233,14 @@ def jaccard_paare(i, j, n, device: str = "cpu", puffer_mb: int = 512,
     if len(i) == 0:
         return np.empty(0, np.float32)
 
-    dtype = torch.float16 if device != "cpu" else torch.float32
     ii = torch.as_tensor(i, device=device)
     jj = torch.as_tensor(j, device=device)
     # Beide Richtungen: A[k] soll die volle Nachbarschaft von k tragen,
     # neighborhood_pairs liefert jede Kante aber nur einmal.
-    A = torch.zeros((n, n), dtype=dtype, device=device)
+    A = torch.zeros((n, n), dtype=torch.float32, device=device)
     A[ii, jj] = 1
     A[jj, ii] = 1
     grad = A.sum(1, dtype=torch.float32)
-
-    if dtype is torch.float16 and float(grad.max()) >= 2048:
-        raise ValueError(
-            f"Knotengrad {int(grad.max())} >= 2048 -- float16 zaehlt dort "
-            "nicht mehr ganzzahlig. jaccard_paare(device='cpu') rechnet in "
-            "float32, oder das Fenster verkleinern.")
 
     if block <= 0:
         block = (puffer_mb * 1024 * 1024) // (4 * max(n, 1))
@@ -262,7 +259,7 @@ def jaccard_paare(i, j, n, device: str = "cpu", puffer_mb: int = 512,
         hi = int(grenzen[min(k + 1, len(grenzen) - 1)])
         if hi <= lo:
             continue
-        S = (A[b:b + block] @ A.T).float()
+        S = A[b:b + block] @ A.T
         c_s[lo:hi] = S[i_s[lo:hi] - b, j_s[lo:hi]]
 
     c = torch.empty_like(c_s)
