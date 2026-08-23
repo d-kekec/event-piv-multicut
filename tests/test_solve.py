@@ -102,18 +102,6 @@ def test_unbekanntes_backend_faellt_zur_konfigurationszeit_auf():
         Solver(backend="unionfind")
 
 
-def test_vorgabe_steht_im_dateinamen():
-    """Seit die Vorgabe -0,5 ist, traegt sie ein Suffix -- und muss es
-    tragen: sonst laegen Laeufe bei 0,0 und bei -0,5 auf demselben Pfad.
-
-    Der Anker bleibt unter "P" erreichbar, weil er cost_offset selbst
-    ausschreibt.
-    """
-    assert Solver().short() == "P_o-0.5"
-    assert Solver(cost_offset=0.0).short() == "P"
-    assert Solver(backend="cc").short() == "P_cc_o-0.5"
-    assert Solver(backend="cc", cost_offset=0.0).short() == "P_cc"
-
 # --- Fenster und lade_fenster -----------------------------------------
 
 def test_fenster_ohne_gt(mini_datensatz):
@@ -271,10 +259,14 @@ def test_polarity_ist_pflicht():
 
 
 def test_cost_offset_steht_im_dateinamen():
-    """Ohne Suffix ueberschriebe ein Sweep seine eigenen Ergebnisse."""
-    assert Solver(cost_offset=0.0).short() == "P"
+    """Ohne Suffix ueberschriebe ein Sweep seine eigenen Ergebnisse. Die
+    Vorgabe 0,0 traegt keines -- sie ist der Arbeitspunkt, und seine
+    Dateien sollen die kurzen Namen bekommen."""
+    assert Solver().short() == "P"
     assert Solver(cost_offset=-0.5).short() == "P_o-0.5"
     assert Solver(cost_offset=1.0).short() == "P_o1"
+    assert Solver(backend="cc").short() == "P_cc"
+    assert Solver(backend="cc", cost_offset=0.4).short() == "P_cc_o0.4"
 
 
 def test_negativer_versatz_schneidet_mehr():

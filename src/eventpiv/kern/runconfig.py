@@ -124,8 +124,9 @@ class PairSampling(_Typed):
 
     `runs` sind AUSSCHLIESSLICH Overlap-Runs. Saubere Runs liefern
     physikalisch null NEIN, und die Overlap-Runs tragen selbst reichlich JA
-    (gemessen 94:1 bis 307:1). Beide Klassen stammen damit aus DENSELBEN
-    Fenstern -- nur so sieht das Netz eine Eingangsverteilung und nicht zwei.
+    (gemessen 95:1 auf run32 bis 534:1 auf run55). Beide Klassen stammen
+    damit aus DENSELBEN Fenstern -- nur so sieht das Netz eine
+    Eingangsverteilung und nicht zwei.
 
     `ja_frac` ist keine Feinabstimmung, sondern die Speicherbedingung: ein
     Run liefert bei voller Abdeckung ueber eine Milliarde JA-Paare. NEIN
@@ -135,24 +136,24 @@ class PairSampling(_Typed):
     obere Schranke fuer JA folgt daraus von selbst: n_nein <= max_no, also
     max_ja <= ja_vorrat * max_no.
 
-    KEIN Sammelfenster mehr: gesammelt wird in anstossenden Fenstern der
-    Laenge `neighborhood.alpha` ueber den ganzen Run -- genau die Fenster,
-    die Stufe 1 im Einsatz bildet. Und keine Schrittweite: die NEIN-Paare
-    sitzen in wenigen Fenstern (Median 29 je Fenster gegen Maximum 91 172
-    auf run61), ein Auslassen waere nicht Stichprobe, sondern Verzerrung.
+    KEIN Sammelfenster: gesammelt wird in anstossenden Fenstern der Laenge
+    `neighborhood.alpha` -- genau die Fenster, die Stufe 1 im Einsatz
+    bildet. `fenster_schritt` laesst Fenster aus, nie Teile eines Fensters.
     """
     split: str = "train"
     runs: list[int] = field(
-        default_factory=lambda: [2, 11, 19, 30, 32, 35, 44, 59, 61, 76])
-    ja_frac: float = 1e-2
+        default_factory=lambda: [2, 9, 11, 12, 13, 14, 19, 23, 24, 28, 30,
+                                 32, 34, 35, 44, 51, 55, 58, 59, 61, 63, 66,
+                                 67, 70, 73, 76, 77, 80, 83, 90])
+    ja_frac: float = 2e-2
     max_no: int = 1_000_000
     # Jedes n-te Fenster abschreiten. Ein Fenster bleibt vollstaendig, es
-    # sind nur weniger davon. Bei 4 liegt der knappste Run (run35) noch am
-    # max_no-Deckel.
+    # sind nur weniger davon. Bei 4 erreichen 29 der 30 Runs den
+    # max_no-Deckel; run55 liefert 926.996 NEIN.
     fenster_schritt: int = 4
     # Groesser als training.sample_ratio: [2] legt Vorrat an, [3] setzt den
     # Arbeitspunkt.
-    ja_vorrat: float = 4.0
+    ja_vorrat: float = 2.0
     seed: int = 0
 
     def __post_init__(self) -> None:
@@ -174,12 +175,19 @@ class PairSampling(_Typed):
         # nicht in asdict(), also nicht in canonical().
         return f"split_{self.split}_rn{len(self.runs)}"
 
-
 @dataclass
 class Training(_Typed):
-    feature_mode: str = "dr"
+    """Identitaet des Kantenkosten-Netzes.
+
+    `sample_ratio` verschiebt ausschliesslich den Achsenabschnitt des
+    Logits um log(s), nicht die Rangfolge -- gemessen 0,7656 gegen 0,7652
+    AUC bei 1:1 und 3:1 auf demselben Datensatz. 1:1 legt die Nullstelle
+    in die Verteilung, damit TPR, TNR und pred_neg_frac waehrend des
+    Trainings ablesbar bleiben; bei 3:1 stand TNR bei 0,206.
+    """
+    feature_mode: str = "drjac"
     imbalance: str = "sample"
-    sample_ratio: float = 3.0
+    sample_ratio: float = 1.0
     hidden: int = 8
     epochs: int = 30
     batch: int = 65_536
@@ -224,31 +232,31 @@ class Solver(_Typed):
     Kante addiert und verschiebt damit die Schwelle zwischen Schneiden und
     Verbinden, ohne die Rangfolge der Kanten zu aendern.
 
-    VORGABE -0,5, gemessen und nicht gewaehlt: bei 0,0 bleiben 4 von 9
-    Partikeln auf run61 unerreichbar, weil ihre Tracklets in mindestens
-    einem Fenster unter min_events fallen; bei -0,5 sind es 0 von 9 ueber
-    alle geprueften Runs, bei viermal so vielen NEIN-Paaren fuer Stufe 2.
-    Die Fragmentierung steigt dabei um 37 %, und genau die nimmt Stufe 2
-    wieder zurueck (gemessen 1733 -> 1,13 auf val/run1). 0,0 ist damit
-    kein Arbeitspunkt der Kette mehr, sondern eine Ablation -- und muss
-    ausgeschrieben werden, wie jede Ablation.
+    VORGABE 0,0: die Nullstelle des Logits IST der Schnittpunkt, die
+    Entscheidung entsteht also vollstaendig im Netz. Mit feature_mode="dr"
+    war das unmoeglich -- P(JA | dt, dr) lag in keiner Gitterzelle unter
+    0,5, die Kosten wurden nie negativ, und geschnitten wurde
+    ausschliesslich ueber diesen Versatz. Mit "drjac" liegt edge_tnr auch
+    ohne Versatz bei 0,86 (run32) bzw. 0,91 (run61).
+
+    Es gibt kein Optimum, nur eine Tauschkurve. Ueber ganze Runs steigt
+    nah_merge_event_frac monoton mit dem Versatz und faellt die
+    Fragmentierung (run32: -0,2 / 0,0 / 0,2 / 0,4 -> 0,77 / 1,16 / 1,73 /
+    2,33 % bei frag_mean 7,88 / 6,34 / 5,17 / 4,17). 0,0 ist eine Wahl auf
+    dieser Kurve: Verschmelzen ist in Stufe 1 der einzige unumkehrbare
+    Fehler, weiter links steigt aber die Tracklet-Zahl je Fenster stark,
+    ohne dass nah_merge noch nennenswert faellt.
 
     Denselben Effekt hat das Klassenverhaeltnis im Training -- Untersampeln
-    auf P(JA)=0.75 verschiebt jeden gelernten Logit gegenueber P(JA)=0.5 um
-    logit(0.75). Der Unterschied ist der Preis: das Verhaeltnis kostet ein
-    Neutraining, dieser Wert einen Override.
-
-    Erwartetes Vorzeichen NEGATIV: Verschmelzen ist in Stufe 1 der einzige
-    unumkehrbare Fehler, Zerschneiden kostet nur Knoten. Die Schwelle darf
-    deshalb zum Schneiden hin liegen. Ein Versatz auf den kalibrierten Wert
-    des Einsatzes (gemessen logit(P) = +5,6 bis +7,5 ueber ganze Runs)
-    machte praktisch jede Kante positiv und verschmoelze alles.
+    verschiebt jeden gelernten Logit um log(s). Der Unterschied ist der
+    Preis: das Verhaeltnis kostet ein Neutraining, dieser Wert einen
+    Override.
     """
     mode: str = "P"
     use_knn: bool = False
     k_max: int = 24
     backend: str = "rama"
-    cost_offset: float = -0.5
+    cost_offset: float = 0.0
 
     def short(self) -> str:
         # Kein Suffix im Vorgabefall, damit bestehende Dateinamen bleiben.
@@ -438,7 +446,7 @@ class Solver2(_Typed):
     """Der Solver von Stufe 2. Eigene Gruppe, nicht Solver wiederverwendet.
 
     `solver` identifiziert den Arbeitspunkt von STUFE 1 und steht im
-    Dateinamen der Tracklets und Kandidaten -- cost_offset=-0.5 waehlt dort
+    Dateinamen der Tracklets und Kandidaten -- cost_offset waehlt dort
     die QUELLE. Dieselbe Gruppe fuer die Rueckseite von Stufe 2 zu nehmen
     vermengte zwei Dinge, die getrennt gewaehlt werden muessen.
 
