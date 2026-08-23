@@ -17,16 +17,15 @@ backend-agnostisch (xp=np oder xp=torch), also gibt es jetzt genau eine.
 Dasselbe Argument wie bei graph.neighborhood_pairs.
 
 FEATURE-MODI:
-  "dr"    (dt, dr)            Arbeitspunkt bis 21.08.
-  "absxy" (dt, |dx|, |dy|)
-  "drjac" (dt, dr, jac)       jac = graph.jaccard_paare, je Fenster
-                              gerechnet und mit den Kanten mitgefuehrt
+  "drjac" (dt, dr, jac)       Arbeitspunkt. jac = graph.jaccard_paare, je
+                              Fenster gerechnet und mit den Kanten
+                              mitgefuehrt
+  "dr"    (dt, dr)            ohne die dritte Spalte
 
 SYMMETRIE c_ij == c_ji ist eine Eigenschaft der MERKMALE, kein Laufzeit-
-thema: |dx|, |dy| und dr sind invariant unter i<->j, und dt >= 0
-garantiert der graph.py-Kontrakt. Multicut setzt diese Symmetrie voraus --
-eine Kante hat EINEN Preis, unabhaengig davon, welches Ende man zuerst
-nennt.
+thema: dr und jac sind invariant unter i<->j, und dt >= 0 garantiert der
+graph.py-Kontrakt. Multicut setzt diese Symmetrie voraus -- eine Kante hat
+EINEN Preis, unabhaengig davon, welches Ende man zuerst nennt.
 """
 from __future__ import annotations
 
@@ -40,7 +39,6 @@ from eventpiv.kern.runconfig import FEATURE_MODES
 
 _FEATURE_NAMES = {
     "dr":    ("dt", "dr"),
-    "absxy": ("dt", "|dx|", "|dy|"),
     "drjac": ("dt", "dr", "jac"),
 }
 
@@ -72,14 +70,12 @@ def build_features(dt, dx, dy, *, mode, xp=np, jac=None):
     Rueckgabe: Matrix im dtype der Eingaben (Caller castet auf float32).
     """
     check_mode(mode)
-    if mode == "dr":
-        cols = [dt, xp.sqrt(dx * dx + dy * dy)]
-    elif mode == "drjac":
+    # Beide Modi teilen (dt, dr); drjac haengt die dritte Spalte an.
+    cols = [dt, xp.sqrt(dx * dx + dy * dy)]
+    if mode == "drjac":
         if jac is None:
             raise ValueError("feature_mode 'drjac' braucht jac")
-        cols = [dt, xp.sqrt(dx * dx + dy * dy), jac]
-    else:                                    # absxy
-        cols = [dt, xp.abs(dx), xp.abs(dy)]
+        cols.append(jac)
     return xp.stack(cols, 1)
 
 

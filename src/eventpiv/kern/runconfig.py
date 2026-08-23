@@ -66,7 +66,7 @@ class _Typed:
 # greifen, BEVOR der Slug existiert.
 NEIGHBORHOOD_GEOMS = ("ellipsoid", "cylinder", "hyperboloid")
 POLARITIES = ("on", "both")
-FEATURE_MODES = ("dr", "absxy", "drjac")
+FEATURE_MODES = ("dr", "drjac")
 IMBALANCE_MODES = ("sample", "weight")
 SOLVER_BACKENDS = ("rama", "cc")
 SOLVER_MODES = ("P", "PD", "PD+", "D")

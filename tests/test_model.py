@@ -43,7 +43,7 @@ def test_numpy_und_torch_identisch(deltas, mode):
     Toleranz statt Bitgleichheit: in dr entsteht ein Unterschied von 1 ULP
     (float32-eps = 1.19e-7), weil Torch fuer dx*dx+dy*dy FMA nutzt (eine
     Rundung) und NumPy getrennte Mul/Add (zwei Rundungen). Beide Ergebnisse
-    sind korrekt gerundet. absxy ist exakt gleich (nur abs).
+    sind korrekt gerundet.
     Auswirkung auf die Kantenkosten: ~1e-6 im Logit -- irrelevant, ausser
     exakt an der Nullstelle, wo die Kante ohnehin maximal unsicher ist.
     """
