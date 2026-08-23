@@ -19,10 +19,12 @@ angepasst -- im selben Commit wie die Aenderung, mit der Begruendung in der
 Commit-Nachricht.
 
 Zwei Fenster, weil eines nicht reicht: run61/3820 ms traegt 3,35 Mio.
-Kanten auf 49 Partikeln und verschmilzt messbar (0,45 % der Events);
-run32/7070 ms traegt ein Drittel davon und verschmilzt praktisch nicht.
-Das eine ist die Messung, das andere die Kontrolle -- steigt dort etwas
-ueber null, ist etwas kaputt.
+Kanten auf 49 Partikeln, run32/7070 ms ein Drittel davon. Beide
+verschmelzen um ein halbes Prozent der Events.
+
+Die Zahlen gelten fuer DIESE ZWEI FENSTER und sind keine Aussage ueber
+einen Run -- ein Netz kann hier schlechter und ueber 800 Fenster besser
+sein. Der Anker faengt Regressionen, er bewertet nicht.
 
 purity_cluster_mean steht NICHT mehr in den Zahlen: der Anteil sauberer
 Cluster geht mit wachsender Fragmentierung zwangslaeufig gegen 1 und ist
@@ -41,8 +43,8 @@ pytestmark = pytest.mark.anker
 
 # (run, t0, n_edges, frac_neg, purity_event, frag_mean, merge_event_frac)
 ANKER = [
-    (61, 3_820_000, 3_346_692, 0.3952, 0.9955, 5.571, 0.004494),
-    (32, 7_070_000, 1_182_616, 0.3857, 1.0000, 6.270, 0.000081),
+    (61, 3_820_000, 3_346_692, 0.4118, 0.9942, 5.469, 0.006787),
+    (32, 7_070_000, 1_182_616, 0.3966, 0.9989, 6.459, 0.005050),
 ]
 
 
@@ -85,3 +87,4 @@ def test_arbeitspunkt_ist_der_erwartete():
     assert Solver().mode == "P" and Solver().cost_offset == 0.0
     assert PairSampling().split == "train" and len(PairSampling().runs) == 30
     assert Training().feature_mode == "drjac" and Training().sample_ratio == 1.0
+    assert (Training().hidden, Training().lr) == (32, 3e-2)

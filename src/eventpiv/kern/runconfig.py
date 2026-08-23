@@ -179,6 +179,11 @@ class PairSampling(_Typed):
 class Training(_Typed):
     """Identitaet des Kantenkosten-Netzes.
 
+    `hidden` saettigt bei 32 -- eine breitere Schicht aendert die AUC nicht
+    mehr messbar. `lr` wirkt staerker als die Breite: ein zu grosser
+    Schritt laesst die Parameter um das Optimum zappeln, was sich als
+    zackige Kurve zeigt, nicht als schlechteres Ergebnis.
+
     `sample_ratio` verschiebt ausschliesslich den Achsenabschnitt des
     Logits um log(s), nicht die Rangfolge -- gemessen 0,7656 gegen 0,7652
     AUC bei 1:1 und 3:1 auf demselben Datensatz. 1:1 legt die Nullstelle
@@ -188,10 +193,10 @@ class Training(_Typed):
     feature_mode: str = "drjac"
     imbalance: str = "sample"
     sample_ratio: float = 1.0
-    hidden: int = 8
-    epochs: int = 30
+    hidden: int = 32
+    epochs: int = 100
     batch: int = 65_536
-    lr: float = 1e-2
+    lr: float = 3e-2
     val_frac: float = 0.2
     seed: int = 0
 
