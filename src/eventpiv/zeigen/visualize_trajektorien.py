@@ -150,9 +150,8 @@ def animate_trajektorien(cfg: AnimTrajCfg):
             if not wahl:
                 raise SystemExit("nur 'gt' gewaehlt, aber keine Labels da")
         else:
-            schluessel = np.where(status == STATUS_CLEAN, gt, -1)
-            quelle["gt"] = (_farben(schluessel, 1),
-                            "Ground Truth (grau: kein sauberes Label)")
+            quelle["gt"] = (_farben(gt, 1),
+                            "Ground Truth (grau: Rauschen)")
 
     # --- Anzeigeausschnitt. NACH dem Solve, damit die Farben die des
     # vollen Laufs bleiben.
