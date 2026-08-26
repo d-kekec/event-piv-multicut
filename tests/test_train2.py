@@ -149,3 +149,29 @@ def test_vorhandener_checkpoint_bricht_ab(tmp_path, monkeypatch):
                         pytest.fail("lade_kandidaten darf nicht laufen"))
     with pytest.raises(SystemExit, match="existiert bereits"):
         train2.train_stufe2(Stufe2Cfg())
+
+
+def test_paar_ziele_unabhaengig_vom_index_dtype():
+    """paar_i/paar_j liegen als int32 vor, um Speicher zu sparen. Ein
+    stiller dtype-Wechsel darf die Ziele nicht beruehren."""
+    gt, n_gt, a = _knoten()
+    z64, g64 = paar_ziele(gt, n_gt, a, I.astype(np.int64),
+                          J.astype(np.int64), modus="mehrheit", min_anteil=0.5)
+    z32, g32 = paar_ziele(gt, n_gt, a, I.astype(np.int32),
+                          J.astype(np.int32), modus="mehrheit", min_anteil=0.5)
+    np.testing.assert_array_equal(g64, g32)
+    np.testing.assert_allclose(z64, z32)
+
+def test_deckeln_ist_klassenneutral_und_ohne_deckel_wirkungslos():
+    """Der Deckel darf das Klassenverhaeltnis nicht verschieben -- sonst
+    waere er ein Eingriff in den Betriebspunkt statt eine Stichprobe."""
+    from eventpiv.kette.train2 import _deckeln
+    ziel = np.concatenate([np.ones(90_000), np.zeros(10_000)]).astype(np.float32)
+    idx = np.arange(len(ziel))
+    aus = _deckeln(idx, 10_000, np.random.default_rng(0))
+    assert len(aus) == 10_000
+    assert 0.87 < float((ziel[aus] >= 0.5).mean()) < 0.93
+    # Ohne Deckel unveraendert UND ohne Ziehung aus rng.
+    rng = np.random.default_rng(0)
+    np.testing.assert_array_equal(_deckeln(idx, None, rng), idx)
+    assert rng.random() == np.random.default_rng(0).random()

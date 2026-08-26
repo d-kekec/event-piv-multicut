@@ -413,6 +413,10 @@ class Transformer(_Typed):
     gt_min_anteil: float = 0.9
     imbalance: str = "sample"
     sample_ratio: float = 3.0
+    # Obergrenze der Trainingspaare, klassenneutral gezogen. None = kein
+    # Deckel. Die Kandidatenzahl waechst mit kandidaten.alpha, die noetige
+    # Zahl gesehener Kanten nicht.
+    train_max: int | None = None
     epochs: int = 30
     batch: int = 1024
     lr: float = 1e-3

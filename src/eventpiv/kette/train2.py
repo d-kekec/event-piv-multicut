@@ -64,7 +64,7 @@ class Daten:
     t_min: torch.Tensor       # (M,)
     x_c: torch.Tensor
     y_c: torch.Tensor
-    paar_i: np.ndarray        # (P,) int64, global
+    paar_i: np.ndarray        # (P,) int32, global
     paar_j: np.ndarray
     ziel: np.ndarray          # (P,) float32 in [0, 1]
     gueltig: np.ndarray       # (P,) bool
@@ -144,8 +144,14 @@ def lade_kandidaten(cfg: Stufe2Cfg, device="cpu") -> Daten:
             teile_ev.append(torch.from_numpy(f["ev"]))
             teile_m.append(torch.from_numpy(f["maske"]))
             tmin.append(f["t_min"]); xc.append(f["x_c"]); yc.append(f["y_c"])
-            i = f["paar_i"].astype(np.int64)
-            j = f["paar_j"].astype(np.int64)
+            # int32 DURCHHALTEN statt aufweiten: paar_i und paar_j sind die
+            # beiden groessten Arrays des Datensatzes, und weil die
+            # Teillisten bis zum Funktionsende leben, zaehlt der Unterschied
+            # doppelt. Bei 1,2 Mrd. Paaren sind es 9,5 statt 19 GB, im
+            # Spitzenbedarf 18 statt 36. Torch indiziert mit int32 -- Tokens,
+            # Logits und Gradienten sind bitgleich (geprueft, torch 2.13).
+            i = f["paar_i"]
+            j = f["paar_j"]
             z, g = paar_ziele(f["gt_track_id"], f["n_gt"], f["gt_anteil"],
                               i, j, modus=tf.label_modus,
                               min_anteil=tf.gt_min_anteil)
@@ -155,6 +161,13 @@ def lade_kandidaten(cfg: Stufe2Cfg, device="cpu") -> Daten:
             ziel.append(z); gueltig.append(g)
             run.append(np.full(len(i), r, np.int16))
             versatz += len(f["t_min"])
+            # Ein Ueberlauf waere STILL: numpy liefert bei int32 + zu
+            # grossem Summanden ein negatives Ergebnis ohne Warnung, und
+            # jedes Paar zeigte danach auf den falschen Knoten.
+            if versatz > np.iinfo(np.int32).max:
+                raise SystemExit(
+                    f"Knotenversatz {versatz:,} sprengt int32 -- paar_i/paar_j "
+                    "in lade_kandidaten wieder auf int64 stellen.")
 
     def _dev(arrays, dtype):
         return torch.as_tensor(np.concatenate(arrays), dtype=dtype).to(device)
@@ -238,6 +251,21 @@ def _untersampeln(idx, ziel, ratio, rng):
         return np.sort(idx)
     return np.sort(np.concatenate([rng.choice(ja, n_soll, replace=False),
                                    nein]))
+
+
+def _deckeln(idx, max_paare, rng):
+    """Trainingsmenge klassenneutral auf max_paare ziehen.
+
+    Klassenneutral, also ohne Wirkung auf den Betriebspunkt: der Prior
+    bleibt, und _untersampeln trifft danach dasselbe Verhaeltnis wie ohne
+    Deckel.
+
+    Ohne Deckel wird NICHT aus rng gezogen -- sonst verschoebe sich jede
+    folgende Ziehung und das Training waere ein anderes.
+    """
+    if not max_paare or len(idx) <= max_paare:
+        return idx
+    return np.sort(rng.choice(idx, int(max_paare), replace=False))
 
 
 def _durchlauf(model, d, idx, batch, device, ziel_t=None, opt=None, lossfn=None):
@@ -324,6 +352,11 @@ def train_stufe2(cfg: Stufe2Cfg, on_start=None, on_epoch=None):
         "train_vor": class_balance((d.ziel[idx_t] >= 0.5).astype(np.int8)),
         "val": class_balance((d.ziel[idx_v] >= 0.5).astype(np.int8)),
     }
+
+    n_vor_deckel = len(idx_t)
+    idx_t = _deckeln(idx_t, tf.train_max, rng)
+    if len(idx_t) < n_vor_deckel:
+        daten["train_gedeckelt_auf"] = int(len(idx_t))
 
     pos_weight = None
     if tf.imbalance == "sample":
