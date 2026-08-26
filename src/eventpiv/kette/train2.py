@@ -232,40 +232,34 @@ def split_nach_runs(run, ziel, gueltig, val_frac, seed, fest=()):
     return idx_t, idx_v, val_runs
 
 
-def _untersampeln(idx, ziel, ratio, rng):
-    """JA auf das ratio-fache der NEIN-Zahl ziehen. Einmal, nicht je Epoche.
+def _epochengroesse(n_ja_topf, n_nein_topf, ratio, max_paare):
+    """Wieviel JA und NEIN eine Epoche zieht. Ohne rng, ohne Ziehung.
 
-    Das Klassenverhaeltnis SETZT die Schwelle des Netzes: bei 3:1 lernt es
-    Log-Odds gegen P(JA) = 0,75. Da der Logit unveraendert als Kantenkosten
-    an RAMA geht und RAMA das Vorzeichen liest, ist es der Betriebspunkt
-    des Solvers -- er muss gewaehlt sein und darf nicht aus den Daten
-    folgen. Deshalb die Warnung, wenn er nicht erreichbar ist.
+    NEIN ist die knappe Klasse und gibt die Groesse vor, JA folgt mit
+    ratio. Der Deckel verkleinert beide im selben Verhaeltnis und laesst
+    den Betriebspunkt unberuehrt.
+
+    Rueckgabe: (n_ja, n_nein, erreicht). erreicht=False heisst, der
+    JA-Topf reicht fuer ratio nicht -- dann folgt der Betriebspunkt den
+    Daten statt der Konfiguration.
     """
-    ja = idx[ziel[idx] >= 0.5]
-    nein = idx[ziel[idx] < 0.5]
-    n_soll = int(len(nein) * ratio)
-    if len(ja) <= n_soll:
-        print(f"  WARN: sample_ratio={ratio} nicht erreichbar "
-              f"({len(ja):,} JA, {len(nein):,} NEIN) -- der Betriebspunkt "
-              "folgt jetzt den Daten, nicht der Konfiguration.", flush=True)
-        return np.sort(idx)
-    return np.sort(np.concatenate([rng.choice(ja, n_soll, replace=False),
-                                   nein]))
+    n_nein = n_nein_topf
+    if max_paare:
+        n_nein = min(n_nein, max(int(max_paare / (1.0 + ratio)), 1))
+    n_ja = int(n_nein * ratio)
+    return min(n_ja, n_ja_topf), n_nein, n_ja <= n_ja_topf
 
 
-def _deckeln(idx, max_paare, rng):
-    """Trainingsmenge klassenneutral auf max_paare ziehen.
+def _ziehe_epoche(ja, nein, n_ja, n_nein, rng):
+    """Trainingsmenge EINER Epoche, je Klasse ohne Zuruecklegen.
 
-    Klassenneutral, also ohne Wirkung auf den Betriebspunkt: der Prior
-    bleibt, und _untersampeln trifft danach dasselbe Verhaeltnis wie ohne
-    Deckel.
-
-    Ohne Deckel wird NICHT aus rng gezogen -- sonst verschoebe sich jede
-    folgende Ziehung und das Training waere ein anderes.
+    Je Epoche neu: bei einem Deckel von Faktor 50 saehe das Netz sonst
+    ueber den ganzen Lauf dieselben 2 % des Datensatzes.
     """
-    if not max_paare or len(idx) <= max_paare:
-        return idx
-    return np.sort(rng.choice(idx, int(max_paare), replace=False))
+    return np.sort(np.concatenate([
+        rng.choice(ja, n_ja, replace=False) if n_ja < len(ja) else ja,
+        rng.choice(nein, n_nein, replace=False) if n_nein < len(nein)
+        else nein]))
 
 
 def _durchlauf(model, d, idx, batch, device, ziel_t=None, opt=None, lossfn=None):
@@ -353,21 +347,37 @@ def train_stufe2(cfg: Stufe2Cfg, on_start=None, on_epoch=None):
         "val": class_balance((d.ziel[idx_v] >= 0.5).astype(np.int8)),
     }
 
-    n_vor_deckel = len(idx_t)
-    idx_t = _deckeln(idx_t, tf.train_max, rng)
-    if len(idx_t) < n_vor_deckel:
-        daten["train_gedeckelt_auf"] = int(len(idx_t))
+    # Die Klassentoepfe EINMAL trennen -- der Gather ueber die ganze
+    # Trainingsmenge faellt sonst je Epoche an.
+    ja_topf = idx_t[d.ziel[idx_t] >= 0.5]
+    nein_topf = idx_t[d.ziel[idx_t] < 0.5]
+    # Eigener Generator: eine Ziehung aus `rng` verschoebe jede folgende
+    # Permutation und damit das Training selbst.
+    rng_zieh = np.random.default_rng(tf.seed + 1)
 
     pos_weight = None
     if tf.imbalance == "sample":
-        idx_t = _untersampeln(idx_t, d.ziel, tf.sample_ratio, rng)
-        daten["train_nach"] = class_balance(
-            (d.ziel[idx_t] >= 0.5).astype(np.int8))
+        ratio = float(tf.sample_ratio)
     else:
-        n_ja = int((d.ziel[idx_t] >= 0.5).sum())
-        pos_weight = torch.tensor(
-            [(len(idx_t) - n_ja) / max(n_ja, 1)], device=device)
+        # Bei "weight" bleibt das natuerliche Verhaeltnis; als Ziel
+        # uebergeben wirkt der Deckel damit klassenneutral.
+        ratio = len(ja_topf) / max(len(nein_topf), 1)
+        pos_weight = torch.tensor([1.0 / max(ratio, 1e-9)], device=device)
         daten["pos_weight"] = float(pos_weight)
+
+    n_ja, n_nein, erreicht = _epochengroesse(
+        len(ja_topf), len(nein_topf), ratio, tf.train_max)
+    n_ep = n_ja + n_nein
+    daten["train_je_epoche"] = {
+        "n": n_ep, "n_ja": n_ja, "n_nein": n_nein,
+        "ja_frac": n_ja / max(n_ep, 1),
+        "ratio_ja_nein": n_ja / max(n_nein, 1)}
+    daten["sample_ratio_erreicht"] = bool(erreicht)
+    if not erreicht:
+        print(f"  WARN: sample_ratio={ratio} nicht erreichbar "
+              f"({len(ja_topf):,} JA, {len(nein_topf):,} NEIN) -- der "
+              "Betriebspunkt folgt den Daten, nicht der Konfiguration.",
+              flush=True)
 
     # Die Validierungsstichprobe EINMAL ziehen: eine je Epoche neu gezogene
     # liesse die Kurve mit der Ziehung schwanken statt mit dem Lernen.
@@ -375,18 +385,7 @@ def train_stufe2(cfg: Stufe2Cfg, on_start=None, on_epoch=None):
         idx_v = np.sort(rng.choice(idx_v, VAL_MAX, replace=False))
         daten["val_gestutzt_auf"] = VAL_MAX
 
-    # Die Trainingsmenge wird je Epoche zweimal angefasst: einmal lernend,
-    # einmal bewertend. Erst der zweite Durchlauf liefert train/ und
-    # holdout/ auf DEMSELBEN Gewichtsstand.
-    #
-    # EIGENER Generator, nicht `rng`: eine zusaetzliche Ziehung aus `rng`
-    # verschoebe jede folgende rng.permutation und damit die Reihenfolge der
-    # Minibatches -- das Training selbst waere ein anderes, und die
-    # Aenderung waere keine Messverbesserung mehr, sondern ein Eingriff.
-    idx_te = idx_t
-    if len(idx_te) > VAL_MAX:
-        idx_te = np.sort(np.random.default_rng(tf.seed).choice(
-            idx_t, VAL_MAX, replace=False))
+    if n_ep > VAL_MAX:
         daten["train_eval_gestutzt_auf"] = VAL_MAX
 
     model = PaarTransformer(d_model=tf.d_model, n_layers=tf.n_layers,
@@ -395,7 +394,7 @@ def train_stufe2(cfg: Stufe2Cfg, on_start=None, on_epoch=None):
     daten["n_parameter"] = sum(p.numel() for p in model.parameters())
     if on_start is not None:
         on_start(daten)
-    print(f"  {daten['n_knoten']:,} Knoten, {len(idx_t):,} Trainingspaare, "
+    print(f"  {daten['n_knoten']:,} Knoten, {n_ep:,} Trainingspaare je Epoche, "
           f"{len(idx_v):,} Validierungspaare, "
           f"{daten['n_parameter']:,} Parameter", flush=True)
 
@@ -411,6 +410,11 @@ def train_stufe2(cfg: Stufe2Cfg, on_start=None, on_epoch=None):
     kennzahlen = {}
     for epoche in range(1, tf.epochs + 1):
         t_ep = time.time()
+        # Je Epoche neu gezogen, dann permutiert.
+        idx_t = _ziehe_epoche(ja_topf, nein_topf, n_ja, n_nein, rng_zieh)
+        idx_te = idx_t
+        if len(idx_te) > VAL_MAX:
+            idx_te = np.sort(rng_zieh.choice(idx_t, VAL_MAX, replace=False))
         idx_e = idx_t[rng.permutation(len(idx_t))]
         _, verlust_lauf = _durchlauf(model, d, idx_e, tf.batch, device,
                                      norm, opt, lossfn)

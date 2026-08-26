@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from eventpiv.kern.runconfig import Stufe2Cfg
-from eventpiv.kette.train2 import paar_ziele, split_nach_runs, _untersampeln
+from eventpiv.kette.train2 import paar_ziele, split_nach_runs, _epochengroesse, _ziehe_epoche
 
 
 def _knoten():
@@ -125,16 +125,6 @@ def test_holdout_bricht_bei_einer_klasse_ab():
     with pytest.raises(SystemExit, match="nur eine Klasse"):
         split_nach_runs(run, ziel, np.ones(20, bool), val_frac=0.5, seed=0)
 
-
-def test_untersampeln_trifft_das_verhaeltnis():
-    ziel = np.concatenate([np.ones(1000), np.zeros(100)]).astype(np.float32)
-    idx = np.arange(len(ziel))
-    aus = _untersampeln(idx, ziel, 3.0, np.random.default_rng(0))
-    assert int((ziel[aus] >= 0.5).sum()) == 300
-    assert int((ziel[aus] < 0.5).sum()) == 100
-    # NEIN bleibt vollstaendig -- es ist die knappe Klasse.
-    assert set(np.flatnonzero(ziel < 0.5)) <= set(aus)
-
     
 def test_vorhandener_checkpoint_bricht_ab(tmp_path, monkeypatch):
     """Der Schutz muss VOR lade_kandidaten greifen. Danach waere er
@@ -162,16 +152,41 @@ def test_paar_ziele_unabhaengig_vom_index_dtype():
     np.testing.assert_array_equal(g64, g32)
     np.testing.assert_allclose(z64, z32)
 
-def test_deckeln_ist_klassenneutral_und_ohne_deckel_wirkungslos():
-    """Der Deckel darf das Klassenverhaeltnis nicht verschieben -- sonst
+
+def test_epochengroesse_haelt_das_verhaeltnis_unter_dem_deckel():
+    """Der Deckel verkleinert beide Klassen im selben Verhaeltnis -- sonst
     waere er ein Eingriff in den Betriebspunkt statt eine Stichprobe."""
-    from eventpiv.kette.train2 import _deckeln
-    ziel = np.concatenate([np.ones(90_000), np.zeros(10_000)]).astype(np.float32)
-    idx = np.arange(len(ziel))
-    aus = _deckeln(idx, 10_000, np.random.default_rng(0))
-    assert len(aus) == 10_000
-    assert 0.87 < float((ziel[aus] >= 0.5).mean()) < 0.93
-    # Ohne Deckel unveraendert UND ohne Ziehung aus rng.
+    ohne = _epochengroesse(98_000_000, 3_850_000, 3.0, None)
+    mit = _epochengroesse(763_000_000, 191_000_000, 3.0, 10_000_000)
+    assert ohne == (11_550_000, 3_850_000, True)
+    assert mit[0] + mit[1] == 10_000_000
+    assert mit[0] / mit[1] == pytest.approx(3.0)
+    assert mit[2]
+
+
+def test_epochengroesse_meldet_unerreichbare_ratio():
+    """Reicht der JA-Topf nicht, folgt der Betriebspunkt den Daten. Das
+    muss als Feld sichtbar sein, nicht nur als Druckzeile."""
+    n_ja, n_nein, erreicht = _epochengroesse(1_000, 5_000, 3.0, None)
+    assert (n_ja, n_nein) == (1_000, 5_000)
+    assert not erreicht
+
+
+def test_ziehe_epoche_trifft_die_klassen_und_ist_reproduzierbar():
+    ja, nein = np.arange(0, 8_000), np.arange(8_000, 10_000)
+    a = _ziehe_epoche(ja, nein, 300, 100, np.random.default_rng(7))
+    b = _ziehe_epoche(ja, nein, 300, 100, np.random.default_rng(7))
+    c = _ziehe_epoche(ja, nein, 300, 100, np.random.default_rng(8))
+    np.testing.assert_array_equal(a, b)
+    assert not np.array_equal(a, c), "Seed ohne Wirkung"
+    assert int((a < 8_000).sum()) == 300 and int((a >= 8_000).sum()) == 100
+    assert (np.diff(a) > 0).all(), "sortiert und ohne Doppelte"
+
+
+def test_ziehe_epoche_wechselt_ueber_epochen():
+    """Der Sinn der Neuziehung: nicht dieselben Paare in jeder Epoche."""
+    ja, nein = np.arange(0, 8_000), np.arange(8_000, 10_000)
     rng = np.random.default_rng(0)
-    np.testing.assert_array_equal(_deckeln(idx, None, rng), idx)
-    assert rng.random() == np.random.default_rng(0).random()
+    mengen = [set(_ziehe_epoche(ja, nein, 300, 100, rng).tolist())
+              for _ in range(5)]
+    assert len(set.union(*mengen)) > 2 * len(mengen[0])
