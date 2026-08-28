@@ -314,28 +314,27 @@ class Kandidaten(_Typed):
     `polarity` hat auf Zentroiden keinen Sinn. Eine verschachtelte Gruppe,
     deren Haelfte nicht gilt, waere eine spaetere Falle.
 
-    alpha = 5x Stufe-1-alpha, AUSGEFAHREN und nicht gesetzt: die
-    Erreichbarkeit auf run61 steigt 95,6 -> 98,9 -> 100,0 % bei 30/40/50 ms
-    und bleibt bei 60 ms stehen. 50 000 µs ist der Saettigungspunkt; 60 000
-    kauft nichts mehr fuer 20 % mehr Paare. Physikalisch: ein Partikel darf
-    vier aufeinanderfolgende Fenster unter min_events verschwinden und wird
-    trotzdem weiterverbunden. (Journal 14.08.2026)
+    alpha = 250 000 µs, gemessen ueber 50/100/150/200/250/300/350/500 ms
+    (Journal 27.08.2026). HOTA und IDF1 haben dort ihr Maximum, IDSW und
+    betroffene Partikel ihr Minimum. Darueber faellt edge_auc weiter
+    (0,951 -> 0,941 bei 350 ms) und der IDSW-Gewinn wird durch
+    Verschmelzung erkauft.
 
-    r_max ist GEMESSEN WIRKUNGSLOS und bleibt bei 15 px. 15, 20 und 25 px
-    liefern dieselbe Erreichbarkeit und dieselbe Komponentenzahl, bei nur
-    4 % mehr Kandidaten fuer 67 % mehr Radius: die Nachbarschaft ist
-    ZEITbegrenzt, nicht raumbegrenzt. Der frueher hier vermutete Engpass
-    (Wolkenausdehnung 11 px plus Drift 3 px gegen 15 px) existiert nicht.
-    geom bleibt hyperboloid -- Taille = Ausdehnung, Aufweitung = Drift.
+    r_max bleibt bei 15 px. Die Aufweitung v_max*alpha traegt bei 250 ms
+    51 px und damit die ganze Drift; r_max ist nur noch die Taille. Ein
+    groesseres r_max kostet sofort -- bei 50 ms hebt r_max = 40 die
+    Fremdbelegung des Suchkoerpers um Faktor 5, ohne der eigenen Seite zu
+    nuetzen. geom bleibt hyperboloid.
 
     min_events = 15 und n_events = 32 sind gemessen (Journal 14.08.2026):
     unter 15 liegt das Mittel bei 1,8 Events, und 92,0 % der behaltenen
     Tracklets tragen mindestens 32, aber nur 68,3 % mindestens 64.
     """
     split: str = "train"
-    runs: list[int] = field(
-        default_factory=lambda: [2, 11, 19, 30, 32, 35, 44, 59, 61, 76])
-    alpha: int = 50_000
+    runs: list[int] = field(default_factory=lambda: [
+        2, 9, 11, 12, 13, 14, 19, 23, 24, 28, 30, 32, 34, 35, 44,
+        51, 55, 58, 59, 61, 63, 66, 67, 70, 73, 76, 77, 80, 83, 90])
+    alpha: int = 250_000
     r_max: float = 15.0
     geom: str = "hyperboloid"
     v_max: float = 1.02e-4
@@ -389,12 +388,19 @@ class Transformer(_Typed):
     TRAININGS-, keine Datensatzentscheidung, deshalb hier und nicht in
     Kandidaten. Das Artefakt traegt gt_track_id, gt_anteil und n_gt je
     Knoten; Ziel und Maske entstehen daraus zur Trainingszeit.
-      streng    nur Knoten mit genau einem GT-Partikel (Entwurf, Vorgabe).
+      streng    nur Knoten mit genau einem GT-Partikel (Entwurf).
                 Der interessanteste Fall wird damit nie geuebt.
       mehrheit  auch verschmolzene, hart nach Mehrheit, ab gt_min_anteil.
       weich     auch verschmolzene, Zielwert zwischen 0 und 1. Der Logit
                 lernt dessen Log-Odds; bei 0,5 ist er null und RAMA sieht
-                eine Kante ohne Praeferenz.
+                eine Kante ohne Praeferenz. Ist noch nicht gut genug umgesetzt.
+
+    mehrheit ist Vorgabe. Bei alpha = 50 ms sind streng und mehrheit auf
+    fuenf Nachkommastellen gleich (edge_tnr 0,90206 gegen 0,90200 auf
+    val/run4); mehrheit nimmt die verschmolzenen Tracklets ins Training,
+    ohne zu kosten. train_max deckelt die Trainingsmenge je Epoche
+    klassenneutral -- ohne Deckel traegt der 250-ms-Satz 400 Mio.
+    Trainingspaare gegen 15 Mio. bei 50 ms.
 
     Kein feature_mode: die Baseline bekommt rohe, je Paar normierte
     (t, x, y). Ob eine Merkmalstabelle noetig ist, soll dieser Lauf
@@ -409,15 +415,15 @@ class Transformer(_Typed):
     d_ff: int = 256
     dropout: float = 0.0
     pooling: str = "cls"
-    label_modus: str = "streng"
+    label_modus: str = "mehrheit"
     gt_min_anteil: float = 0.9
     imbalance: str = "sample"
     sample_ratio: float = 3.0
     # Obergrenze der Trainingspaare, klassenneutral gezogen. None = kein
     # Deckel. Die Kandidatenzahl waechst mit kandidaten.alpha, die noetige
     # Zahl gesehener Kanten nicht.
-    train_max: int | None = None
-    epochs: int = 30
+    train_max: int | None = 4_000_000
+    epochs: int = 50
     batch: int = 1024
     lr: float = 1e-3
     val_frac: float = 0.2
@@ -464,13 +470,17 @@ class Solver2(_Typed):
     Kante zwischen ihnen positiv ist. Der Abstand zu RAMA ist die Zahl, die
     den Solver rechtfertigt.
 
-    cost_offset wirkt hier wie in Stufe 1 -- er wird auf jede Kante addiert
-    und verschiebt den Betriebspunkt Richtung Schneiden. NICHT gemessen auf
-    dieser Ebene.
+    cost_offset wirkt hier wie in Stufe 1 -- er wird auf jede Kante addiert.
+    POSITIV, anders als in Stufe 1: Stufe 2 sitzt auf der fragmentierenden
+    Seite. Bei 250 ms und Offset 0 stehen 141 Cluster fuer 85 Partikel
+    (val/run4); +1 senkt IDSW von 23 auf 3 bei praktisch unveraendertem
+    merge_event_frac. Ueber +1,5 faellt HOTA, ab +2 bricht purity ein.
+    Auf zwei sauberen Kontrollruns richtet +1 keinen Schaden an
+    (IDSW 0, merge 0, purity 1,0). (Journal 27.08.2026)
     """
     backend: str = "rama"
     mode: str = "P"
-    cost_offset: float = 0.0
+    cost_offset: float = 1.0
 
     def short(self) -> str:
         return (f"{self.backend}{self.mode if self.backend == 'rama' else ''}"

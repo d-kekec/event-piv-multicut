@@ -88,3 +88,19 @@ def test_arbeitspunkt_ist_der_erwartete():
     assert PairSampling().split == "train" and len(PairSampling().runs) == 30
     assert Training().feature_mode == "drjac" and Training().sample_ratio == 1.0
     assert (Training().hidden, Training().lr) == (32, 3e-2)
+
+def test_stufe2_arbeitspunkt_ist_der_erwartete():
+    """Gegenstueck fuer Stufe 2. Braucht keinen Datensatz -- geprueft wird
+    die Vorgabe, nicht ihr Ergebnis."""
+    from eventpiv.kern.runconfig import Kandidaten, Solver2, Transformer
+
+    kd = Kandidaten()
+    assert (kd.alpha, kd.r_max, kd.geom) == (250_000, 15.0, "hyperboloid")
+    assert (kd.min_events, kd.n_events) == (15, 32)
+    assert kd.split == "train" and len(kd.runs) == 30
+    tf = Transformer()
+    assert tf.label_modus == "mehrheit" and tf.gt_min_anteil == 0.9
+    assert (tf.epochs, tf.train_max) == (50, 4_000_000)
+    assert tf.imbalance == "sample" and tf.sample_ratio == 3.0
+    assert (tf.d_model, tf.n_layers, tf.pooling) == (64, 2, "cls")
+    assert Solver2().mode == "P" and Solver2().cost_offset == 1.0
