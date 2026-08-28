@@ -79,26 +79,14 @@ def paar_ziele(gt, n_gt, gt_anteil, i, j, *, modus, min_anteil):
     streng    Beide Knoten genau ein GT-Partikel. Rauschknoten (n_gt = 0)
               und teilverschmolzene (n_gt >= 2) fallen heraus -- fuer
               beide gibt es keine Wahrheit, gegen die man messen koennte.
-    mehrheit  Auch verschmolzene, hart nach Mehrheit, aber nur ab
-              gt_anteil >= min_anteil. Gemessen haben rund 58 % der
-              verschmolzenen Tracklets eine Mehrheit unter 0,9; ein
-              hartes Label darauf waere nahe an einem Muenzwurf.
-    weich     Auch verschmolzene, Zielwert gt_anteil[i] * gt_anteil[j] --
-              die Wahrscheinlichkeit, dass zwei zufaellig gezogene Events
-              beider Knoten zum selben Partikel gehoeren. Reine Paare
-              haben gt_anteil = 1 und bekommen damit wieder exakt 1.
+    mehrheit  Auch verschmolzene, hart nach Mehrheit, ab
+              gt_anteil >= min_anteil. Rund 58 % der verschmolzenen
+              Tracklets liegen darunter; ein hartes Label auf einer
+              knappen Mehrheit waere nahe an einem Muenzwurf.
 
-    UNVOLLSTAENDIG BEI weich, und das ist keine Nachlaessigkeit: bei
-    VERSCHIEDENER Mehrheit waere der richtige Zielwert der Anteil des
-    MINDERHEITSpartikels, und der steht nirgends -- features.mehrheit gibt
-    nur den Sieger zurueck, n_gt ist eine Anzahl und keine Liste. Dort
-    bleibt das Ziel hart auf 0. Derselbe Fehler wie bei mehrheit, nur
-    betrifft er nicht mehr die JA-Seite. Zu beheben mit zwei zusaetzlichen
-    Spalten im Artefakt (zweitgroesstes Partikel und dessen Anteil).
-
-    In allen Modi bleibt die Maske eine LOSS-Maske. Im Einsatz laufen alle
-    Paare mit -- ein weggelassener Knoten ist ein Stueck Trajektorie, das
-    niemand mehr verbindet.
+    Die Maske ist eine LOSS-Maske. Im Einsatz laufen alle Paare mit -- ein
+    weggelassener Knoten ist ein Stueck Trajektorie, das niemand mehr
+    verbindet.
     """
     gleich = gt[i] == gt[j]
     if modus == "streng":
@@ -108,10 +96,6 @@ def paar_ziele(gt, n_gt, gt_anteil, i, j, *, modus, min_anteil):
         brauchbar = (n_gt >= 1) & (gt_anteil >= min_anteil)
         gueltig = brauchbar[i] & brauchbar[j]
         ziel = (gleich & gueltig).astype(np.float32)
-    elif modus == "weich":
-        gueltig = (n_gt[i] >= 1) & (n_gt[j] >= 1)
-        ziel = np.where(gleich, gt_anteil[i] * gt_anteil[j], 0.0)
-        ziel = (ziel * gueltig).astype(np.float32)
     else:
         raise ValueError(f"Unbekannter label_modus {modus!r}")
     return ziel, gueltig
@@ -428,9 +412,8 @@ def train_stufe2(cfg: Stufe2Cfg, on_start=None, on_epoch=None):
                                    norm, None, lossfn)
         lg_v, verlust_v = _durchlauf(model, d, idx_v, tf.batch * 4, device,
                                      norm, None, lossfn)
-        # Fuer die Kennzahlen wird hart geschwellt, auch bei weichen Zielen:
-        # die Konfusionsmatrix ist eine Aussage ueber Entscheidungen, und
-        # RAMA entscheidet am Vorzeichen.
+        # Hart geschwellt: die Konfusionsmatrix ist eine Aussage ueber
+        # Entscheidungen, und RAMA entscheidet am Vorzeichen.
         zeile = {
             "epoch": epoche,
             "sec": round(time.time() - t_ep, 1),

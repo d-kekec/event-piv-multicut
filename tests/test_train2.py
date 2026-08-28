@@ -45,32 +45,11 @@ def test_mehrheit_torbedingung_greift():
     np.testing.assert_allclose(z5, [1.0, 0.0, 1.0, 1.0, 0.0])
 
 
-def test_weich_gibt_zwischenwerte():
-    """Der Zielwert ist die Wahrscheinlichkeit, dass zwei zufaellig
-    gezogene Events zum selben Partikel gehoeren. Reine Paare bekommen
-    dabei wieder exakt 1."""
-    gt, n_gt, a = _knoten()
-    z, g = paar_ziele(gt, n_gt, a, I, J, modus="weich", min_anteil=0.9)
-    assert g.all()
-    np.testing.assert_allclose(z, [1.0, 0.0, 0.6, 0.6, 0.0])
-
-
-def test_weich_bleibt_bei_verschiedener_mehrheit_hart():
-    """Bekannte Unvollstaendigkeit: der Anteil des MINDERHEITSpartikels
-    steht nicht im Artefakt, also bleibt (9, verschmolzen 7+9) auf 0,
-    obwohl 0,4 richtig waere. Hier festgehalten, damit es nicht
-    versehentlich als vollstaendig gilt."""
-    gt, n_gt, a = _knoten()
-    z, _ = paar_ziele(gt, n_gt, a, np.array([2]), np.array([3]),
-                      modus="weich", min_anteil=0.9)
-    assert z[0] == 0.0
-
-
 def test_rauschknoten_fallen_in_allen_modi_heraus():
     gt = np.array([7, -1], np.int64)
     n_gt = np.array([1, 0], np.int32)
     a = np.array([1.0, 0.0])
-    for modus in ("streng", "mehrheit", "weich"):
+    for modus in ("streng", "mehrheit"):
         _, g = paar_ziele(gt, n_gt, a, np.array([0]), np.array([1]),
                           modus=modus, min_anteil=0.9)
         assert not g[0], modus
@@ -190,3 +169,12 @@ def test_ziehe_epoche_wechselt_ueber_epochen():
     mengen = [set(_ziehe_epoche(ja, nein, 300, 100, rng).tolist())
               for _ in range(5)]
     assert len(set.union(*mengen)) > 2 * len(mengen[0])
+
+
+def test_weich_ist_kein_gueltiger_modus():
+    """weich wurde nie vollstaendig umgesetzt (der Anteil des
+    Minderheitspartikels steht nicht im Artefakt) und ist entfernt. Ein
+    alter Aufruf muss zur Konfigurationszeit abbrechen."""
+    from eventpiv.kern.runconfig import Transformer
+    with pytest.raises(ValueError, match="label_modus"):
+        Transformer(label_modus="weich")

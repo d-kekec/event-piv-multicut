@@ -71,7 +71,7 @@ IMBALANCE_MODES = ("sample", "weight")
 SOLVER_BACKENDS = ("rama", "cc")
 SOLVER_MODES = ("P", "PD", "PD+", "D")
 POOLINGS = ("cls", "mean")
-LABEL_MODI = ("streng", "mehrheit", "weich")
+LABEL_MODI = ("streng", "mehrheit")
 
 @dataclass
 class Neighborhood(_Typed):
@@ -388,12 +388,9 @@ class Transformer(_Typed):
     TRAININGS-, keine Datensatzentscheidung, deshalb hier und nicht in
     Kandidaten. Das Artefakt traegt gt_track_id, gt_anteil und n_gt je
     Knoten; Ziel und Maske entstehen daraus zur Trainingszeit.
-      streng    nur Knoten mit genau einem GT-Partikel (Entwurf).
-                Der interessanteste Fall wird damit nie geuebt.
+      streng    nur Knoten mit genau einem GT-Partikel. Der
+                interessanteste Fall wird damit nie geuebt.
       mehrheit  auch verschmolzene, hart nach Mehrheit, ab gt_min_anteil.
-      weich     auch verschmolzene, Zielwert zwischen 0 und 1. Der Logit
-                lernt dessen Log-Odds; bei 0,5 ist er null und RAMA sieht
-                eine Kante ohne Praeferenz. Ist noch nicht gut genug umgesetzt.
 
     mehrheit ist Vorgabe. Bei alpha = 50 ms sind streng und mehrheit auf
     fuenf Nachkommastellen gleich (edge_tnr 0,90206 gegen 0,90200 auf
