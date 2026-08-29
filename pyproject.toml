@@ -43,8 +43,9 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "anker: Regressionsanker auf dem ECHTEN Datensatz. Braucht $EVENTPIV_DATA, gebaute Label-Dateien und ein trainiertes Netz -- laeuft deshalb nicht in der normalen Suite.",
+    "anker: Regressionsanker Stufe 1 auf dem ECHTEN Datensatz. Braucht $EVENTPIV_DATA, gebaute Label-Dateien und ein trainiertes Netz -- laeuft deshalb nicht in der normalen Suite. Rund 10 s.",
+    "anker2: Regressionsanker Stufe 2, zusaetzlich mit Kandidatensatz und Stufe-2-Netz. Loest einen GANZEN Run und braucht rund drei Minuten -- deshalb ein eigener Marker.",
 ]
-# Standardmaessig abgewaehlt. `pytest -m anker` waehlt sie wieder an: die
-# letzte -m-Angabe gewinnt.
-addopts = "-m 'not anker'"
+# Beide standardmaessig abgewaehlt. `pytest -m anker` bzw. `-m anker2`
+# waehlt sie wieder an: die letzte -m-Angabe gewinnt.
+addopts = "-m 'not anker and not anker2'"

@@ -92,7 +92,8 @@ Parameterliste → [`docs/CLI_Referenz.md`](docs/CLI_Referenz.md).
 das Verhalten nicht ändern soll:
 
 ```bash
-pytest -m anker
+pytest -m anker      # Stufe 1, rund 10 s
+pytest -m anker2     # Stufe 2, rund 3 min — ein ganzer Run
 ```
 
 Der Anker braucht den Datensatz, gebaute Label-Dateien und ein trainiertes
