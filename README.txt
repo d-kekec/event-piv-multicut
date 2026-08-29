@@ -4,10 +4,14 @@ Event-basierte Particle Image Velocimetry: aus den Rohdaten einer
 Event-Kamera Partikel-Trajektorien rekonstruieren, formuliert als
 **Multicut-Problem** und gelöst mit [RAMA](https://github.com/pawelswoboda/RAMA).
 
-Jedes Event ist ein Knoten. Ein kleines neuronales Netz bewertet für jedes
-benachbarte Eventpaar, ob beide zum selben Partikel gehören, und gibt einen
-Logit aus — dieser Logit geht **unverändert** als Kantenkosten an den Solver.
-Die Cluster der resultierenden Partition sind die Partikel.
+**Zwei Stufen, beide Multicut.** In Stufe 1 ist jedes Event ein Knoten: ein
+kleines neuronales Netz bewertet benachbarte Eventpaare und gibt einen Logit
+aus, der **unverändert** als Kantenkosten an den Solver geht. Gelöst wird
+fensterweise, das Ergebnis sind kurze Bahnstücke — Tracklets.
+
+In Stufe 2 ist jedes Tracklet ein Knoten. Ein Paar-Transformer bewertet, ob
+zwei Tracklets zum selben Partikel gehören, und gelöst wird **einmal über den
+ganzen Run**. Die Cluster dieser Partition sind die Trajektorien.
 
 > Bachelorarbeit Informatik, Heinrich-Heine-Universität Düsseldorf, betreut
 > von Prof. Dr. Paul Swoboda.
@@ -28,7 +32,13 @@ dat + _bbox.npy
 │
 └─ [5a] build_tracklets  ganzer Run in Fenstern der Länge α → Artefakt (A)
    │
-   [5b] build_features   ein Tracklet, eine Zeile → Artefakt (B)
+   ├─ [5b] build_features    ein Tracklet, eine Zeile → Artefakt (B)
+   │
+   └─ [6a] build_kandidaten  Tracklets werden Knoten: Filter, Zentroid,
+      │                      Eventstichprobe, Kandidatenpaare
+      [6b] train_stufe2      Paar-Transformer → Logit = Kantenkosten
+      │
+      [6c] solve_stufe2      EIN Multicut über den ganzen Run → Trajektorien
 
 **Es gibt keinen Orchestrator.** Jede Stufe leitet ihren Artefaktpfad aus der
 Konfiguration ab — Stufe [3] findet den Datensatz von [2], [4] das Netz von
@@ -70,6 +80,9 @@ python scripts/train_edge_nn.py
 python scripts/solve_with_nn.py selection.split=train selection.run_nr=3
 python scripts/build_tracklets.py selection.split=train selection.runs=[32]
 python scripts/build_features.py  selection.split=train selection.runs=[32]
+python scripts/build_kandidaten.py selection.split=train selection.runs=[32]
+python scripts/train_stufe2.py
+python scripts/solve_stufe2.py    selection.split=val   selection.runs=[4]
 ```
 
 Ohne Overrides läuft alles am dokumentierten Arbeitspunkt. Vollständige
