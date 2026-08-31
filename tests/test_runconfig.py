@@ -101,3 +101,16 @@ def test_stufe2_identitaet_haengt_an_jedem_feld():
     for abweichend in (Transformer(lr=1e-4), Transformer(dropout=0.1),
                        Transformer(d_ff=512)):
         assert slug(abweichend) != slug(t)
+
+
+def test_weight_ist_kein_gueltiger_imbalance_modus():
+    """Die Gewichtung war seit Wochen unbenutzt und tat in beiden Stufen
+    Verschiedenes -- Stufe 1 gewichtete nur, Stufe 2 zog zusaetzlich. Ein
+    alter Aufruf muss zur Konfigurationszeit abbrechen, nicht still ein
+    anderes Verhalten liefern."""
+    from eventpiv.kern.runconfig import Training, Transformer
+
+    with pytest.raises(ValueError, match="imbalance"):
+        Training(imbalance="weight")
+    with pytest.raises(ValueError, match="imbalance"):
+        Transformer(imbalance="weight")

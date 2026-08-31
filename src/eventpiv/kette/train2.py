@@ -339,15 +339,7 @@ def train_stufe2(cfg: Stufe2Cfg, on_start=None, on_epoch=None):
     # Permutation und damit das Training selbst.
     rng_zieh = np.random.default_rng(tf.seed + 1)
 
-    pos_weight = None
-    if tf.imbalance == "sample":
-        ratio = float(tf.sample_ratio)
-    else:
-        # Bei "weight" bleibt das natuerliche Verhaeltnis; als Ziel
-        # uebergeben wirkt der Deckel damit klassenneutral.
-        ratio = len(ja_topf) / max(len(nein_topf), 1)
-        pos_weight = torch.tensor([1.0 / max(ratio, 1e-9)], device=device)
-        daten["pos_weight"] = float(pos_weight)
+    ratio = float(tf.sample_ratio)
 
     n_ja, n_nein, erreicht = _epochengroesse(
         len(ja_topf), len(nein_topf), ratio, tf.train_max)
@@ -383,7 +375,7 @@ def train_stufe2(cfg: Stufe2Cfg, on_start=None, on_epoch=None):
           f"{daten['n_parameter']:,} Parameter", flush=True)
 
     opt = torch.optim.AdamW(model.parameters(), lr=tf.lr)
-    lossfn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    lossfn = nn.BCEWithLogitsLoss()
     norm = {"alpha": float(kd.alpha), "r_max": float(kd.r_max)}
 
     if str(device).startswith("cuda") and torch.cuda.is_available():

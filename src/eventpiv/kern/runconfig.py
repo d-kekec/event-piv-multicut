@@ -67,7 +67,7 @@ class _Typed:
 NEIGHBORHOOD_GEOMS = ("ellipsoid", "cylinder", "hyperboloid")
 POLARITIES = ("on", "both")
 FEATURE_MODES = ("dr", "drjac")
-IMBALANCE_MODES = ("sample", "weight")
+IMBALANCE_MODES = ("sample",) # Hier waren einst auch andere, nur sample hat überlebt.
 SOLVER_BACKENDS = ("rama", "cc")
 SOLVER_MODES = ("P", "PD", "PD+", "D")
 POOLINGS = ("cls", "mean")

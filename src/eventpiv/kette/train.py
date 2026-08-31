@@ -307,51 +307,37 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
               f"NEIN {daten['holdout']['n_nein']:,} "
               f"({daten['holdout']['ratio_ja_nein']:.2f} : 1)")
 
-    # --- Imbalance: Sampling ODER Gewichtung, nie beides ---
-    pos_weight = None
-    if tr.imbalance == "sample":
-        tr_lab = label[tr_idx]
-        ja_i = tr_idx[tr_lab == 1]
-        nein_i = tr_idx[tr_lab == 0]
-        n_verlangt = int(len(nein_i) * tr.sample_ratio)
-        n_keep = min(len(ja_i), n_verlangt)
-        tr_idx = np.concatenate([rng.choice(ja_i, n_keep, replace=False),
-                                 nein_i])
-        rng.shuffle(tr_idx)
-        # Das Klassenverhaeltnis SETZT die Entscheidungsschwelle des Netzes:
-        # bei 3:1 lernt es log-Odds gegen P(JA)=0.75, bei 1:1 gegen 0.5, und
-        # die Differenz verschiebt jeden Logit um logit(0.75)-logit(0.5).
-        # Reicht der Datensatz nicht, folgt die Schwelle also aus ja_vorrat
-        # und ja_frac statt aus sample_ratio -- ein Betriebspunkt, den
-        # niemand gewaehlt hat. Das muss auffallen.
-        erreicht = n_keep >= n_verlangt
-        if verbose:
-            print(f"Sampling: JA {n_keep:,} : NEIN {len(nein_i):,} "
-                  f"(~{n_keep / max(len(nein_i), 1):.1f}:1)")
-            if not erreicht:
-                print(f"  WARN: sample_ratio={tr.sample_ratio} verlangt "
-                      f"{n_verlangt:,} JA, vorhanden sind {len(ja_i):,}. Das "
-                      f"Verhaeltnis folgt damit aus dem DATENSATZ, nicht aus "
-                      f"sample_ratio -- pairs.ja_vorrat oder pairs.ja_frac "
-                      f"erhoehen, sonst ist der Betriebspunkt geerbt statt "
-                      f"gewaehlt.")
-    else:
-        tr_lab = label[tr_idx]
-        n_pos = (tr_lab == 1).sum()
-        n_neg = (tr_lab == 0).sum()
-        pos_weight = torch.tensor([n_neg / max(n_pos, 1)], dtype=torch.float32)
-        if verbose:
-            print(f"Gewichtung: pos_weight = {pos_weight.item():.5f}")
-    # train_used ist die Menge, die WIRKLICH ins Training geht. Bei
-    # imbalance="weight" ist sie identisch mit train_split -- und dass man
-    # das im Log sieht, ist der Punkt: die Gewichtung sampelt nicht.
+    # --- Klassenverhaeltnis: JA untersampeln ---
+    tr_lab = label[tr_idx]
+    ja_i = tr_idx[tr_lab == 1]
+    nein_i = tr_idx[tr_lab == 0]
+    n_verlangt = int(len(nein_i) * tr.sample_ratio)
+    n_keep = min(len(ja_i), n_verlangt)
+    tr_idx = np.concatenate([rng.choice(ja_i, n_keep, replace=False),
+                             nein_i])
+    rng.shuffle(tr_idx)
+    # Das Klassenverhaeltnis SETZT die Entscheidungsschwelle des Netzes:
+    # bei 3:1 lernt es log-Odds gegen P(JA)=0.75, bei 1:1 gegen 0.5, und
+    # die Differenz verschiebt jeden Logit um logit(0.75)-logit(0.5).
+    # Reicht der Datensatz nicht, folgt die Schwelle also aus ja_vorrat
+    # und ja_frac statt aus sample_ratio -- ein Betriebspunkt, den
+    # niemand gewaehlt hat. Das muss auffallen.
+    erreicht = n_keep >= n_verlangt
+    if verbose:
+        print(f"Sampling: JA {n_keep:,} : NEIN {len(nein_i):,} "
+              f"(~{n_keep / max(len(nein_i), 1):.1f}:1)")
+        if not erreicht:
+            print(f"  WARN: sample_ratio={tr.sample_ratio} verlangt "
+                  f"{n_verlangt:,} JA, vorhanden sind {len(ja_i):,}. Das "
+                  f"Verhaeltnis folgt damit aus dem DATENSATZ, nicht aus "
+                  f"sample_ratio -- pairs.ja_vorrat oder pairs.ja_frac "
+                  f"erhoehen, sonst ist der Betriebspunkt geerbt statt "
+                  f"gewaehlt.")
+    # train_used ist die Menge, die WIRKLICH ins Training geht -- der
+    # Vergleich mit train_split zeigt, was das Untersampeln getan hat.
     daten["imbalance"] = tr.imbalance
-    # Nur bei "sample" aussagekraeftig; bei "weight" wird nicht gezogen.
-    daten["sample_ratio_erreicht"] = (bool(erreicht)
-                                      if tr.imbalance == "sample" else None)
+    daten["sample_ratio_erreicht"] = bool(erreicht)
     daten["train_used"] = class_balance(label[tr_idx])
-    daten["pos_weight"] = (float(pos_weight.item())
-                           if pos_weight is not None else None)
 
     # Standardisierung NUR aus den Trainingsdaten (sonst Leakage)
     mu = feats[tr_idx].mean(axis=0)
@@ -388,7 +374,7 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
         print(f"Netz: {n_features(tr.feature_mode)}->{tr.hidden}->1, "
               f"{n_params} Parameter")
 
-    loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    loss_fn = nn.BCEWithLogitsLoss()
     opt = torch.optim.Adam(model.parameters(), lr=tr.lr)
 
     n = len(Xtr)
