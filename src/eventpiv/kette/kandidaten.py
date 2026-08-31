@@ -97,7 +97,7 @@ def paar_labels(knoten, i, j) -> dict:
     ganzes Tracklet macht es robust.
 
     Rueckgabe: {} ohne Ground Truth -- dann traegt das Artefakt kein
-    Label, wie bei tracklet_features.
+    Label.
     """
     if not knoten.hat_gt:
         return {}
@@ -160,7 +160,7 @@ def _gt_komponenten(knoten, i, j) -> dict:
     _, komp = connected_components(a, directed=False)
 
     # Verschiedene Komponenten je Partikel, ohne Schleife -- dieselbe
-    # Paar-Zaehlmechanik wie in features.mehrheit.
+    # Paar-Zaehlmechanik wie in knoten.mehrheit.
     gu, gidx = np.unique(gt[k], return_inverse=True)
     kombi = np.unique(gidx.astype(np.int64) * m + komp[k])
     n_komp = np.bincount(kombi // m, minlength=len(gu))

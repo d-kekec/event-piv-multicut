@@ -121,8 +121,8 @@ def test_label_nein_bei_verschiedenen_partikeln():
 
 
 def test_ohne_gt_kein_label():
-    """Echte Messdaten haben keine Boxen -- dann traegt das Artefakt kein
-    Label und alles andere bleibt, wie bei tracklet_features."""
+    """Echte Messdaten haben keine Boxen. Dann traegt das Artefakt kein
+    Label und alles andere bleibt."""
     kn = _knoten([0.0, 1000.0], [10.0, 11.0], [10.0, 10.0])
     assert paar_labels(kn, np.array([0]), np.array([1])) == {}
 

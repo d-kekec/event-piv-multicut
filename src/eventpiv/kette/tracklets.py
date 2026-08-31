@@ -307,7 +307,7 @@ def schreibe_tracklets(cfg: SolveCfg, tracklet_id, zeilen, lauf):
     Warum nicht ueber alle Events: OFF-Events sind keine Knoten und
     bekaemen durchweg -1 -- das verdoppelte die Datei fuer nichts. Sie
     werden nachtraeglich ueber die Mehrheit ihrer k naechsten ON-Events
-    zugeordnet, beim Bau der Merkmalstabelle.
+    zugeordnet.
 
     Daneben je Fenster sechs Kennzahlen. `fenster_n_nein` ist die
     Volkszaehlung der Begegnungen: sie sagt, welche Fenster ueberhaupt eine

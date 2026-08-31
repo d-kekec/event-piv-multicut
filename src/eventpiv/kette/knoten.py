@@ -11,10 +11,8 @@ ablegt, wird hier zur Knotenmenge: gefiltert, kompakt nummeriert, mit
 Zentroid fuer die Kandidatensuche und einer Eventstichprobe fuer den
 Transformer.
 
-NICHT ueber die Merkmalstabelle (B): gelesen wird (A) plus der Eventstrom,
-gerechnet wird nur, was Stufe 2 braucht. Die OFF-Zuordnung und alles, was
-daran haengt, bleibt aussen vor -- deshalb haengt das Artefakt unter
-tracklets/ und nicht unter tracklets/features/.
+Gelesen wird (A) plus der Eventstrom, gerechnet wird nur, was Stufe 2
+braucht. Die Pipeline benutzt ausschliesslich ON-Events.
 
 DER VERTRAG zu (A) gilt unveraendert: tracklet_id hat EINEN Eintrag je
 ON-Event des Runs, in der Reihenfolge des polaritaetsgefilterten Stroms.
@@ -34,7 +32,7 @@ from dataclasses import dataclass
 import numpy as np
 
 # Spalten der Knotentabelle, die IMMER da sind. Die drei gt_-Spalten
-# kommen nur mit Ground Truth dazu -- wie bei tracklet_features.
+# kommen nur mit Ground Truth dazu.
 SPALTEN = ("tracklet_id", "n_on", "x_c", "y_c", "t_min", "t_max")
 
 
@@ -69,11 +67,6 @@ def _leer() -> Knoten:
 
 def mehrheit(kompakt, werte_n, schluessel):
     """Haeufigster Schluessel je Gruppe, plus sein Anteil. Ohne Schleife.
-
-    Oeffentlich, weil Stufe 2 dieselbe Rechnung braucht: dort wird je
-    TRACKLET-PAAR ein Label gebraucht, und das Tracklet-Label entsteht
-    hier. Eine zweite Umsetzung waere dieselbe Doppelung, gegen die
-    build_features und graph.neighborhood_pairs argumentieren.
 
     Dieselbe Kreuztabellen-Mechanik wie evaluate._kreuztabelle, hier aber
     je TRACKLET statt je Cluster: Paare (Gruppe, Schluessel) zaehlen, dann
@@ -118,8 +111,7 @@ def knoten_bauen(t_on, x_on, y_on, tracklet_id, *, min_events,
     Schwelle in dieser Luecke liefert dasselbe (Journal 14.08.2026).
 
     track_id und status_noise sind optional und nur beim Training
-    vorhanden. Ohne sie fehlen die gt_-Spalten, alles andere bleibt --
-    dieselbe Regel wie bei tracklet_features.
+    vorhanden. Ohne sie fehlen die gt_-Spalten, alles andere bleibt.
 
     NUMMERIERUNG: die Tabelle ist nach tracklet_id aufsteigend sortiert,
     und die IDs von solve_run wachsen fensterweise monoton. Damit ist der

@@ -64,13 +64,9 @@ def test_project_root_traegt_die_marke():
     assert (config.PROJECT_ROOT / "src" / "eventpiv").is_dir()
 
 
-def test_stufe2_haengt_unter_tracklets_nicht_unter_features(
-        tmp_path, monkeypatch, gruppen):
-    """Stufe 2 liest das Tracklet-Artefakt (A), nicht die Merkmalstabelle (B).
-
-    Laege ihr Artefakt unter features/, stuenden off_s und off_k in seiner
-    Identitaet, obwohl sie keine hier verwendete Groesse beruehren -- der
-    Baum behauptete eine Abhaengigkeit, die es nicht gibt.
+def test_stufe2_haengt_unter_tracklets(tmp_path, monkeypatch, gruppen):
+    """Stufe 2 liest das Tracklet-Artefakt (A) -- der Baum IST die
+    Abhaengigkeitskette, also muss ihr Artefakt darunter haengen.
     """
     nb, ps, tr = gruppen
     monkeypatch.setattr(config, "OUT_ROOT", tmp_path)
@@ -83,7 +79,6 @@ def test_stufe2_haengt_unter_tracklets_nicht_unter_features(
 
     for p in (kp, mp):
         assert tracklets in p.parents, f"{p} haengt nicht unter tracklets/"
-        assert "features" not in p.parts, f"{p} haengt unter features/"
 
     # Der Kandidatensatz ist die EINGABE des Netzes, und der Baum IST die
     # Abhaengigkeitskette -- also muss das Netz darunter liegen.

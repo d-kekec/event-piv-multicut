@@ -286,21 +286,6 @@ class Solver(_Typed):
 
 
 @dataclass
-class Features(_Typed):
-    """Identitaet der Merkmalstabelle (Artefakt B).
-
-    off_s und off_k sind die Parameter der OFF-Zuordnung und damit das
-    Einzige, was zwei Tabellen desselben Tracklet-Artefakts unterscheidet.
-    off_s = 0,1 ist gemessen, nicht gewaehlt -- Journal 09.08.2026.
-    """
-    off_s: float = 0.1
-    off_k: int = 8
-
-    def short(self) -> str:
-        return f"offs{_num(self.off_s)}_k{self.off_k}"
-
-
-@dataclass
 class Kandidaten(_Typed):
     """Identitaet des Stufe-2-Datensatzes: welche Knoten, welche Kanten.
 
@@ -400,8 +385,7 @@ class Transformer(_Typed):
     Trainingspaare gegen 15 Mio. bei 50 ms.
 
     Kein feature_mode: die Baseline bekommt rohe, je Paar normierte
-    (t, x, y). Ob eine Merkmalstabelle noetig ist, soll dieser Lauf
-    beantworten.
+    (t, x, y).
 
     lr = 1e-3 statt der 3e-2 von Stufe 1: dort haengen 161 Parameter,
     hier Zehntausende. Nicht durchsucht.
@@ -719,33 +703,12 @@ class SolveCfg:
 
 
 @dataclass
-class FeatureCfg:
-    """Abgeleiteter Schritt: liest das Tracklet-Artefakt, schreibt (B).
-
-    Kein `window`: die Tabelle deckt den ganzen Run ab, und der Ausschnitt
-    steckt bereits in den Fenstern des gelesenen Artefakts.
-    """
-    io:           IO           = field(default_factory=IO)
-    neighborhood: Neighborhood = field(default_factory=Neighborhood)
-    pairs:        PairSampling = field(default_factory=PairSampling)
-    training:     Training     = field(default_factory=Training)
-    solver:       Solver       = field(default_factory=Solver)
-    selection:    Selection    = field(default_factory=Selection)
-    features:     Features     = field(default_factory=Features)
-    compute:      Compute      = field(default_factory=Compute)
-
-
-@dataclass
 class KandidatenCfg:
     """[6a] Kandidatenpaare und Knotentensor, ein Artefakt je Run.
 
     Traegt die ganze Kette von Stufe 1, weil die Tracklets der EINGABEpfad
     sind -- der Baum haengt entsprechend unter tracklets/. Kein `window`:
-    das Artefakt deckt den ganzen Run ab, wie bei FeatureCfg.
-
-    Kein `features`: Stufe 2 liest (A), nicht (B). Die Labels rechnet sie
-    ueber dieselbe Mehrheitsmechanik selbst; off_s und off_k beruehren
-    keine Groesse, die hier gebraucht wird.
+    das Artefakt deckt den ganzen Run ab.
     """
     io:           IO           = field(default_factory=IO)
     neighborhood: Neighborhood = field(default_factory=Neighborhood)

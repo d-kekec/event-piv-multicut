@@ -3,8 +3,8 @@
 """Knotentabelle und Eventstichprobe.
 
 Ohne Datensatz und ohne Framework: beide Funktionen sind rein. Gegen eine
-offensichtlich korrekte Schleifenfassung geprueft, wie test_graph.py und
-test_features.py es fuer die vektorisierten Stellen vormachen.
+offensichtlich korrekte Schleifenfassung geprueft, wie test_graph.py es
+fuer die vektorisierten Stellen vormacht.
 """
 import numpy as np
 import pytest
@@ -88,6 +88,30 @@ def test_gt_label_ignoriert_rauschen():
     # Nur Rauschevents -> kein GT-Partikel, wie bei mehrheit vereinbart.
     assert kn.tabelle["n_gt"][i] == 0
     assert kn.tabelle["gt_track_id"][i] == -1
+
+
+def test_gt_anteil_bei_verschmolzenem_tracklet():
+    """gt_anteil ist die Zahl, an der transformer.gt_min_anteil haengt:
+    sie entscheidet, welche verschmolzenen Tracklets ins Training kommen.
+    Tracklet 4 traegt vier Events, drei von Partikel 3 und eines von 8."""
+    t, x, y, tid = _strom()
+    gt = np.where(tid == 4, 3, 5).astype(np.int64)
+    gt[np.flatnonzero(tid == 4)[-1]] = 8
+    kn = knoten_bauen(t, x, y, tid, min_events=1,
+                      track_id=gt, status_noise=np.zeros(len(tid), bool))
+    i = int(np.flatnonzero(kn.tabelle["tracklet_id"] == 4)[0])
+    assert kn.tabelle["gt_track_id"][i] == 3
+    assert kn.tabelle["n_gt"][i] == 2
+    assert kn.tabelle["gt_anteil"][i] == pytest.approx(0.75)
+
+
+def test_gt_anteil_ist_eins_bei_reinem_tracklet():
+    t, x, y, tid = _strom()
+    gt = (tid * 10).astype(np.int64)
+    kn = knoten_bauen(t, x, y, tid, min_events=1,
+                      track_id=gt, status_noise=np.zeros(len(tid), bool))
+    np.testing.assert_allclose(kn.tabelle["gt_anteil"], 1.0)
+    np.testing.assert_array_equal(kn.tabelle["n_gt"], 1)
 
 
 @pytest.mark.parametrize("n_events", [1, 3, 4, 32])

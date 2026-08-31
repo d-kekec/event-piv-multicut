@@ -200,31 +200,12 @@ def tracklet_file(nb, ps, tr, sel, sv, create: bool = False) -> Path:
     return d / f"{sel.split}_run{sel.run_nr}_{sv.short()}.npz"
 
 
-def feature_file(nb, ps, tr, sel, sv, ft, create: bool = False) -> Path:
-    """Merkmalstabelle EINES Runs, abgeleitet aus dem Tracklet-Artefakt.
-
-    Eigene Slug-Ebene, anders als bei tracklet_file: die OFF-Zuordnung hat
-    eigene Parameter, und zwei Tabellen desselben Solves unterscheiden sich
-    genau darin. Der Solver steht wie dort im Dateinamen, weil er die
-    QUELLE waehlt und nicht die Rechnung.
-    """
-    d = _ensure(wp_dir(nb, create) / "pairs" / slug(ps) / slug(tr)
-                / "tracklets" / "features" / slug(ft), create)
-    return d / f"{sel.split}_run{sel.run_nr}_{sv.short()}.npz"
-
-
 def kandidaten_file(nb, ps, tr, sel, sv, kd, create: bool = False) -> Path:
     """Kandidatenpaare und Knotentensor EINES Runs [6a].
 
-    Eigene Slug-Ebene wie bei feature_file: Reichweite, Mindestgroesse und
-    Stichprobengroesse unterscheiden zwei Kandidatensaetze desselben
-    Solves. Der Solver steht wie dort im DATEINAMEN -- er waehlt die
-    Quelle, nicht die Rechnung.
-
-    NEBEN features/ und nicht darunter: Stufe 2 liest das Tracklet-Artefakt
-    (A), nicht die Merkmalstabelle (B). Haenge man sie unter features/,
-    stuenden off_s und off_k in der Identitaet, obwohl sie keine hier
-    verwendete Groesse beruehren.
+    Eigene Slug-Ebene: Reichweite, Mindestgroesse und Stichprobengroesse
+    unterscheiden zwei Kandidatensaetze desselben Solves. Der Solver steht
+    im DATEINAMEN -- er waehlt die Quelle, nicht die Rechnung.
     """
     d = _ensure(wp_dir(nb, create) / "pairs" / slug(ps) / slug(tr)
                 / "tracklets" / "stufe2" / slug(kd), create)

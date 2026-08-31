@@ -2,13 +2,12 @@
 # -*- coding: utf-8 -*-
 """CLI-Huelle fuer eventpiv.kette.kandidaten -- Hydra, W&B, Aufruf.
 
-Abgeleiteter Schritt wie build_features: liest das Tracklet-Artefakt EINES
-Runs und den zugehoerigen Eventstrom, schreibt Artefakt [6a]. Rechnet den
-Solve NICHT neu.
+Liest das Tracklet-Artefakt EINES Runs und den zugehoerigen Eventstrom,
+schreibt Artefakt [6a]. Rechnet den Solve NICHT neu.
 
 Ein W&B-Lauf je Run, OHNE History: die Knotentabelle hat keine Zeitachse,
-nur eine Zusammenfassung. Dieselbe Entscheidung wie bei build_features und
-anders als bei build_tracklets, wo ein Fenster ein Schritt ist.
+nur eine Zusammenfassung.
+Anders als bei build_tracklets, wo ein Fenster ein Schritt ist.
 
 Beispielaufruf:
     python scripts/build_kandidaten.py selection.split=train selection.runs=[32]

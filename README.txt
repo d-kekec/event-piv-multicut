@@ -32,8 +32,6 @@ dat + _bbox.npy
 │
 └─ [5a] build_tracklets  ganzer Run in Fenstern der Länge α → Artefakt (A)
    │
-   ├─ [5b] build_features    ein Tracklet, eine Zeile → Artefakt (B)
-   │
    └─ [6a] build_kandidaten  Tracklets werden Knoten: Filter, Zentroid,
       │                      Eventstichprobe, Kandidatenpaare
       [6b] train_stufe2      Paar-Transformer → Logit = Kantenkosten
@@ -79,7 +77,6 @@ python scripts/build_pair_dataset.py
 python scripts/train_edge_nn.py
 python scripts/solve_with_nn.py selection.split=train selection.run_nr=3
 python scripts/build_tracklets.py selection.split=train selection.runs=[32]
-python scripts/build_features.py  selection.split=train selection.runs=[32]
 python scripts/build_kandidaten.py selection.split=train selection.runs=[32]
 python scripts/train_stufe2.py
 python scripts/solve_stufe2.py    selection.split=val   selection.runs=[4]
