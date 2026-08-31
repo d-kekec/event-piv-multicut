@@ -16,11 +16,10 @@ t_min[i] <= t_min[j] gratis an -- also genau die kanonische Ordnung
 Bei Gleichstand gewinnt der kleinere Zeilenindex, und die Tabelle ist
 nach tracklet_id sortiert; ein drittes Kriterium braucht es nicht.
 
-DER RADIUS FOLGT DER PARTIKELGROESSE, NICHT DER DRIFT. Zwei Bruchstuecke
-desselben Partikels im selben Fenster liegen bis zur Wolkenausdehnung
-auseinander (box_w = 11 px); die Drift ueber alpha = 30 ms betraegt nur
-v_max*alpha = 3,06 px. Daher hyperboloid: die Taille ist die Ausdehnung,
-die Aufweitung die Drift.
+HYPERBOLOID: die Taille r_max deckt die Ausdehnung eines Tracklets, die
+Aufweitung v_max*alpha die Drift zwischen zwei Zentroiden. Welcher Term
+traegt, haengt an alpha: unterhalb von r_max/v_max die Taille, darueber
+die Aufweitung. Am Arbeitspunkt (250 ms) dominiert die Aufweitung.
 
 PAARE IM SELBEN FENSTER SIND EINGESCHLOSSEN und keine Nebenwirkung.
 Stufe 1 fragmentiert innerhalb eines Fensters absichtlich, damit bei

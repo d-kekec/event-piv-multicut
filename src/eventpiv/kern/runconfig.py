@@ -315,7 +315,7 @@ class Kandidaten(_Typed):
     deren Haelfte nicht gilt, waere eine spaetere Falle.
 
     alpha = 250 000 µs, gemessen ueber 50/100/150/200/250/300/350/500 ms
-    (Journal 27.08.2026). HOTA und IDF1 haben dort ihr Maximum, IDSW und
+    (Journal 28.08.2026). HOTA und IDF1 haben dort ihr Maximum, IDSW und
     betroffene Partikel ihr Minimum. Darueber faellt edge_auc weiter
     (0,951 -> 0,941 bei 350 ms) und der IDSW-Gewinn wird durch
     Verschmelzung erkauft.
@@ -403,8 +403,8 @@ class Transformer(_Typed):
     (t, x, y). Ob eine Merkmalstabelle noetig ist, soll dieser Lauf
     beantworten.
 
-    lr = 1e-3 statt der 1e-2 von Stufe 1: dort haengen 41 Parameter, hier
-    Zehntausende. Nicht durchsucht.
+    lr = 1e-3 statt der 3e-2 von Stufe 1: dort haengen 161 Parameter,
+    hier Zehntausende. Nicht durchsucht.
     """
     d_model: int = 64
     n_layers: int = 2
@@ -473,7 +473,7 @@ class Solver2(_Typed):
     (val/run4); +1 senkt IDSW von 23 auf 3 bei praktisch unveraendertem
     merge_event_frac. Ueber +1,5 faellt HOTA, ab +2 bricht purity ein.
     Auf zwei sauberen Kontrollruns richtet +1 keinen Schaden an
-    (IDSW 0, merge 0, purity 1,0). (Journal 27.08.2026)
+    (IDSW 0, merge 0, purity 1,0). (Journal 28.08.2026)
     """
     backend: str = "rama"
     mode: str = "P"

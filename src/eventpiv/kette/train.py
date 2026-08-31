@@ -365,8 +365,6 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
     ytr = torch.tensor(label[tr_idx]).unsqueeze(1)
     Xva = torch.tensor(std(feats[val_idx]))
     yva = torch.tensor(label[val_idx]).unsqueeze(1)
-    mu_t = torch.tensor(mu)
-    sig_t = torch.tensor(sig)
 
     model = EdgeMLP(n_features(tr.feature_mode), tr.hidden)
     n_params = sum(p.numel() for p in model.parameters())
@@ -487,9 +485,9 @@ def evaluate_pairs_on_dataset(cfg: TrainCfg, verbose=True) -> dict:
     die Datei sagt selbst, aus welchem Split sie stammt, und der Aufrufer
     kann es nicht falsch setzen.
 
-    IN EINEM STUECK gerechnet, nicht stapelweise: bei hidden=8 bleibt die
-    versteckte Schicht unter einem Gigabyte. Bei deutlich groesserem hidden
-    waere hier zu stapeln wie in solve.edge_costs.
+    IN EINEM STUECK gerechnet, nicht stapelweise: die versteckte Schicht
+    liegt vollstaendig im Speicher und ist damit der Spitzenbedarf des
+    Laufs. Zu stapeln waere wie in solve.edge_costs.
     """
     nb, ps, tr = cfg.neighborhood, cfg.pairs, cfg.training
     check_mode(tr.feature_mode)

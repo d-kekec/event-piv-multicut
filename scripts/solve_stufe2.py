@@ -6,8 +6,7 @@ Ein W&B-Lauf JE RUN, ohne History: ein Solve ist ein Ereignis und keine
 Reihe. Das Netz wird EINMAL geladen und ueber alle Runs benutzt.
 
 Beispielaufruf:
-    python scripts/solve_stufe2.py selection.split=val selection.runs=[1] \
-        solver.cost_offset=-0.5
+    python scripts/solve_stufe2.py selection.split=val selection.runs=[1]
 """
 from dataclasses import asdict, replace
 from pathlib import Path

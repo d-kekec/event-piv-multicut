@@ -16,14 +16,13 @@ sind hochgradig abhaengig; ein Paar-Split legte fast jedes
 Validierungspaar neben ein Trainingspaar derselben Trajektorie und
 meldete eine Guete, die im Einsatz niemand sieht.
 
-DIE TOKENS ENTSTEHEN JE STAPEL auf dem Geraet. 23,7 Mio. Paare mal 65
-Tokens vorzurechnen ist unmoeglich; der KNOTENtensor dagegen passt --
-rund 61 MB je Run bei cost_offset = -0,5, 610 MB fuer zehn. Genau dafuer
+DIE TOKENS ENTSTEHEN JE STAPEL auf dem Geraet. Alle Paare mal 2n+1 Tokens
+vorzurechnen ist unmoeglich, der KNOTENtensor dagegen passt. Genau dafuer
 nimmt transformer.baue_tokens Indizes statt fertiger Stapel.
 
-UNTERSAMPELN UND VALIDIERUNGSSTICHPROBE GESCHEHEN EINMAL, nicht je
-Epoche: sonst schwankt die Verlustkurve mit der Ziehung statt mit dem
-Lernfortschritt, und zwei Epochen waeren nicht vergleichbar.
+GEZOGEN WIRD JE EPOCHE, der HOLDOUT dagegen einmal vor der Schleife.
+Ueber die Epochen sieht das Netz damit mehr Paare als train_max; der
+feste Holdout haelt holdout/loss zwischen Epochen vergleichbar.
 """
 from __future__ import annotations
 
@@ -178,10 +177,6 @@ def split_nach_runs(run, ziel, gueltig, val_frac, seed, fest=()):
     dort undefiniert -- und anders als bei einer einzelnen Epoche waere
     das kein Schoenheitsfehler, sondern eine wertlose Kennzahl ueber den
     ganzen Lauf. Deshalb bricht die Funktion ab statt nan zu liefern.
-
-    NICHT train.split_runs wiederverwendet: die Funktion arbeitet auf dem
-    Paar-Datensatz von Stufe 1, und ich habe sie in diesem Stand nicht
-    gelesen. Ob sie passt, ist zu pruefen -- dann faellt diese hier weg.
     """
     runs = np.unique(run)
     fest = np.asarray(fest, dtype=runs.dtype).reshape(-1)
@@ -246,7 +241,7 @@ def _ziehe_epoche(ja, nein, n_ja, n_nein, rng):
         else nein]))
 
 
-def _durchlauf(model, d, idx, batch, device, ziel_t=None, opt=None, lossfn=None):
+def _durchlauf(model, d, idx, batch, device, norm=None, opt=None, lossfn=None):
     """Ein Durchlauf ueber idx. Mit opt wird trainiert, ohne nur bewertet.
 
     Rueckgabe: (logits als numpy, mittlerer Verlust).
@@ -259,7 +254,7 @@ def _durchlauf(model, d, idx, batch, device, ziel_t=None, opt=None, lossfn=None)
         i = torch.from_numpy(d.paar_i[teil]).to(device)
         j = torch.from_numpy(d.paar_j[teil]).to(device)
         tok, tm = baue_tokens(d.ev, d.maske, i, j, d.t_min, d.x_c, d.y_c,
-                              alpha=ziel_t["alpha"], r_max=ziel_t["r_max"])
+                              alpha=norm["alpha"], r_max=norm["r_max"])
         with torch.set_grad_enabled(train):
             out = model(tok, tm)
             y = torch.from_numpy(d.ziel[teil]).to(device)
