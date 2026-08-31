@@ -21,6 +21,8 @@ from __future__ import annotations
 import numpy as np
 from scipy.spatial import cKDTree
 
+from eventpiv.kette.knoten import mehrheit
+
 
 
 def off_zuordnung(t_on, x_on, y_on, tracklet_id, t_off, x_off, y_off, *,
@@ -76,43 +78,6 @@ def off_zuordnung(t_on, x_on, y_on, tracklet_id, t_off, x_off, y_off, *,
     zeile = np.arange(n_off)
     return (stimmen[zeile, best].astype(np.int64),
             zaehl[zeile, best] / kk)
-
-
-def mehrheit(kompakt, werte_n, schluessel):
-    """Haeufigster Schluessel je Gruppe, plus sein Anteil. Ohne Schleife.
-
-    Oeffentlich, weil Stufe 2 dieselbe Rechnung braucht: dort wird je
-    TRACKLET-PAAR ein Label gebraucht, und das Tracklet-Label entsteht
-    hier. Eine zweite Umsetzung waere dieselbe Doppelung, gegen die
-    build_features und graph.neighborhood_pairs argumentieren.
-
-    Dieselbe Kreuztabellen-Mechanik wie evaluate._kreuztabelle, hier aber
-    je TRACKLET statt je Cluster: Paare (Gruppe, Schluessel) zaehlen, dann
-    je Gruppe das Maximum.
-
-    Rueckgabe: (sieger, anteil, n_verschieden). Bei leerer Gruppe
-    (-1, 0.0, 0) -- ein Tracklet aus lauter Rauschen hat kein GT-Partikel.
-    """
-    s_u, s_idx = np.unique(schluessel, return_inverse=True)
-    key = kompakt.astype(np.int64) * len(s_u) + s_idx
-    kombi, anzahl = np.unique(key, return_counts=True)
-    k_grp, k_s = kombi // len(s_u), kombi % len(s_u)
-
-    best = np.zeros(werte_n, np.int64)
-    np.maximum.at(best, k_grp, anzahl)
-    gesamt = np.bincount(k_grp, weights=anzahl,
-                         minlength=werte_n).astype(np.int64)
-    n_versch = np.bincount(k_grp, minlength=werte_n)
-
-    sieger = np.full(werte_n, -1, np.int64)
-    # Bei Gleichstand gewinnt der groessere Schluessel -- willkuerlich, aber
-    # deterministisch, und der Fall ist bei 150+ Events selten.
-    treffer = anzahl == best[k_grp]
-    sieger[k_grp[treffer]] = s_u[k_s[treffer]]
-
-    anteil = np.divide(best, gesamt, out=np.zeros(werte_n, np.float64),
-                       where=gesamt > 0)
-    return sieger, anteil, n_versch
 
 
 def tracklet_features(t_on, x_on, y_on, tracklet_id,
