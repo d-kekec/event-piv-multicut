@@ -5,8 +5,8 @@ import pytest
 
 from eventpiv.kern import config
 from eventpiv.kern.runconfig import (Kandidaten, Neighborhood, PairSampling,
-                                Selection, Solver, Training, Transformer,
-                                Window)
+                                Selection, Solver, Solver2, Training,
+                                Transformer, Window)
 
 
 @pytest.fixture
@@ -33,6 +33,8 @@ def test_pfadfunktionen_legen_nichts_an(tmp_path, monkeypatch, gruppen):
         config.tracklet_file(nb, ps, tr, sel, sv),
         config.kandidaten_file(nb, ps, tr, sel, sv, Kandidaten()),
         config.transformer_file(nb, ps, tr, sv, Kandidaten(), Transformer()),
+        config.solve2_file(nb, ps, tr, sv, Kandidaten(), Transformer(), sel,
+                           Solver2()),
         config.label_dir("train"),
         config.label_file("train", 3),
         config.results_dir(),
@@ -96,16 +98,19 @@ def test_stufe2_haengt_unter_tracklets_nicht_unter_features(
 def test_stufe2_pfade_legen_nur_verzeichnisse_an(tmp_path, monkeypatch, gruppen):
     """create=True legt das Verzeichnis an, nie die Datei.
 
-    transformer_file hat eine andere Signatur als alle uebrigen (kein
-    Selection -- ein Netz gilt fuer alle Runs); ein Fehler darin faellt
-    sonst erst beim Schreiben auf.
+    Die Signaturen weichen von den uebrigen ab: transformer_file nimmt
+    kein Selection (ein Netz gilt fuer alle Runs), solve2_file nimmt es an
+    siebter statt vierter Stelle. Ein Fehler darin faellt sonst erst beim
+    Schreiben auf.
     """
     nb, ps, tr = gruppen
     monkeypatch.setattr(config, "OUT_ROOT", tmp_path)
     sel, sv = Selection(split="train", run_nr=3), Solver()
-    kd, tf = Kandidaten(), Transformer()
+    kd, tf, sv2 = Kandidaten(), Transformer(), Solver2()
 
     for p in (config.kandidaten_file(nb, ps, tr, sel, sv, kd, create=True),
-              config.transformer_file(nb, ps, tr, sv, kd, tf, create=True)):
+              config.transformer_file(nb, ps, tr, sv, kd, tf, create=True),
+              config.solve2_file(nb, ps, tr, sv, kd, tf, sel, sv2,
+                                 create=True)):
         assert p.parent.is_dir()
         assert not p.exists()
