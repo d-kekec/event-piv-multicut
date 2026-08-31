@@ -147,7 +147,9 @@ def solve2_run(cfg: Solve2Cfg, model, norm, run_nr, verbose=True):
             "Sonst erst scripts/build_kandidaten.py mit denselben Gruppen.")
     with np.load(kpfad) as f:
         knoten_tid = f["tracklet_id"]
-        i, j = f["paar_i"].astype(np.int64), f["paar_j"].astype(np.int64)
+        # int32 durchhalten: solve_multicut castet ohnehin nach int32, und
+        # baue_tokens indiziert damit. Aufweiten kopierte zweimal umsonst.
+        i, j = f["paar_i"], f["paar_j"]
         daten = (torch.from_numpy(f["ev"]).to(cp.device),
                  torch.from_numpy(f["maske"]).to(cp.device),
                  torch.as_tensor(f["t_min"], dtype=torch.float32).to(cp.device),
