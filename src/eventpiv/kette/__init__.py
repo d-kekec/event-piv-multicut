@@ -8,6 +8,7 @@
   [6a]  knoten, kandidaten        Tracklets werden Knoten, Kandidatenkanten
   [6b]  transformer, train2       Paar-Encoder, Kantenkosten von Stufe 2
   [6c]  solve2                    EIN Multicut ueber den ganzen Run
+  [7]   trajektorien              Events je Bahn, Fit, Geschwindigkeit
 
 SCHICHTREGEL: kette importiert aus kern und bewerten, nie aus zeigen.
 
