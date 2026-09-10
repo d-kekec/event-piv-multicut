@@ -228,7 +228,8 @@ def transformer_file(nb, ps, tr, sv, kd, tf, create: bool = False) -> Path:
 
 
 def solve2_file(nb, ps, tr, sv, kd, tf, sel, sv2, create: bool = False) -> Path:
-    """Ergebnis EINES Stufe-2-Solves [6c]. JSON, kein npz.
+    """Kennzahlen EINES Stufe-2-Solves [6c] als JSON. Die Partition liegt
+    unter demselben Stamm als npz, siehe trajektorien_file.
 
     Unter dem Netz, das die Kosten geliefert hat -- der Baum IST die
     Abhaengigkeitskette. Laufauswahl und Stufe-2-Solver stehen im
@@ -245,6 +246,17 @@ def solve2_file(nb, ps, tr, sv, kd, tf, sel, sv2, create: bool = False) -> Path:
                 / "tracklets" / "stufe2" / slug(kd) / slug(tf) / "solves",
                 create)
     return d / f"{sel.split}_run{sel.run_nr}_{sv.short()}_{sv2.short()}.json"
+
+
+def trajektorien_file(nb, ps, tr, sv, kd, tf, sel, sv2,
+                      create: bool = False) -> Path:
+    """Trajektorien-ID je ON-Event [6c]. Neben der Solve-JSON, gleicher Stamm.
+
+    Abgeleitet statt getippt: die beiden Dateien eines Solves duerfen nicht
+    auseinanderlaufen koennen.
+    """
+    return solve2_file(nb, ps, tr, sv, kd, tf, sel, sv2,
+                       create).with_suffix(".npz")
 
 
 # ============================================================

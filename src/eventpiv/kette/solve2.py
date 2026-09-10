@@ -4,8 +4,11 @@ r"""
 solve2.py -- BAUSTEIN [6c]: den Stufe-2-Graphen EINES Runs loesen.
 
   kanten_kosten   Logits fuer alle Kandidatenpaare, stapelweise
+  kompakt         RAMA-Clusternummern lueckenlos von 0 an
   event_labels    Cluster je Knoten -> Cluster je EVENT
   solve2_run      einen Run laden, loesen, bewerten
+  schreibe_solve2 Kennzahlen als JSON
+  schreibe_trajektorien   Trajektorien-ID je ON-Event als npz
 
 EIN SOLVE JE RUN, nicht je Fenster. Das ist der Sinn der Stufe:
 Trajektorien laufen ueber alle achthundert Fenster, und ein Ausschnitt
@@ -75,6 +78,23 @@ def kanten_kosten(model, norm, daten, i, j, *, batch, device):
             tok, tm = baue_tokens(ev, maske, bi, bj, t_min, x_c, y_c,
                                   alpha=norm["alpha"], r_max=norm["r_max"])
             aus[k:k + batch] = model(tok, tm).float()
+    return aus
+
+
+def kompakt(node_labels):
+    """Clusternummern lueckenlos von 0 an. -1 bleibt -1. Reine Funktion.
+
+    RAMA nummeriert nicht lueckenlos; der Wertebereich folgt der KNOTEN-
+    zahl, nicht der Clusterzahl. Fuer die Partition zaehlt nur, welche
+    Knoten zusammengehoeren -- die Nummern selbst tragen keine Aussage.
+    Dieselbe Rechnung wie in knoten_bauen.
+    """
+    lab = np.asarray(node_labels)
+    aus = np.full(len(lab), -1, np.int32)
+    ok = lab >= 0
+    if ok.any():
+        _, inv = np.unique(lab[ok], return_inverse=True)
+        aus[ok] = inv.astype(np.int32)
     return aus
 
 
@@ -173,12 +193,18 @@ def solve2_run(cfg: Solve2Cfg, model, norm, run_nr, verbose=True):
 
     node_labels = SOLVER_FUNKTIONEN[sv2.backend](
         i, j, kosten, m, cp, sv2.mode)
+    # Vor dem Umnummerieren entnommen: der rohe Hoechstwert sagt, welchen
+    # Wertebereich RAMA belegt, und damit welchen dtype das Artefakt
+    # braucht. Danach ist er nicht mehr rekonstruierbar.
+    label_max_roh = int(node_labels.max())
+    node_labels = kompakt(node_labels)
+    n_cluster = int(node_labels.max()) + 1
     lauf.update({
         "n_knoten": m,
-        "n_cluster": int((np.unique(node_labels) >= 0).sum()),
+        "n_cluster": n_cluster,
+        "label_max_roh": label_max_roh,
         "n_knoten_ohne_cluster": int((node_labels < 0).sum()),
-        "knoten_je_cluster": float(m / max(int((np.unique(node_labels) >= 0)
-                                               .sum()), 1)),
+        "knoten_je_cluster": float(m / max(n_cluster, 1)),
     })
 
     # --- zurueck auf die Events
@@ -186,6 +212,8 @@ def solve2_run(cfg: Solve2Cfg, model, norm, run_nr, verbose=True):
     with np.load(tpfad) as d:
         tid_ev = d["tracklet_id"]
     lab_ev = event_labels(tid_ev, knoten_tid, node_labels)
+    lauf["n_events"] = int(len(lab_ev))
+    lauf["event_ohne_cluster_frac"] = float((lab_ev < 0).mean())
     # Stufe-1-Basislinie: jedes Tracklet ein eigener Cluster, auf DERSELBEN
     # Knotenmenge. Der Unterschied der beiden Zahlensaetze ist das Ergebnis.
     lab_vorher = event_labels(tid_ev, knoten_tid, np.arange(m, dtype=np.int32))
@@ -284,4 +312,37 @@ def schreibe_solve2(cfg: Solve2Cfg, run_nr, lauf) -> Path:
                              transformer=cfg.transformer,
                              solver2=cfg.solver2, selection=sel))),
          "lauf": lauf}, indent=2, ensure_ascii=False), encoding="utf-8")
+    return out
+
+
+def schreibe_trajektorien(cfg: Solve2Cfg, run_nr, lab_ev) -> Path:
+    """Trajektorien-ID je ON-Event als npz. Neben der Solve-JSON.
+
+    EIN Eintrag je ON-Event des Runs, in der Reihenfolge des
+    polaritaetsgefilterten Stroms -- derselbe Vertrag wie bei (A). -1 fuer
+    Events ohne Tracklet, aus gefilterten Tracklets und aus Knoten, die der
+    Solver nicht beschriftet hat.
+
+    Ohne Koordinaten: die stehen im Eventstrom, und der Eintrag k gehoert
+    zum k-ten ON-Event. Wer sie braucht, laedt data.load_events und
+    filtert mit graph.polarity_mask.
+    """
+    sel = replace(cfg.selection, run_nr=run_nr)
+    # Derselbe Notausgang wie bei schreibe_solve2, damit die beiden
+    # Dateien eines Solves nicht auseinanderlaufen.
+    out = (Path(cfg.io.out_path).with_suffix(".npz") if cfg.io.out_path
+           else config.trajektorien_file(
+               cfg.neighborhood, cfg.pairs, cfg.training, cfg.solver,
+               cfg.kandidaten, cfg.transformer, sel, cfg.solver2,
+               create=True))
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        out, trajektorie_id=np.asarray(lab_ev, np.int32),
+        meta=config.meta_json(
+            stage="trajektorien", n_events=int(len(lab_ev)),
+            **identity_meta(neighborhood=cfg.neighborhood, pairs=cfg.pairs,
+                            training=cfg.training, solver=cfg.solver,
+                            kandidaten=cfg.kandidaten,
+                            transformer=cfg.transformer,
+                            solver2=cfg.solver2, selection=sel)))
     return out

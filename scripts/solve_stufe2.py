@@ -5,6 +5,9 @@
 Ein W&B-Lauf JE RUN, ohne History: ein Solve ist ein Ereignis und keine
 Reihe. Das Netz wird EINMAL geladen und ueber alle Runs benutzt.
 
+Je Run entstehen ZWEI Dateien: die Kennzahlen als JSON und die Partition
+als npz. Uebersprungen wird an der npz, weil sie die teure ist.
+
 Beispielaufruf:
     python scripts/solve_stufe2.py selection.split=val selection.runs=[1]
 """
@@ -20,7 +23,8 @@ from _cli import to_cfg
 from eventpiv.bewerten.metrics import flatten
 from eventpiv.kern import config
 from eventpiv.kern.runconfig import Solve2Cfg, slug
-from eventpiv.kette.solve2 import schreibe_solve2, solve2_run
+from eventpiv.kette.solve2 import (schreibe_solve2, schreibe_trajektorien,
+                                   solve2_run)
 from eventpiv.kette.transformer import load_checkpoint
 
 ConfigStore.instance().store(name="solve2_schema", node=Solve2Cfg)
@@ -74,6 +78,15 @@ def main(dcfg: DictConfig) -> None:
 
     for r in runs:
         rcfg = replace(cfg, selection=replace(cfg.selection, run_nr=r))
+        tpfad = config.trajektorien_file(
+            cfg.neighborhood, cfg.pairs, cfg.training, cfg.solver,
+            cfg.kandidaten, cfg.transformer, rcfg.selection, cfg.solver2)
+        # Uebersprungen wird HIER und nicht im Modul: ein Abbruch risse die
+        # Schleife ab und die Runs danach kaemen nicht mehr dran.
+        if tpfad.exists() and not cfg.io.overwrite:
+            print(f"-> {tpfad} existiert, uebersprungen "
+                  "(io.overwrite=true erzwingt)", flush=True)
+            continue
         run = wandb.init(
             project=PROJECT, group=slug(cfg.neighborhood),
             job_type="solve2",
@@ -81,11 +94,14 @@ def main(dcfg: DictConfig) -> None:
             tags=[slug(cfg.kandidaten), slug(cfg.transformer)],
             config=asdict(rcfg))
         try:
-            _, lauf = solve2_run(rcfg, model, norm, r)
+            lab_ev, lauf = solve2_run(rcfg, model, norm, r)
             pfad = schreibe_solve2(rcfg, r, lauf)
+            tpfad = schreibe_trajektorien(rcfg, r, lab_ev)
             run.summary.update(flatten({"lauf": lauf}))
             run.summary["solve2_path"] = str(pfad)
+            run.summary["trajektorien_path"] = str(tpfad)
             print(f"-> {pfad}", flush=True)
+            print(f"-> {tpfad}", flush=True)
         finally:
             run.finish()
 
