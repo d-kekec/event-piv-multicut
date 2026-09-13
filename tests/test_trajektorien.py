@@ -32,7 +32,7 @@ def test_gruppierung_gegen_schleifenreferenz():
     ref = _referenz(tid)
 
     assert len(tr) == len(ref)
-    np.testing.assert_array_equal(tr.cluster_id, np.array(sorted(ref)))
+    np.testing.assert_array_equal(tr.trajektorie_id, np.array(sorted(ref)))
     for i, k in enumerate(sorted(ref)):
         lo, hi = tr.grenzen[i], tr.grenzen[i + 1]
         np.testing.assert_array_equal(tr.reihenfolge[lo:hi], ref[k])
@@ -51,7 +51,7 @@ def test_zeitordnung_bleibt_innerhalb_einer_bahn():
 def test_nicht_zugeordnete_events_fallen_heraus():
     t, x, y, tid = _strom()
     tr = gruppiere(tid, len(t))
-    assert -1 not in tr.cluster_id
+    assert -1 not in tr.trajektorie_id
     assert not np.isin(np.flatnonzero(tid < 0), tr.reihenfolge).any()
     assert len(tr.reihenfolge) == int((tid >= 0).sum())
 
@@ -66,7 +66,7 @@ def test_jedes_zugeordnete_event_genau_einmal():
 def test_bahn_liefert_die_richtigen_werte():
     t, x, y, tid = _strom()
     tr = gruppiere(tid, len(t))
-    i = int(np.flatnonzero(tr.cluster_id == 1)[0])
+    i = int(np.flatnonzero(tr.trajektorie_id == 1)[0])
     tb, xb, yb = bahn(tr, i, t, x, y)
     erwartet = np.flatnonzero(tid == 1)
     np.testing.assert_array_equal(tb, t[erwartet])
@@ -91,10 +91,10 @@ def test_laengenvertrag_bricht_ab():
 
 def test_luecken_in_den_ids_sind_zulaessig():
     """kompakt nummeriert lueckenlos, aber das ist keine Zusicherung des
-    Solvers -- cluster_id traegt die Bruecke zurueck."""
+    Solvers -- trajektorie_id traegt die Bruecke zurueck."""
     tid = np.array([5, 900, 5, -1, 900], np.int32)
     tr = gruppiere(tid, len(tid))
-    np.testing.assert_array_equal(tr.cluster_id, [5, 900])
+    np.testing.assert_array_equal(tr.trajektorie_id, [5, 900])
     assert len(tr) == 2
 
 
@@ -112,7 +112,7 @@ def test_kalman_trifft_die_exakte_gerade():
     from eventpiv.kette.trajektorien import kalman_bahn
 
     t, x, y = _gerade()
-    ta, xa, ya, ua, va = kalman_bahn(t, x, y, r_mess=8.0, q_c=20.0,
+    ta, xa, ya, ua, va, _, _ = kalman_bahn(t, x, y, r_mess=8.0, q_c=20.0,
                                      dt_aus=10_000.0)
     assert len(ta) > 5
     soll_x = 100.0 + 0.05 * ta / 1e3
@@ -143,7 +143,7 @@ def test_kalman_vertraegt_doppelte_zeitstempel():
 
     t, x, y = _gerade(n=600)
     t[300:310] = t[300]
-    ta, xa, ya, ua, va = kalman_bahn(t, x, y, r_mess=8.0, q_c=20.0,
+    ta, xa, ya, ua, va, _, _ = kalman_bahn(t, x, y, r_mess=8.0, q_c=20.0,
                                      dt_aus=10_000.0)
     assert np.isfinite(xa).all() and np.isfinite(ua).all()
 
@@ -204,7 +204,7 @@ def test_fitte_run_laesst_kurze_bahnen_aus():
     lang[t > 300_000.0] = 1                            # zweite Bahn: 100 ms
     tr = gruppiere(lang, n)
 
-    tf, xf, yf, uf, vf, idf = fitte_run(
+    tf, xf, yf, uf, vf, _, _, idf = fitte_run(
         tr, t, x, y, r_mess=8.0, q_c=20.0, c0=0.0, c1=0.0,
         dt_aus=10_000.0, min_dauer_us=200_000.0)
     assert set(np.unique(idf).tolist()) == {0}
@@ -220,3 +220,18 @@ def test_fitte_run_ohne_taugliche_bahn():
     aus = fitte_run(tr, t, x, y, r_mess=8.0, q_c=20.0, c0=0.0, c1=0.0,
                     dt_aus=1e3, min_dauer_us=1e6)
     assert all(len(a) == 0 for a in aus)
+
+
+def test_kalman_liefert_sinnvolle_unsicherheit():
+    """sig_pos ist eine Aussage ueber die Abtastdichte, nicht ueber die
+    Bahn -- aber sie muss positiv und klein sein."""
+    from eventpiv.kette.trajektorien import kalman_bahn
+
+    t, x, y = _gerade()
+    *_, sp, su = kalman_bahn(t, x, y, r_mess=8.0, q_c=20.0,
+                             dt_aus=10_000.0)
+    assert (sp > 0).all() and (su > 0).all()
+    assert np.isfinite(sp).all() and np.isfinite(su).all()
+    # Bei 2000 Events auf 100 ms und R = 8 liegt der Ortsfehler weit
+    # unter einem Pixel.
+    assert sp.max() < 1.0

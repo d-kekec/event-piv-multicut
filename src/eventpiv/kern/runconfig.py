@@ -824,6 +824,27 @@ class Solve2Cfg:
 
 
 @dataclass
+class FitCfg:
+    """Baustein [7]: liest die Partition von [6c], schreibt die Bahnen.
+
+    Traegt die ganze Kette, weil der Dateiname beide Solver und den Fit
+    nennt. Kein `window`: gefittet wird der ganze Run.
+
+    Kein `compute`: der Filter rechnet auf der CPU.
+    """
+    io:           IO           = field(default_factory=IO)
+    neighborhood: Neighborhood = field(default_factory=Neighborhood)
+    pairs:        PairSampling = field(default_factory=PairSampling)
+    training:     Training     = field(default_factory=Training)
+    solver:       Solver       = field(default_factory=Solver)
+    kandidaten:   Kandidaten   = field(default_factory=Kandidaten)
+    transformer:  Transformer  = field(default_factory=Transformer)
+    solver2:      Solver2      = field(default_factory=Solver2)
+    fit:          Fit          = field(default_factory=Fit)
+    selection:    Selection    = field(default_factory=Selection)
+
+
+@dataclass
 class OverlapCfg:
     io:        IO        = field(default_factory=IO)
     selection: Selection = field(default_factory=Selection)

@@ -36,19 +36,20 @@ from eventpiv.kern.graph import polarity_mask
 class Trajektorien:
     """Die Trajektorien eines Runs, plus der Weg zu ihren Events.
 
-    cluster_id   (m,) Trajektorien-ID je Zeile, aufsteigend
-    reihenfolge  Indizes in den ON-Strom, nach Trajektorie gruppiert
-    grenzen      m+1 Offsets in reihenfolge
+    trajektorie_id  (m,) ID je Zeile, aufsteigend -- derselbe Wert wie im
+                    Artefakt von [6c], nicht ein zweiter Name dafuer
+    reihenfolge     Indizes in den ON-Strom, nach Trajektorie gruppiert
+    grenzen         m+1 Offsets in reihenfolge
 
     Dieselbe Ueberlegung wie bei Knoten: die drei gehoeren zusammen und
     sind einzeln wertlos. Keine Tabelle wie dort -- es gibt genau eine
     Spalte, und ein dict verspraeche mehr.
 
-    cluster_id ist die Bruecke zurueck zur Partition. Nach kompakt() sind
-    die IDs lueckenlos, dann ist sie die Identitaet. Aber nur dann, und
-    das ist keine Zusicherung des Solvers.
+    Die Bruecke zurueck zur Partition. Nach kompakt() sind die IDs
+    lueckenlos, dann ist sie die Identitaet. Aber nur dann, und das ist
+    keine Zusicherung des Solvers.
     """
-    cluster_id: np.ndarray
+    trajektorie_id: np.ndarray
     reihenfolge: np.ndarray
     grenzen: np.ndarray
 
@@ -170,6 +171,25 @@ def _startzustand(t, x, y, init_us):
             int(m.sum()), float(tc[-1] - tc[0]))
 
 
+def _sig_am_gitterpunkt(h, p00, p01, p02, p11, p12, p22, qc):
+    """(sig_pos px, sig_u px/µs) nach freier Propagation um h Sekunden.
+
+    Dieselbe Rechnung wie in der Vorhersage, aber nur die beiden
+    Diagonalglieder, die gebraucht werden -- der Zustand selbst wird
+    nicht angefasst.
+    """
+    g = 0.5 * h * h
+    a00 = p00 + h * p01 + g * p02
+    a01 = p01 + h * p11 + g * p12
+    a02 = p02 + h * p12 + g * p22
+    h2 = h * h
+    h3 = h2 * h
+    v_pos = a00 + h * a01 + g * a02 + qc * h3 * h2 / 20.0
+    v_u = p11 + h * (p12 + h * p22) + h * p12 + qc * h3 / 3.0
+    return (np.sqrt(max(v_pos, 0.0)),
+            np.sqrt(max(v_u, 0.0)) * S_JE_US)
+
+
 def kalman_bahn(t, x, y, *, r_mess, q_c, dt_aus=None, t_aus=None,
                 init_us=100_000.0):
     """EINE Bahn filtern und auf ein Zeitgitter legen. Reine Funktion.
@@ -183,8 +203,13 @@ def kalman_bahn(t, x, y, *, r_mess, q_c, dt_aus=None, t_aus=None,
               Vergleich mit einem fremden Raster.
     init_us   Fenster fuer den Startzustand
 
-    Rueckgabe: (t_aus, x_aus, y_aus, u_aus, v_aus)
+    Rueckgabe: (t_aus, x_aus, y_aus, ux_aus, uy_aus, sig_pos, sig_u)
       t_aus in µs, Ort in px, Geschwindigkeit in px/µs.
+
+    sig_pos und sig_u sind die Standardabweichungen, die das MODELL an
+    dieser Stelle erwartet -- eine Aussage ueber die Abtastdichte, nicht
+    ueber diese Bahn. P haengt nicht von den Messwerten ab und ist fuer x
+    und y identisch, deshalb je EINE Spalte fuer beide Achsen.
 
     EREIGNISGETRIEBEN: dt kommt aus aufeinanderfolgenden Events, nicht aus
     einem Raster. Unregelmaessige Zeitstempel sind der Normalfall.
@@ -235,6 +260,7 @@ def kalman_bahn(t, x, y, *, r_mess, q_c, dt_aus=None, t_aus=None,
     n_aus = len(raster)
     ax_ = np.empty(n_aus); ay_ = np.empty(n_aus)
     au_ = np.empty(n_aus); av_ = np.empty(n_aus)
+    sp_ = np.empty(n_aus); su_ = np.empty(n_aus)
     k = 0
     t_prev = t[0]
 
@@ -247,6 +273,8 @@ def kalman_bahn(t, x, y, *, r_mess, q_c, dt_aus=None, t_aus=None,
             ay_[k] = yp + yv * h + 0.5 * ya * h * h
             au_[k] = (xv + xa * h) * S_JE_US
             av_[k] = (yv + ya * h) * S_JE_US
+            sp_[k], su_[k] = _sig_am_gitterpunkt(
+                h, p00, p01, p02, p11, p12, p22, qc)
             k += 1
 
         h = (t[i] - t_prev) * S_JE_US
@@ -305,9 +333,11 @@ def kalman_bahn(t, x, y, *, r_mess, q_c, dt_aus=None, t_aus=None,
         ay_[k] = yp + yv * h + 0.5 * ya * h * h
         au_[k] = (xv + xa * h) * S_JE_US
         av_[k] = (yv + ya * h) * S_JE_US
+        sp_[k], su_[k] = _sig_am_gitterpunkt(
+            h, p00, p01, p02, p11, p12, p22, qc)
         k += 1
 
-    return raster, ax_, ay_, au_, av_
+    return raster, ax_, ay_, au_, av_, sp_, su_
 
 
 def versatz_korrektur(x, y, u, v, *, c0, c1):
@@ -335,31 +365,78 @@ def fitte_run(tr: Trajektorien, t, x, y, *, r_mess, q_c, c0, c1,
               dt_aus, min_dauer_us, init_us=100_000.0):
     """Alle Bahnen eines Runs filtern und korrigieren.
 
-    Rueckgabe: sechs gleich lange Arrays (t, x, y, u, v, cluster_id),
-    alle Bahnen aneinandergehaengt. Die Stuetzpunkte einer Bahn liegen
-    zusammen und sind innerhalb aufsteigend in t.
+    Rueckgabe: acht gleich lange Arrays (t, x, y, ux, uy, sig_pos, sig_u,
+    trajektorie_id), alle Bahnen aneinandergehaengt. Die Stuetzpunkte
+    einer Bahn liegen zusammen und sind innerhalb aufsteigend in t.
 
     Bahnen unter min_dauer_us fallen heraus: der Filter braucht init_us
     allein zum Einschwingen, und ein Fit ueber wenig mehr ist eine Zahl
     ohne Aussage. Bahnen unter MIN_EVENTS_FIT ebenfalls -- sonst wuerfe
     kalman_bahn mitten in der Schleife.
     """
-    tf, xf, yf, uf, vf, idf = [], [], [], [], [], []
+    tf, xf, yf, uf, vf, spf, suf, idf = [], [], [], [], [], [], [], []
     for i in range(len(tr)):
         tb, xb, yb = bahn(tr, i, t, x, y)
         if len(tb) < MIN_EVENTS_FIT or tb[-1] - tb[0] < min_dauer_us:
             continue
-        ta, xa, ya, ua, va = kalman_bahn(tb, xb, yb, r_mess=r_mess,
-                                         q_c=q_c, dt_aus=dt_aus,
-                                         init_us=init_us)
+        ta, xa, ya, ua, va, sp, su = kalman_bahn(
+            tb, xb, yb, r_mess=r_mess, q_c=q_c, dt_aus=dt_aus,
+            init_us=init_us)
         if len(ta) == 0:
             continue
         xk, yk = versatz_korrektur(xa, ya, ua, va, c0=c0, c1=c1)
         tf.append(ta);  xf.append(xk);  yf.append(yk)
         uf.append(ua);  vf.append(va)
-        idf.append(np.full(len(ta), tr.cluster_id[i], np.int64))
+        spf.append(sp); suf.append(su)
+        idf.append(np.full(len(ta), tr.trajektorie_id[i], np.int64))
     if not tf:
         leer = np.empty(0)
-        return leer, leer, leer, leer, leer, np.empty(0, np.int64)
+        return (leer,) * 7 + (np.empty(0, np.int64),)
     return (np.concatenate(tf), np.concatenate(xf), np.concatenate(yf),
-            np.concatenate(uf), np.concatenate(vf), np.concatenate(idf))
+            np.concatenate(uf), np.concatenate(vf), np.concatenate(spf),
+            np.concatenate(suf), np.concatenate(idf))
+
+
+def schreibe_fit(out, cfg, run_nr, spalten):
+    """Die gefitteten Bahnen als npz. EIN Eintrag je Stuetzpunkt.
+
+    out: das Ziel. Der AUFRUFER loest den Pfad auf -- er tut es ohnehin
+    fuer die Ueberspringen-Pruefung, und dieses Modul soll schreiben und
+    nicht wissen, wo etwas liegt.
+
+    spalten: (t, x, y, ux, uy, sig_pos, sig_u, trajektorie_id) aus
+    fitte_run. Eine Spalte je Punkt und kein CSR: wer die Datei oeffnet,
+    sieht acht gleich lange Spalten und weiss, was er hat. Nach Bahnen
+    aufteilen geht mit searchsorted, die IDs liegen gruppiert.
+    """
+    from pathlib import Path
+    from dataclasses import replace
+    from eventpiv.kern import config
+    from eventpiv.kern.runconfig import identity_meta
+
+    t, x, y, ux, uy, sig_pos, sig_u, tid = spalten
+    sel = replace(cfg.selection, run_nr=run_nr)
+    out = Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        out,
+        t=np.asarray(t, np.float64),
+        x=np.asarray(x, np.float32), y=np.asarray(y, np.float32),
+        ux=np.asarray(ux, np.float32), uy=np.asarray(uy, np.float32),
+        sig_pos=np.asarray(sig_pos, np.float32),
+        sig_u=np.asarray(sig_u, np.float32),
+        trajektorie_id=np.asarray(tid, np.int32),
+        meta=config.meta_json(
+            stage="fit", n_punkte=int(len(t)),
+            n_bahnen=int(len(np.unique(tid))),
+            sig_bedeutung=("Standardabweichung des MODELLS an dieser "
+                           "Stelle, gleich fuer x und y, unabhaengig von "
+                           "den Messwerten -- eine Aussage ueber die "
+                           "Abtastdichte, nicht ueber diese Bahn."),
+            **identity_meta(neighborhood=cfg.neighborhood, pairs=cfg.pairs,
+                            training=cfg.training, solver=cfg.solver,
+                            kandidaten=cfg.kandidaten,
+                            transformer=cfg.transformer,
+                            solver2=cfg.solver2, fit=cfg.fit,
+                            selection=sel)))
+    return out

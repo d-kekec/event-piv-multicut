@@ -259,6 +259,18 @@ def trajektorien_file(nb, ps, tr, sv, kd, tf, sel, sv2,
                        create).with_suffix(".npz")
 
 
+def fit_file(nb, ps, tr, sv, kd, tf, sel, sv2, ft,
+             create: bool = False) -> Path:
+    """Gefittete Bahnen EINES Runs [7]. Neben dem Solve, mit fit_-Praefix.
+
+    Der Fit-Slug steht im Dateinamen und nicht als Ebene: zwei
+    Arbeitspunkte des Fits sollen nebeneinander liegen, ohne den Baum zu
+    vertiefen -- dieselbe Ueberlegung wie beim Solver.
+    """
+    p = solve2_file(nb, ps, tr, sv, kd, tf, sel, sv2, create)
+    return p.with_name(f"fit_{p.stem}_{slug(ft)}.npz")
+
+
 # ============================================================
 # Metadaten (Code-Prinzip: jede erzeugte Datei traegt ihre Herkunft)
 # ============================================================
