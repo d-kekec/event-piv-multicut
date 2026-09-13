@@ -114,3 +114,24 @@ def test_weight_ist_kein_gueltiger_imbalance_modus():
         Training(imbalance="weight")
     with pytest.raises(ValueError, match="imbalance"):
         Transformer(imbalance="weight")
+
+
+def test_fit_typcast_und_auswahlwerte():
+    """r_mess=8 und 8.0 duerfen nicht auseinanderlaufen, und ein Filter
+    mit q_c = 0 teilt durch null."""
+    from eventpiv.kern.runconfig import Fit
+
+    assert canonical(Fit(r_mess=8)) == canonical(Fit(r_mess=8.0))
+    for feld in ("r_mess", "q_c", "dt_aus", "init_us", "min_dauer_us"):
+        with pytest.raises(ValueError, match=feld):
+            Fit(**{feld: 0.0})
+
+
+def test_fit_default_ist_der_gemessene_arbeitspunkt():
+    """r_mess und q_c sind gemessen, nicht gewaehlt (Journal 12.09.).
+    Faellt der Test, wurde der Arbeitspunkt ohne Messung verschoben."""
+    from eventpiv.kern.runconfig import Fit
+
+    f = Fit()
+    assert f.r_mess == 8.0 and f.q_c == 20.0
+    assert (f.c0, f.c1) == (0.88, 29.1)

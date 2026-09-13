@@ -481,6 +481,66 @@ class Solver2(_Typed):
 
 
 @dataclass
+class Fit(_Typed):
+    """Baustein [7]: der Kalman-Fit und die Positionskorrektur.
+
+    NUR q_c/r_mess WIRKT auf das Ergebnis -- beide mit demselben Faktor
+    skaliert ergeben denselben Filter. Gemessen an 24 Kombinationen ueber
+    vier Dekaden, die alle auf eine Kurve fallen. r_mess steht trotzdem
+    auf dem gemessenen Wert, damit die Kovarianz des Filters etwas ueber
+    die Wirklichkeit aussagt.
+
+    r_mess = 8 px^2 ist die Streuung eines EINZELEVENTS um die Bahn: die
+    ON-Events liegen auf einem Ring von 4 bis 6 px um das Partikel, ein
+    einzelnes ist also von vornherein mehrere Pixel vom Zentrum entfernt.
+    Gemessen laengs 2,6 px, quer 3,1 px; ein Skalar mittelt die
+    Anisotropie weg.
+
+    q_c ist die Intensitaet des Prozessrauschens in px^2/s^5 -- die
+    Q-Matrix des Modells mit weissem Ruck, gewichtet mit der verstrichenen
+    ZEIT und nicht mit der Zahl der Messungen. Position und
+    Geschwindigkeit haben verschiedene Optima (12 bis 60 gegen 2,5);
+    gewaehlt ist das der Geschwindigkeit, weil das Ziel der Arbeit
+    Geschwindigkeitsfelder sind.
+
+    c0 und c1 heben den Vorwaertsversatz der Eventwolke auf. Der Betrag
+    haengt an der GESCHWINDIGKEIT, nicht an der Querstreuung wie bei
+    STELLA: die ist ueber unseren Bereich konstant, der Versatz wachsend.
+    c0 = c1 = 0 schaltet die Korrektur ab.
+
+    dt_aus ist frei und folgt weder alpha noch dem GT-Raster -- zwischen
+    den Messungen wird propagiert, nicht interpoliert.
+
+    min_dauer_us haelt Bahnen heraus, die kaum laenger sind als init_us:
+    der Filter braucht das Fenster allein zum Einschwingen. Rund 10 % der
+    Bahnen liegen unter 100 ms.
+
+    Alle Werte gemessen auf train/40, 43, 19, 32 (Journal 12.09.2026).
+    """
+    r_mess: float = 8.0
+    q_c: float = 20.0
+    c0: float = 0.88
+    c1: float = 29.1
+    dt_aus: float = 16_667.0
+    init_us: float = 100_000.0
+    min_dauer_us: float = 100_000.0
+
+    def short(self) -> str:
+        return f"q{_num(self.q_c)}_r{_num(self.r_mess)}"
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.r_mess <= 0.0 or self.q_c <= 0.0:
+            raise ValueError(
+                f"fit.r_mess={self.r_mess} und fit.q_c={self.q_c} muessen "
+                "positiv sein -- der Filter teilt durch beide.")
+        for name in ("dt_aus", "init_us", "min_dauer_us"):
+            if getattr(self, name) <= 0.0:
+                raise ValueError(
+                    f"fit.{name}={getattr(self, name)} muss positiv sein")
+
+
+@dataclass
 class Labeling(_Typed):
     """Stufe [1]. Bewusst OHNE Zeitfenster: Labels gelten IMMER fuer den
     ganzen Run. Ein Teilfenster bricht spaeter in evaluate.align_gt_window
@@ -650,7 +710,8 @@ class AnimTraj(_Typed):
     point: int = 2
     min_size: int = 15
     crop: bool = True
-    # Komma-getrennt: roh, tracklets, trajektorien, gt.
+    # Komma-getrennt: roh, tracklets, trajektorien, fit, gt.
+    # fit kostet rund 70 s je Run, die uebrigen nichts.
     panels: str = "tracklets,trajektorien,gt"
 
 
@@ -793,11 +854,15 @@ class AnimClustersCfg:
 
 @dataclass
 class AnimTrajCfg:
-    """Wie Solve2Cfg, plus Darstellung: die Animation LOEST Stufe 2 selbst.
+    """Wie Solve2Cfg, plus Darstellung und Fit.
 
-    window schneidet nur die ANZEIGE zu -- geloest wird immer der ganze
-    Run. Anders herum waeren die Farben eines Ausschnitts andere als die
-    des vollen Laufs, und genau die Stabilitaet der Farben ist die Aussage.
+    Die Animation LIEST die Partition aus dem Artefakt von [6c], statt sie
+    zu loesen -- sie braucht damit weder GPU noch Netz. `fit` wirkt nur,
+    wenn das fit-Panel gewaehlt ist.
+
+    window schneidet nur die ANZEIGE zu. Die Farben eines Ausschnitts
+    waeren sonst andere als die des vollen Laufs, und genau ihre
+    Stabilitaet ist die Aussage.
     """
     io:           IO           = field(default_factory=IO)
     neighborhood: Neighborhood = field(default_factory=Neighborhood)
@@ -810,6 +875,7 @@ class AnimTrajCfg:
     window:       Window       = field(
         default_factory=lambda: Window(t0=None, dt=None))
     solver2:      Solver2      = field(default_factory=Solver2)
+    fit:          Fit          = field(default_factory=Fit)
     compute:      Compute      = field(default_factory=Compute)
     anim:         AnimTraj     = field(default_factory=AnimTraj)
 

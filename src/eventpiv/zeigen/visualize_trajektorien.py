@@ -51,14 +51,10 @@ from eventpiv.zeigen.visualize import (GREY, SENSOR_H, SENSOR_W, _crop_box,
 
 PANEL_NAMEN = ("roh", "tracklets", "trajektorien", "fit", "gt")
 
-# Fit-Parameter, gemessen am 12.09. auf train/40,43,19,32. Sie gehoeren
-# nach runconfig, sobald der Fit eine Stufe der Kette ist -- hier stehen
-# sie, weil die Animation der erste Verbraucher ist.
-R_MESS = 8.0            # px^2, Streuung eines Einzelevents um die Bahn
-Q_C = 20.0              # px^2/s^5, aus dem Sweep
-C0, C1 = 0.88, 29.1     # Positionskorrektur, px und px/(px/ms)
-FIT_DT_US = 5_000.0     # Stuetzpunkte der Linie: 0,25 px bei Medianspeed
-MIN_DAUER_FIT_US = 100_000.0
+# Die Linie braucht dichtere Stuetzpunkte als die Auswertung: bei
+# fit.dt_aus = 16 667 µs liegen zwei Punkte rund 0,8 px auseinander und
+# die Bahn zerfaellt sichtbar in Tupfen. 5 000 µs ergeben 0,25 px.
+FIT_DT_ANZEIGE_US = 5_000.0
 DUNKEL = 0.75           # Bahnlinie gegen ihre Eventwolke abgesetzt
 
 
@@ -203,8 +199,9 @@ def animate_trajektorien(cfg: AnimTrajCfg):
         # downscale und crop wie jedes Event.
         tfp, xfp, yfp, _, _, idfp = fitte_run(
             gruppiere(lab_ev, len(t)), tf64, x.astype(np.float64),
-            y.astype(np.float64), r_mess=R_MESS, q_c=Q_C, c0=C0, c1=C1,
-            dt_aus=FIT_DT_US, min_dauer_us=MIN_DAUER_FIT_US)
+            y.astype(np.float64), r_mess=cfg.fit.r_mess, q_c=cfg.fit.q_c,
+            c0=cfg.fit.c0, c1=cfg.fit.c1, dt_aus=FIT_DT_ANZEIGE_US,
+            min_dauer_us=cfg.fit.min_dauer_us, init_us=cfg.fit.init_us)
         farb_bahn = (tab[np.searchsorted(uniq, idfp)]
                      * DUNKEL).astype(np.uint8)
         _panel("fit", "Stufe 2 + Fit (dunkel: gefittete Bahn)",
