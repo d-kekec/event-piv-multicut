@@ -166,3 +166,57 @@ def test_kalman_bricht_bei_zu_wenigen_events_ab():
     t, x, y = _gerade(n=5)
     with pytest.raises(ValueError, match="mindestens"):
         kalman_bahn(t, x, y, r_mess=8.0, q_c=20.0, dt_aus=1e3)
+
+
+def test_versatz_korrektur_schiebt_entgegen_der_bewegung():
+    """Der Betrag haengt an |u|, die Richtung an ihrem Vorzeichen."""
+    from eventpiv.kette.trajektorien import versatz_korrektur
+
+    x = np.array([100.0, 100.0])
+    y = np.array([200.0, 200.0])
+    u = np.array([0.05e-3, -0.05e-3])      # px/µs, also 0,05 px/ms
+    v = np.zeros(2)
+    xk, yk = versatz_korrektur(x, y, u, v, c0=0.88, c1=29.1)
+    schub = 0.88 + 29.1 * 0.05
+    np.testing.assert_allclose(xk, [100.0 - schub, 100.0 + schub])
+    np.testing.assert_allclose(yk, y)
+
+
+def test_versatz_korrektur_ist_abschaltbar():
+    from eventpiv.kette.trajektorien import versatz_korrektur
+
+    x, y = np.array([1.0, 2.0]), np.array([3.0, 4.0])
+    u, v = np.array([1e-3, 0.0]), np.array([0.0, 2e-3])
+    xk, yk = versatz_korrektur(x, y, u, v, c0=0.0, c1=0.0)
+    np.testing.assert_array_equal(xk, x)
+    np.testing.assert_array_equal(yk, y)
+
+
+def test_fitte_run_laesst_kurze_bahnen_aus():
+    """Der Filter braucht init_us allein zum Einschwingen."""
+    from eventpiv.kette.trajektorien import fitte_run, gruppiere
+
+    n = 4000
+    t = np.arange(n, dtype=np.float64) * 100.0        # 0..400 ms
+    x = 100.0 + 0.05 * t / 1e3
+    y = 200.0 - 0.02 * t / 1e3
+    lang = np.zeros(n, np.int32)
+    lang[t > 300_000.0] = 1                            # zweite Bahn: 100 ms
+    tr = gruppiere(lang, n)
+
+    tf, xf, yf, uf, vf, idf = fitte_run(
+        tr, t, x, y, r_mess=8.0, q_c=20.0, c0=0.0, c1=0.0,
+        dt_aus=10_000.0, min_dauer_us=200_000.0)
+    assert set(np.unique(idf).tolist()) == {0}
+    assert len(tf) == len(xf) == len(yf) == len(uf) == len(vf) == len(idf)
+    assert (np.diff(tf) > 0).all()
+
+
+def test_fitte_run_ohne_taugliche_bahn():
+    from eventpiv.kette.trajektorien import fitte_run, gruppiere
+
+    t, x, y = _gerade(n=200, dt=50.0)                  # 10 ms
+    tr = gruppiere(np.zeros(200, np.int32), 200)
+    aus = fitte_run(tr, t, x, y, r_mess=8.0, q_c=20.0, c0=0.0, c1=0.0,
+                    dt_aus=1e3, min_dauer_us=1e6)
+    assert all(len(a) == 0 for a in aus)

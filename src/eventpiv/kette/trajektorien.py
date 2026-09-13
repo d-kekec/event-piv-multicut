@@ -3,9 +3,12 @@
 """
 trajektorien.py -- BAUSTEIN [7]: aus der Partition die BAHNEN.
 
-  lade_on_strom  (t, x, y) des ON-Stroms eines Runs, ohne Ground Truth
-  gruppiere      Events nach Trajektorie, CSR-artig
-  bahn           (t, x, y) EINER Trajektorie
+  lade_on_strom      (t, x, y) des ON-Stroms eines Runs, ohne Ground Truth
+  gruppiere          Events nach Trajektorie, CSR-artig
+  bahn               (t, x, y) EINER Trajektorie
+  kalman_bahn        EINE Bahn filtern, Ausgabe auf ein Zeitgitter
+  versatz_korrektur  den Vorwaertsversatz der Eventwolke aufheben
+  fitte_run          alle Bahnen eines Runs
 
 Was [6c] als Event -> Trajektorie ablegt, wird hier zur Eingabe des Fits:
 je Trajektorie drei gleich lange Arrays in aufsteigender Zeit.
@@ -305,3 +308,58 @@ def kalman_bahn(t, x, y, *, r_mess, q_c, dt_aus=None, t_aus=None,
         k += 1
 
     return raster, ax_, ay_, au_, av_
+
+
+def versatz_korrektur(x, y, u, v, *, c0, c1):
+    """Den Zentroid gegen die Bewegungsrichtung zurueckschieben. Rein.
+
+    Die ON-Events liegen an der VORDERKANTE des Partikelbilds, der
+    Schwerpunkt also in Bewegungsrichtung versetzt. Der Versatz waechst
+    mit der Geschwindigkeit: 1,60 px bei 0,028 px/ms gegen 3,03 px bei
+    0,076 px/ms.
+
+    Betrag c0 + c1*|u|, nicht beta*sigma_quer wie bei STELLA: die
+    Querstreuung ist ueber unseren Geschwindigkeitsbereich konstant
+    (3,03 bis 3,17 px) und kann den wachsenden Versatz nicht abbilden.
+
+    u, v in px/µs; c1 in px je (px/ms), daher der Faktor 1e3. c0 = c1 = 0
+    schaltet die Korrektur ab.
+    """
+    b = np.hypot(u, v)
+    e = np.maximum(b, 1e-12)
+    schub = float(c0) + float(c1) * b * 1e3
+    return x - schub * u / e, y - schub * v / e
+
+
+def fitte_run(tr: Trajektorien, t, x, y, *, r_mess, q_c, c0, c1,
+              dt_aus, min_dauer_us, init_us=100_000.0):
+    """Alle Bahnen eines Runs filtern und korrigieren.
+
+    Rueckgabe: sechs gleich lange Arrays (t, x, y, u, v, cluster_id),
+    alle Bahnen aneinandergehaengt. Die Stuetzpunkte einer Bahn liegen
+    zusammen und sind innerhalb aufsteigend in t.
+
+    Bahnen unter min_dauer_us fallen heraus: der Filter braucht init_us
+    allein zum Einschwingen, und ein Fit ueber wenig mehr ist eine Zahl
+    ohne Aussage. Bahnen unter MIN_EVENTS_FIT ebenfalls -- sonst wuerfe
+    kalman_bahn mitten in der Schleife.
+    """
+    tf, xf, yf, uf, vf, idf = [], [], [], [], [], []
+    for i in range(len(tr)):
+        tb, xb, yb = bahn(tr, i, t, x, y)
+        if len(tb) < MIN_EVENTS_FIT or tb[-1] - tb[0] < min_dauer_us:
+            continue
+        ta, xa, ya, ua, va = kalman_bahn(tb, xb, yb, r_mess=r_mess,
+                                         q_c=q_c, dt_aus=dt_aus,
+                                         init_us=init_us)
+        if len(ta) == 0:
+            continue
+        xk, yk = versatz_korrektur(xa, ya, ua, va, c0=c0, c1=c1)
+        tf.append(ta);  xf.append(xk);  yf.append(yk)
+        uf.append(ua);  vf.append(va)
+        idf.append(np.full(len(ta), tr.cluster_id[i], np.int64))
+    if not tf:
+        leer = np.empty(0)
+        return leer, leer, leer, leer, leer, np.empty(0, np.int64)
+    return (np.concatenate(tf), np.concatenate(xf), np.concatenate(yf),
+            np.concatenate(uf), np.concatenate(vf), np.concatenate(idf))

@@ -112,43 +112,6 @@ def _partition(cfg, run_nr):
     return lab_ev, json.loads(js.read_text(encoding="utf-8"))["lauf"]
 
 
-def _fit_punkte(lab_ev, t, x, y):
-    """Gefittete Bahnen als dichte Punktfolge. (t, x, y, cluster_id).
-
-    Punkte statt Linien: render_panel zeichnet Punkte, und bei 5 ms
-    Abstand liegen zwei Stuetzpunkte unter einem Pixel auseinander --
-    die Linie entsteht von selbst und folgt downscale und crop wie jedes
-    Event.
-    """
-    from eventpiv.kette.trajektorien import bahn, gruppiere, kalman_bahn
-
-    tr = gruppiere(lab_ev, len(t))
-    tf, xf, yf, idf = [], [], [], []
-    for i in range(len(tr)):
-        tb, xb, yb = bahn(tr, i, t, x, y)
-        if tb[-1] - tb[0] < MIN_DAUER_FIT_US:
-            continue
-        ta, xa, ya, ua, va = kalman_bahn(tb, xb, yb, r_mess=R_MESS,
-                                         q_c=Q_C, dt_aus=FIT_DT_US)
-        if len(ta) == 0:
-            continue
-        # Positionskorrektur: die Eventwolke liegt in Bewegungsrichtung
-        # vor dem Partikel, und der Versatz waechst mit der
-        # Geschwindigkeit (gemessen 31.08.).
-        b = np.hypot(ua, va)
-        e = np.maximum(b, 1e-12)
-        schub = C0 + C1 * b * 1e3
-        tf.append(ta)
-        xf.append(xa - schub * ua / e)
-        yf.append(ya - schub * va / e)
-        idf.append(np.full(len(ta), tr.cluster_id[i], np.int64))
-    if not tf:
-        return (np.empty(0), np.empty(0), np.empty(0),
-                np.empty(0, np.int64))
-    return (np.concatenate(tf), np.concatenate(xf),
-            np.concatenate(yf), np.concatenate(idf))
-
-
 def _gt_mitten(cfg, run_nr, gt_ids):
     """Boxmitten je GT-Partikel. (t, x, y, track_id).
 
@@ -230,10 +193,18 @@ def animate_trajektorien(cfg: AnimTrajCfg):
         _panel("trajektorien", "Stufe 2: Trajektorien",
                x, y, _farben(lab_ev, an.min_size), t, nein)
     if "fit" in wahl:
+        from eventpiv.kette.trajektorien import fitte_run, gruppiere
+
         uniq, tab = color_lookup(lab_ev, min_size=an.min_size)
-        tfp, xfp, yfp, idfp = _fit_punkte(
-            lab_ev, t.astype(np.float64), x.astype(np.float64),
-            y.astype(np.float64))
+        tf64 = t.astype(np.float64)
+        # Dichte Stuetzpunkte statt Linien: render_panel zeichnet Punkte,
+        # und bei FIT_DT_US liegen zwei davon unter einem Pixel
+        # auseinander. Die Linie entsteht von selbst und folgt
+        # downscale und crop wie jedes Event.
+        tfp, xfp, yfp, _, _, idfp = fitte_run(
+            gruppiere(lab_ev, len(t)), tf64, x.astype(np.float64),
+            y.astype(np.float64), r_mess=R_MESS, q_c=Q_C, c0=C0, c1=C1,
+            dt_aus=FIT_DT_US, min_dauer_us=MIN_DAUER_FIT_US)
         farb_bahn = (tab[np.searchsorted(uniq, idfp)]
                      * DUNKEL).astype(np.uint8)
         _panel("fit", "Stufe 2 + Fit (dunkel: gefittete Bahn)",
