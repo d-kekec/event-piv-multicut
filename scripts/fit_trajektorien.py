@@ -72,10 +72,8 @@ def main(dcfg: DictConfig) -> None:
                             init_us=cfg.fit.init_us)
         lauf = {"run": r, "split": split,
                 "n_bahnen_partition": len(tr),
-                "n_bahnen_gefittet": int(len(np.unique(spalten[7]))),
+                "n_bahnen_gefittet": int(len(np.unique(spalten[5]))),
                 "n_punkte": int(len(spalten[0])),
-                "sig_pos_median": float(np.median(spalten[5])),
-                "sig_u_median": float(np.median(spalten[6]) * 1e3),
                 "u_median_px_ms": float(
                     np.median(np.hypot(spalten[3], spalten[4])) * 1e3),
                 "diag": {"sec_total": round(time.time() - t0, 1)}}
@@ -92,8 +90,7 @@ def main(dcfg: DictConfig) -> None:
             print(f"run{r}: {lauf['n_bahnen_gefittet']} von "
                   f"{lauf['n_bahnen_partition']} Bahnen, "
                   f"{lauf['n_punkte']:,} Punkte, "
-                  f"|u| {lauf['u_median_px_ms']:.4f} px/ms, "
-                  f"sig_pos {lauf['sig_pos_median']:.3f} px "
+                  f"|u| {lauf['u_median_px_ms']:.4f} px/ms "
                   f"[{lauf['diag']['sec_total']:.0f}s]", flush=True)
             print(f"-> {pfad}", flush=True)
         finally:

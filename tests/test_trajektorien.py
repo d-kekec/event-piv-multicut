@@ -112,7 +112,7 @@ def test_kalman_trifft_die_exakte_gerade():
     from eventpiv.kette.trajektorien import kalman_bahn
 
     t, x, y = _gerade()
-    ta, xa, ya, ua, va, _, _ = kalman_bahn(t, x, y, r_mess=8.0, q_c=20.0,
+    ta, xa, ya, ua, va = kalman_bahn(t, x, y, r_mess=8.0, q_c=20.0,
                                      dt_aus=10_000.0)
     assert len(ta) > 5
     soll_x = 100.0 + 0.05 * ta / 1e3
@@ -143,7 +143,7 @@ def test_kalman_vertraegt_doppelte_zeitstempel():
 
     t, x, y = _gerade(n=600)
     t[300:310] = t[300]
-    ta, xa, ya, ua, va, _, _ = kalman_bahn(t, x, y, r_mess=8.0, q_c=20.0,
+    ta, xa, ya, ua, va = kalman_bahn(t, x, y, r_mess=8.0, q_c=20.0,
                                      dt_aus=10_000.0)
     assert np.isfinite(xa).all() and np.isfinite(ua).all()
 
@@ -220,18 +220,3 @@ def test_fitte_run_ohne_taugliche_bahn():
     aus = fitte_run(tr, t, x, y, r_mess=8.0, q_c=20.0, c0=0.0, c1=0.0,
                     dt_aus=1e3, min_dauer_us=1e6)
     assert all(len(a) == 0 for a in aus)
-
-
-def test_kalman_liefert_sinnvolle_unsicherheit():
-    """sig_pos ist eine Aussage ueber die Abtastdichte, nicht ueber die
-    Bahn -- aber sie muss positiv und klein sein."""
-    from eventpiv.kette.trajektorien import kalman_bahn
-
-    t, x, y = _gerade()
-    *_, sp, su = kalman_bahn(t, x, y, r_mess=8.0, q_c=20.0,
-                             dt_aus=10_000.0)
-    assert (sp > 0).all() and (su > 0).all()
-    assert np.isfinite(sp).all() and np.isfinite(su).all()
-    # Bei 2000 Events auf 100 ms und R = 8 liegt der Ortsfehler weit
-    # unter einem Pixel.
-    assert sp.max() < 1.0

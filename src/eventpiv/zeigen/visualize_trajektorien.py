@@ -197,7 +197,7 @@ def animate_trajektorien(cfg: AnimTrajCfg):
         # und bei FIT_DT_US liegen zwei davon unter einem Pixel
         # auseinander. Die Linie entsteht von selbst und folgt
         # downscale und crop wie jedes Event.
-        tfp, xfp, yfp, _, _, _, _, idfp = fitte_run(
+        tfp, xfp, yfp, _, _, idfp = fitte_run(
             gruppiere(lab_ev, len(t)), tf64, x.astype(np.float64),
             y.astype(np.float64), r_mess=cfg.fit.r_mess, q_c=cfg.fit.q_c,
             c0=cfg.fit.c0, c1=cfg.fit.c1, dt_aus=FIT_DT_ANZEIGE_US,
