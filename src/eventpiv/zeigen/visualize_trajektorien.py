@@ -21,9 +21,13 @@ je ON-Event des ganzen Runs, fertig gerechnet. animate_tracklets ruft
 solve_run nur, weil es zu seiner Entstehungszeit noch kein Artefakt gab;
 ueber acht Sekunden waere das ein GPU-Job von Minuten.
 
-Stufe 2 wird dagegen geloest (rund 30 s je Run). Die Cluster liegen
-bewusst in keinem Artefakt -- sie sind aus [6a] und Checkpoint
-reproduzierbar.
+STUFE 2 WIRD GELESEN, NICHT GELOEST: die Partition liegt seit [6c] als
+npz neben der Kennzahlen-JSON. Kein Rueckfallpfad auf Neurechnen -- zwei
+Wege zur selben Partition, von denen einer selten laeuft, veralten still.
+Damit braucht [D] weder GPU noch Netz.
+
+DER FIT-PANEL legt die gefittete Bahn ueber die Eventwolke. Er kostet
+rund 70 s je Run und laeuft nur, wenn er gewaehlt ist.
 
 window schneidet nur die ANZEIGE. Geloest wird immer der ganze Run: die
 Farben eines Ausschnitts waeren sonst andere als die des vollen Laufs, und
@@ -31,10 +35,13 @@ genau ihre Stabilitaet ist die Aussage.
 """
 from __future__ import annotations
 
+import json
+
 import numpy as np
 from pathlib import Path
 
 from eventpiv.kern import config
+from eventpiv.kern.data import load_bbox
 from eventpiv.kern.graph import polarity_mask
 from eventpiv.kern.runconfig import AnimTrajCfg, slug
 from eventpiv.kern.status import STATUS_CLEAN
@@ -42,7 +49,17 @@ from eventpiv.zeigen.visualize import (GREY, SENSOR_H, SENSOR_W, _crop_box,
                                        color_lookup, compose, render_panel,
                                        save_gif)
 
-PANEL_NAMEN = ("roh", "tracklets", "trajektorien", "gt")
+PANEL_NAMEN = ("roh", "tracklets", "trajektorien", "fit", "gt")
+
+# Fit-Parameter, gemessen am 12.09. auf train/40,43,19,32. Sie gehoeren
+# nach runconfig, sobald der Fit eine Stufe der Kette ist -- hier stehen
+# sie, weil die Animation der erste Verbraucher ist.
+R_MESS = 8.0            # px^2, Streuung eines Einzelevents um die Bahn
+Q_C = 20.0              # px^2/s^5, aus dem Sweep
+C0, C1 = 0.88, 29.1     # Positionskorrektur, px und px/(px/ms)
+FIT_DT_US = 5_000.0     # Stuetzpunkte der Linie: 0,25 px bei Medianspeed
+MIN_DAUER_FIT_US = 100_000.0
+DUNKEL = 0.75           # Bahnlinie gegen ihre Eventwolke abgesetzt
 
 
 def _strom(cfg, run_nr):
@@ -79,14 +96,78 @@ def _farben(ids, min_size):
     return tab[np.searchsorted(uniq, ids)]
 
 
+def _partition(cfg, run_nr):
+    """lab_ev und Kennzahlen aus den Artefakten von [6c]."""
+    args = (cfg.neighborhood, cfg.pairs, cfg.training, cfg.solver,
+            cfg.kandidaten, cfg.transformer, cfg.selection, cfg.solver2)
+    npz = config.trajektorien_file(*args)
+    js = config.solve2_file(*args)
+    if not npz.exists() or not js.exists():
+        raise SystemExit(
+            f"{npz.name} oder {js.name} fehlt.\n"
+            "Erst scripts/solve_stufe2.py mit denselben Gruppen laufen "
+            "lassen -- [D] rechnet die Partition nicht nach.")
+    with np.load(npz) as d:
+        lab_ev = d["trajektorie_id"]
+    return lab_ev, json.loads(js.read_text(encoding="utf-8"))["lauf"]
+
+
+def _fit_punkte(lab_ev, t, x, y):
+    """Gefittete Bahnen als dichte Punktfolge. (t, x, y, cluster_id).
+
+    Punkte statt Linien: render_panel zeichnet Punkte, und bei 5 ms
+    Abstand liegen zwei Stuetzpunkte unter einem Pixel auseinander --
+    die Linie entsteht von selbst und folgt downscale und crop wie jedes
+    Event.
+    """
+    from eventpiv.kette.trajektorien import bahn, gruppiere, kalman_bahn
+
+    tr = gruppiere(lab_ev, len(t))
+    tf, xf, yf, idf = [], [], [], []
+    for i in range(len(tr)):
+        tb, xb, yb = bahn(tr, i, t, x, y)
+        if tb[-1] - tb[0] < MIN_DAUER_FIT_US:
+            continue
+        ta, xa, ya, ua, va = kalman_bahn(tb, xb, yb, r_mess=R_MESS,
+                                         q_c=Q_C, dt_aus=FIT_DT_US)
+        if len(ta) == 0:
+            continue
+        # Positionskorrektur: die Eventwolke liegt in Bewegungsrichtung
+        # vor dem Partikel, und der Versatz waechst mit der
+        # Geschwindigkeit (gemessen 31.08.).
+        b = np.hypot(ua, va)
+        e = np.maximum(b, 1e-12)
+        schub = C0 + C1 * b * 1e3
+        tf.append(ta)
+        xf.append(xa - schub * ua / e)
+        yf.append(ya - schub * va / e)
+        idf.append(np.full(len(ta), tr.cluster_id[i], np.int64))
+    if not tf:
+        return (np.empty(0), np.empty(0), np.empty(0),
+                np.empty(0, np.int64))
+    return (np.concatenate(tf), np.concatenate(xf),
+            np.concatenate(yf), np.concatenate(idf))
+
+
+def _gt_mitten(cfg, run_nr, gt_ids):
+    """Boxmitten je GT-Partikel. (t, x, y, track_id).
+
+    Nur die Partikel, die im ON-Strom vorkommen -- sonst erscheinen im
+    Panel Bahnen, zu denen es keine Events gibt.
+    """
+    bb = load_bbox(cfg.selection.split, run_nr)
+    m = np.isin(bb["track_id"], np.unique(gt_ids[gt_ids >= 0]))
+    return (bb["t"][m].astype(np.float64),
+            bb["x"][m].astype(np.float64) + bb["w"][m].astype(np.float64) / 2,
+            bb["y"][m].astype(np.float64) + bb["h"][m].astype(np.float64) / 2,
+            bb["track_id"][m].astype(np.int64))
+
+
 def animate_trajektorien(cfg: AnimTrajCfg):
     """Loest Stufe 2 fuer einen Run und animiert das Ergebnis.
 
     Rueckgabe: (gif_pfad, lauf).
     """
-    from eventpiv.kette.solve2 import event_labels, solve2_run
-    from eventpiv.kette.transformer import load_checkpoint
-
     sel, win, an = cfg.selection, cfg.window, cfg.anim
     run_nr = sel.run_nr
     if run_nr is None:
@@ -119,29 +200,49 @@ def animate_trajektorien(cfg: AnimTrajCfg):
             f"VERTRAG VERLETZT: {len(t):,} ON-Events im Strom, "
             f"{len(tid_ev):,} im Artefakt {tpfad.name}.")
 
-    # --- Stufe 2, ganzer Run
-    mpath = (cfg.io.model_path or
-             config.transformer_file(cfg.neighborhood, cfg.pairs,
-                                     cfg.training, cfg.solver,
-                                     cfg.kandidaten, cfg.transformer))
-    if not Path(mpath).exists():
-        raise SystemExit(f"{mpath} fehlt -- erst scripts/train_stufe2.py.")
-    model, norm, _ = load_checkpoint(mpath, device=cfg.compute.device)
-    lab_ev, lauf = solve2_run(cfg, model, norm, run_nr)
+    # --- Stufe 2 aus dem Artefakt, ohne Solve
+    lab_ev, lauf = _partition(cfg, run_nr)
+    if len(lab_ev) != len(t):
+        raise SystemExit(
+            f"VERTRAG VERLETZT: {len(t):,} ON-Events im Strom, "
+            f"{len(lab_ev):,} in der Partition.")
 
-    # --- Farben, EINMAL ueber den ganzen Run
+    # --- Farben, EINMAL ueber den ganzen Run. Je Panel eine Punktwolke
+    # (x, y, Farbe, Zeit, kumulativ): die ersten Eintraege sind die
+    # Events, angehaengte Punkte verblassen nicht mit dem Trail.
     quelle = {}
+
+    def _panel(name, titel, xs, ys, farben, ts, kum):
+        quelle[name] = (np.asarray(xs), np.asarray(ys), farben,
+                        np.asarray(ts, np.float64), np.asarray(kum, bool),
+                        titel)
+
+    nein = np.zeros(len(t), bool)
     if "roh" in wahl:
-        quelle["roh"] = (np.tile(np.array([70, 70, 70], np.uint8),
-                                 (len(t), 1)), "Rohevents")
+        _panel("roh", "Rohevents", x, y,
+               np.tile(np.array([70, 70, 70], np.uint8), (len(t), 1)),
+               t, nein)
     if "tracklets" in wahl:
-        quelle["tracklets"] = (
-            _farben(tid_ev, an.min_size),
-            f"Stufe 1: Tracklets (grau: < {an.min_size} Events)")
+        _panel("tracklets",
+               f"Stufe 1: Tracklets (grau: < {an.min_size} Events)",
+               x, y, _farben(tid_ev, an.min_size), t, nein)
     if "trajektorien" in wahl:
-        quelle["trajektorien"] = (
-            _farben(lab_ev, an.min_size),
-            "Stufe 2: Trajektorien")
+        _panel("trajektorien", "Stufe 2: Trajektorien",
+               x, y, _farben(lab_ev, an.min_size), t, nein)
+    if "fit" in wahl:
+        uniq, tab = color_lookup(lab_ev, min_size=an.min_size)
+        tfp, xfp, yfp, idfp = _fit_punkte(
+            lab_ev, t.astype(np.float64), x.astype(np.float64),
+            y.astype(np.float64))
+        farb_bahn = (tab[np.searchsorted(uniq, idfp)]
+                     * DUNKEL).astype(np.uint8)
+        _panel("fit", "Stufe 2 + Fit (dunkel: gefittete Bahn)",
+               np.concatenate([x, xfp]), np.concatenate([y, yfp]),
+               np.concatenate([_farben(lab_ev, an.min_size), farb_bahn]),
+               np.concatenate([t, tfp]),
+               np.concatenate([nein, np.ones(len(tfp), bool)]))
+        print(f"  Fit: {len(np.unique(idfp))} Bahnen, "
+              f"{len(tfp):,} Stuetzpunkte", flush=True)
     if "gt" in wahl:
         if gt is None:
             # Kein Abbruch: ohne Labels gibt es das Panel nicht, der Rest
@@ -150,8 +251,15 @@ def animate_trajektorien(cfg: AnimTrajCfg):
             if not wahl:
                 raise SystemExit("nur 'gt' gewaehlt, aber keine Labels da")
         else:
-            quelle["gt"] = (_farben(gt, 1),
-                            "Ground Truth (grau: Rauschen)")
+            g_uniq, g_tab = color_lookup(gt, min_size=1)
+            tgp, xgp, ygp, idgp = _gt_mitten(cfg, run_nr, gt)
+            farb_gt = (g_tab[np.searchsorted(g_uniq, idgp)]
+                       * DUNKEL).astype(np.uint8)
+            _panel("gt", "Ground Truth (dunkel: Boxmitte)",
+                   np.concatenate([x, xgp]), np.concatenate([y, ygp]),
+                   np.concatenate([_farben(gt, 1), farb_gt]),
+                   np.concatenate([t, tgp]),
+                   np.concatenate([nein, np.ones(len(tgp), bool)]))
 
     # --- Anzeigeausschnitt. NACH dem Solve, damit die Farben die des
     # vollen Laufs bleiben.
@@ -178,18 +286,23 @@ def animate_trajektorien(cfg: AnimTrajCfg):
               "anim.downscale erhoehen oder anim.panels einzeln waehlen.",
               flush=True)
 
+    gem = dict(shape=shape, downscale=an.downscale, point=an.point,
+               crop=zuschnitt)
     frames = []
     for s in starts:
-        # GLEITENDER Trail, anders als in animate_tracklets: dort wird an
-        # der Fenstergrenze zurueckgesetzt, damit sie sichtbar bleibt --
-        # hier soll sie gerade verschwinden.
-        m = sicht & (t < s + schritt) & (t >= s - an.trail_ms * 1000.0)
-        gem = dict(shape=shape, downscale=an.downscale, point=an.point,
-                   crop=zuschnitt)
-        frames.append(compose(
-            [render_panel(x, y, quelle[p][0], m, **gem) for p in wahl],
-            [quelle[p][1] for p in wahl],
-            f"{(s - t[0])/1000:.0f} ms"))
+        panels = []
+        for p in wahl:
+            xs, ys, farben, ts, kum, _ = quelle[p]
+            # GLEITENDER Trail fuer Events, anders als in
+            # animate_tracklets: dort wird an der Fenstergrenze
+            # zurueckgesetzt, damit sie sichtbar bleibt -- hier soll sie
+            # gerade verschwinden. Kumulative Punkte (Bahn, Boxmitte)
+            # bleiben ab Fensteranfang stehen.
+            unten = np.where(kum, lo, s - an.trail_ms * 1000.0)
+            m = ((ts >= lo) & (ts < hi) & (ts < s + schritt) & (ts >= unten))
+            panels.append(render_panel(xs, ys, farben, m, **gem))
+        frames.append(compose(panels, [quelle[p][5] for p in wahl],
+                              f"{(s - t[0])/1000:.0f} ms"))
 
     out_dir = (config.results_dir() / "animations" if cfg.io.out_path is None
                else Path(cfg.io.out_path))

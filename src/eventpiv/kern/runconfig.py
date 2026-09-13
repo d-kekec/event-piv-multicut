@@ -592,7 +592,7 @@ class AnimRun(_Typed):
     """
     frame_ms: float = 20.0
     speedup: float = 1.0        # > 1 ueberspringt Frames
-    downscale: int = 2
+    downscale: int = 1
     point: int = 1
 
 
