@@ -6,7 +6,7 @@ trajektorien.py -- BAUSTEIN [7]: aus der Partition die BAHNEN.
   lade_on_strom      (t, x, y) des ON-Stroms eines Runs, ohne Ground Truth
   gruppiere          Events nach Trajektorie, CSR-artig
   bahn               (t, x, y) EINER Trajektorie
-  kalman_bahn        EINE Bahn filtern, Ausgabe auf ein Zeitgitter
+  kalman_bahn        EINE Bahn filtern, wahlweise mit RTS-Glaetter
   versatz_korrektur  den Vorwaertsversatz der Eventwolke aufheben
   fitte_run          alle Bahnen eines Runs
 
@@ -171,8 +171,96 @@ def _startzustand(t, x, y, init_us):
             int(m.sum()), float(tc[-1] - tc[0]))
 
 
+def _rts_rueckwaerts(t, zp, zv, za, wp, wv, wa, pf, qc):
+    """RTS-Glaetter, an Ort und Stelle. zp..za ist x, wp..wa ist y.
+
+    Der Rueckwaertslauf benutzt KEINE Messungen -- jede geht genau einmal
+    ein, im Vorwaertslauf. Er propagiert die bereits geglaettete
+    Schaetzung zurueck und mischt sie mit dem, was der Vorwaertsfilter an
+    dieser Stelle wusste:
+
+        C_k   = P_k|k A^T (P_k+1|k)^-1
+        x_k|N = x_k|k + C_k (x_k+1|N - A x_k|k)
+
+    C ist das Verhaeltnis "wie sicher war ich hier" zu "wie sicher war
+    meine Vorhersage nach dort". War der Filter hier unsicher und die
+    Vorhersage gut, zieht die Zukunft stark.
+
+    ALLE C GEMEINSAM, GESTAPELT: anders als im Vorwaertslauf haengt C_k
+    nur an P_k und h_k, nicht am vorigen C. Beide liegen fertig vor, also
+    rechnet NumPy die Inversen in einem Zug. Sequentiell bleibt nur das
+    Mischen. Preis: rund 400 Byte je Event waehrend der Rechnung.
+
+    Bei h = 0 ist A die Einheit und C damit ebenfalls -- die geglaettete
+    Schaetzung wird unveraendert uebernommen, was zur selben Zeit richtig
+    ist. Kein Sonderfall noetig.
+
+    Die GEGLAETTETE Kovarianz wird nicht gefuehrt: sie ginge nur in
+    Fehlerbalken ein, und die sind verworfen (Journal 13.09.).
+    """
+    n = len(t)
+    h = (t[1:] - t[:-1]) * S_JE_US
+    g = 0.5 * h * h
+    m = n - 1
+
+    A = np.zeros((m, 3, 3))
+    A[:, 0, 0] = A[:, 1, 1] = A[:, 2, 2] = 1.0
+    A[:, 0, 1] = A[:, 1, 2] = h
+    A[:, 0, 2] = g
+
+    P = np.empty((m, 3, 3))
+    P[:, 0, 0] = pf[:-1, 0]
+    P[:, 0, 1] = P[:, 1, 0] = pf[:-1, 1]
+    P[:, 0, 2] = P[:, 2, 0] = pf[:-1, 2]
+    P[:, 1, 1] = pf[:-1, 3]
+    P[:, 1, 2] = P[:, 2, 1] = pf[:-1, 4]
+    P[:, 2, 2] = pf[:-1, 5]
+
+    h2 = h * h
+    h3 = h2 * h
+    Q = np.zeros((m, 3, 3))
+    Q[:, 0, 0] = qc * h3 * h2 / 20.0
+    Q[:, 0, 1] = Q[:, 1, 0] = qc * h2 * h2 / 8.0
+    Q[:, 0, 2] = Q[:, 2, 0] = qc * h3 / 6.0
+    Q[:, 1, 1] = qc * h3 / 3.0
+    Q[:, 1, 2] = Q[:, 2, 1] = qc * h2 / 2.0
+    Q[:, 2, 2] = qc * h
+
+    M = P @ A.transpose(0, 2, 1)          # P A^T
+    C = M @ np.linalg.inv(A @ M + Q)      # P A^T (A P A^T + Q)^-1
+    del P, M, Q
+
+    Z = np.stack([zp, zv, za], axis=1)
+    W = np.stack([wp, wv, wa], axis=1)
+    zvor = np.einsum("kij,kj->ki", A, Z[:-1])     # A x_k|k
+    wvor = np.einsum("kij,kj->ki", A, W[:-1])
+    del A
+
+    # Flache Sichten: ein Skalarzugriff auf c00[i] ist deutlich billiger
+    # als C[i, 0, 0], und ein C[i] @ d je Schritt waere ein NumPy-Aufruf
+    # mit eigenem Ueberhang.
+    c00, c01, c02 = C[:, 0, 0], C[:, 0, 1], C[:, 0, 2]
+    c10, c11, c12 = C[:, 1, 0], C[:, 1, 1], C[:, 1, 2]
+    c20, c21, c22 = C[:, 2, 0], C[:, 2, 1], C[:, 2, 2]
+
+    for i in range(m - 1, -1, -1):
+        d0 = zp[i + 1] - zvor[i, 0]
+        d1 = zv[i + 1] - zvor[i, 1]
+        d2 = za[i + 1] - zvor[i, 2]
+        zp[i] += c00[i] * d0 + c01[i] * d1 + c02[i] * d2
+        zv[i] += c10[i] * d0 + c11[i] * d1 + c12[i] * d2
+        za[i] += c20[i] * d0 + c21[i] * d1 + c22[i] * d2
+
+        d0 = wp[i + 1] - wvor[i, 0]
+        d1 = wv[i + 1] - wvor[i, 1]
+        d2 = wa[i + 1] - wvor[i, 2]
+        wp[i] += c00[i] * d0 + c01[i] * d1 + c02[i] * d2
+        wv[i] += c10[i] * d0 + c11[i] * d1 + c12[i] * d2
+        wa[i] += c20[i] * d0 + c21[i] * d1 + c22[i] * d2
+
+
 def kalman_bahn(t, x, y, *, r_mess, q_c, dt_aus=None, t_aus=None,
-                init_us=100_000.0):
+                init_us=100_000.0, glaetten=False):
     """EINE Bahn filtern und auf ein Zeitgitter legen. Reine Funktion.
 
     t, x, y   Events einer Bahn, t in µs aufsteigend
@@ -183,6 +271,7 @@ def kalman_bahn(t, x, y, *, r_mess, q_c, dt_aus=None, t_aus=None,
               beiden. Explizite Zeiten vermeiden das Interpolieren beim
               Vergleich mit einem fremden Raster.
     init_us   Fenster fuer den Startzustand
+    glaetten  RTS-Rueckwaertslauf anschliessen
 
     Rueckgabe: (t_aus, x_aus, y_aus, ux_aus, uy_aus)
       t_aus in µs, Ort in px, Geschwindigkeit in px/µs.
@@ -195,7 +284,8 @@ def kalman_bahn(t, x, y, *, r_mess, q_c, dt_aus=None, t_aus=None,
     Modell mit konstanter Geschwindigkeit liefe ihr systematisch hinterher.
 
     P IST FUER BEIDE ACHSEN DASSELBE: es haengt an dt, q_c und r_mess,
-    nicht an den Messwerten. Einmal gerechnet, zweimal benutzt.
+    nicht an den Messwerten. Einmal gerechnet, zweimal benutzt -- das gilt
+    im Vorwaertslauf wie im Glaetter.
 
     DAS PROZESSRAUSCHEN HAENGT AN DER ZEIT, NICHT AN DER ZAHL DER
     MESSUNGEN. Ein fester Zuschlag je Schritt waere bei gleichmaessiger
@@ -203,6 +293,11 @@ def kalman_bahn(t, x, y, *, r_mess, q_c, dt_aus=None, t_aus=None,
     akkumulierte er das 36 500-fache je Sekunde, und der Filter hielte
     seine eigene Beschleunigung fuer unbestimmt. Gerechnet wird deshalb
     die Q-Matrix des Modells mit weissem Ruck.
+
+    OHNE glaetten IST DER FILTER KAUSAL: an jeder Stelle kennt er nur die
+    Vergangenheit, laeuft jeder Richtungsaenderung hinterher und hat am
+    Bahnanfang gar nichts. Der Glaetter behebt beides, kostet einen
+    zweiten Durchgang und rund 96 Byte je Event.
 
     Bei gleichem Zeitstempel wird NICHT vorhergesagt, nur korrigiert --
     ohne Zeit vergeht keine Modellunsicherheit. Rund 2,8 % der Events
@@ -217,14 +312,6 @@ def kalman_bahn(t, x, y, *, r_mess, q_c, dt_aus=None, t_aus=None,
             f"{n} Events, mindestens {MIN_EVENTS_FIT} noetig. Kurze Bahnen "
             "vor dem Aufruf aussortieren -- ein Fit darauf ist eine Zahl "
             "ohne Aussage.")
-    qc = float(q_c)
-    r = float(r_mess)
-
-    (xp, xv, xa), (yp, yv, ya), n_init, t_init = _startzustand(
-        t, x, y, init_us)
-    p00, p11, p22 = _start_p(n_init, t_init, r)
-    p01 = p02 = p12 = 0.0
-
     if (dt_aus is None) == (t_aus is None):
         raise ValueError("genau eines von dt_aus und t_aus setzen")
     if t_aus is None:
@@ -233,23 +320,22 @@ def kalman_bahn(t, x, y, *, r_mess, q_c, dt_aus=None, t_aus=None,
         raster = np.asarray(t_aus, np.float64)
         if len(raster) > 1 and (np.diff(raster) <= 0).any():
             raise ValueError("t_aus muss aufsteigend sein")
-    n_aus = len(raster)
-    ax_ = np.empty(n_aus); ay_ = np.empty(n_aus)
-    au_ = np.empty(n_aus); av_ = np.empty(n_aus)
-    k = 0
+    qc = float(q_c)
+    r = float(r_mess)
+
+    (xp, xv, xa), (yp, yv, ya), n_init, t_init = _startzustand(
+        t, x, y, init_us)
+    p00, p11, p22 = _start_p(n_init, t_init, r)
+    p01 = p02 = p12 = 0.0
+
+    # Zustand und Kovarianz je Event. Der Glaetter braucht sie; ohne ihn
+    # kostet es 96 Byte je Event und macht die Ausgabe vektorisierbar.
+    zp = np.empty(n); zv = np.empty(n); za = np.empty(n)
+    wp = np.empty(n); wv = np.empty(n); wa = np.empty(n)
+    pf = np.empty((n, 6))
     t_prev = t[0]
 
     for i in range(n):
-        # Gitterpunkte VOR diesem Event: frei propagiert vom letzten
-        # Korrekturzeitpunkt, ohne Messung.
-        while k < n_aus and raster[k] < t[i]:
-            h = (raster[k] - t_prev) * S_JE_US
-            ax_[k] = xp + xv * h + 0.5 * xa * h * h
-            ay_[k] = yp + yv * h + 0.5 * ya * h * h
-            au_[k] = (xv + xa * h) * S_JE_US
-            av_[k] = (yv + ya * h) * S_JE_US
-            k += 1
-
         h = (t[i] - t_prev) * S_JE_US
         if h > 0.0:
             g = 0.5 * h * h
@@ -300,15 +386,24 @@ def kalman_bahn(t, x, y, *, r_mess, q_c, dt_aus=None, t_aus=None,
         p11 -= k1 * b01; p12 -= k1 * b02
         p22 -= k2 * b02
 
-    while k < n_aus:
-        h = (raster[k] - t_prev) * S_JE_US
-        ax_[k] = xp + xv * h + 0.5 * xa * h * h
-        ay_[k] = yp + yv * h + 0.5 * ya * h * h
-        au_[k] = (xv + xa * h) * S_JE_US
-        av_[k] = (yv + ya * h) * S_JE_US
-        k += 1
+        zp[i] = xp; zv[i] = xv; za[i] = xa
+        wp[i] = yp; wv[i] = yv; wa[i] = ya
+        pf[i, 0] = p00; pf[i, 1] = p01; pf[i, 2] = p02
+        pf[i, 3] = p11; pf[i, 4] = p12; pf[i, 5] = p22
 
-    return raster, ax_, ay_, au_, av_
+    if glaetten:
+        _rts_rueckwaerts(t, zp, zv, za, wp, wv, wa, pf, qc)
+
+    # Ausgabe: vom letzten Event VOR dem Gitterpunkt frei propagiert.
+    # Vektorisiert -- die Zustaende liegen fertig vor.
+    j = np.clip(np.searchsorted(t, raster, side="right") - 1, 0, n - 1)
+    h = (raster - t[j]) * S_JE_US
+    g = 0.5 * h * h
+    return (raster,
+            zp[j] + zv[j] * h + za[j] * g,
+            wp[j] + wv[j] * h + wa[j] * g,
+            (zv[j] + za[j] * h) * S_JE_US,
+            (wv[j] + wa[j] * h) * S_JE_US)
 
 
 def versatz_korrektur(x, y, u, v, *, c0, c1):
@@ -333,7 +428,7 @@ def versatz_korrektur(x, y, u, v, *, c0, c1):
 
 
 def fitte_run(tr: Trajektorien, t, x, y, *, r_mess, q_c, c0, c1,
-              dt_aus, min_dauer_us, init_us=100_000.0):
+              dt_aus, min_dauer_us, init_us=100_000.0, glaetten=False):
     """Alle Bahnen eines Runs filtern und korrigieren.
 
     Rueckgabe: sechs gleich lange Arrays (t, x, y, ux, uy,
@@ -352,7 +447,7 @@ def fitte_run(tr: Trajektorien, t, x, y, *, r_mess, q_c, c0, c1,
             continue
         ta, xa, ya, ua, va = kalman_bahn(
             tb, xb, yb, r_mess=r_mess, q_c=q_c, dt_aus=dt_aus,
-            init_us=init_us)
+            init_us=init_us, glaetten=glaetten)
         if len(ta) == 0:
             continue
         xk, yk = versatz_korrektur(xa, ya, ua, va, c0=c0, c1=c1)

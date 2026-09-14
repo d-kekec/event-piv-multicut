@@ -204,7 +204,7 @@ def test_fitte_run_laesst_kurze_bahnen_aus():
     lang[t > 300_000.0] = 1                            # zweite Bahn: 100 ms
     tr = gruppiere(lang, n)
 
-    tf, xf, yf, uf, vf, _, _, idf = fitte_run(
+    tf, xf, yf, uf, vf, idf = fitte_run(
         tr, t, x, y, r_mess=8.0, q_c=20.0, c0=0.0, c1=0.0,
         dt_aus=10_000.0, min_dauer_us=200_000.0)
     assert set(np.unique(idf).tolist()) == {0}
@@ -220,3 +220,45 @@ def test_fitte_run_ohne_taugliche_bahn():
     aus = fitte_run(tr, t, x, y, r_mess=8.0, q_c=20.0, c0=0.0, c1=0.0,
                     dt_aus=1e3, min_dauer_us=1e6)
     assert all(len(a) == 0 for a in aus)
+
+
+def test_glaetter_trifft_die_exakte_gerade_ebenfalls():
+    """Auf einer rauschfreien Geraden darf der Glaetter nichts
+    verschlechtern -- die Bahn ist bereits optimal."""
+    from eventpiv.kette.trajektorien import kalman_bahn
+
+    t, x, y = _gerade()
+    ta, xa, ya, ua, va = kalman_bahn(t, x, y, r_mess=8.0, q_c=20.0,
+                                     dt_aus=10_000.0, glaetten=True)
+    soll_x = 100.0 + 0.05 * ta / 1e3
+    assert np.abs(xa - soll_x).max() < 0.05
+    np.testing.assert_allclose(ua, 0.05e-3, rtol=2e-2)
+
+
+def test_glaetter_verbessert_den_bahnanfang():
+    """Der kausale Filter hat am Anfang keine Vergangenheit. Der Glaetter
+    nutzt dort die Zukunft und muss naeher an der Wahrheit liegen."""
+    from eventpiv.kette.trajektorien import kalman_bahn
+
+    rng = np.random.default_rng(0)
+    t, x, y = _gerade(n=8000, dt=30.0)
+    xr = x + rng.normal(0, 2.8, len(t))
+    yr = y + rng.normal(0, 2.8, len(t))
+
+    _, xa, _, _, _ = kalman_bahn(t, xr, yr, r_mess=8.0, q_c=20.0,
+                                 dt_aus=5_000.0, glaetten=False)
+    tb, xb, _, _, _ = kalman_bahn(t, xr, yr, r_mess=8.0, q_c=20.0,
+                                  dt_aus=5_000.0, glaetten=True)
+    soll = 100.0 + 0.05 * tb / 1e3
+    k = max(3, len(tb) // 5)            # erstes Fuenftel
+    assert (np.abs(xb[:k] - soll[:k]).mean()
+            < np.abs(xa[:k] - soll[:k]).mean())
+
+
+def test_glaetter_aendert_den_slug():
+    """Zwei Fit-Arbeitspunkte muessen nebeneinander liegen koennen."""
+    from eventpiv.kern.runconfig import Fit, slug
+
+    assert slug(Fit(glaetten=True)) != slug(Fit(glaetten=False))
+    assert "_rts" in Fit(glaetten=True).short()
+    assert "_rts" not in Fit(glaetten=False).short()

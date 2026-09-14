@@ -516,6 +516,9 @@ class Fit(_Typed):
     Bahnen liegen unter 100 ms.
 
     Alle Werte gemessen auf train/40, 43, 19, 32 (Journal 12.09.2026).
+    q_c steht noch auf dem Wert von VOR der P0-Korrektur; seither liegt
+    das Optimum bei 10 (Journal 14.09.2026). Neu gesweept wird nach dem
+    RTS-Glaetter.
     """
     r_mess: float = 8.0
     q_c: float = 20.0
@@ -524,9 +527,13 @@ class Fit(_Typed):
     dt_aus: float = 16_667.0
     init_us: float = 100_000.0
     min_dauer_us: float = 100_000.0
+    # RTS-Rueckwaertslauf. Ohne ihn ist der Filter kausal und laeuft
+    # jeder Richtungsaenderung hinterher.
+    glaetten: bool = True
 
     def short(self) -> str:
-        return f"q{_num(self.q_c)}_r{_num(self.r_mess)}"
+        return (f"q{_num(self.q_c)}_r{_num(self.r_mess)}"
+                f"{'_rts' if self.glaetten else ''}")
 
     def __post_init__(self) -> None:
         super().__post_init__()

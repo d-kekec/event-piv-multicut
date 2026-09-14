@@ -201,7 +201,8 @@ def animate_trajektorien(cfg: AnimTrajCfg):
             gruppiere(lab_ev, len(t)), tf64, x.astype(np.float64),
             y.astype(np.float64), r_mess=cfg.fit.r_mess, q_c=cfg.fit.q_c,
             c0=cfg.fit.c0, c1=cfg.fit.c1, dt_aus=FIT_DT_ANZEIGE_US,
-            min_dauer_us=cfg.fit.min_dauer_us, init_us=cfg.fit.init_us)
+            min_dauer_us=cfg.fit.min_dauer_us, init_us=cfg.fit.init_us,
+            glaetten=cfg.fit.glaetten)
         farb_bahn = (tab[np.searchsorted(uniq, idfp)]
                      * DUNKEL).astype(np.uint8)
         _panel("fit", "Stufe 2 + Fit (dunkel: gefittete Bahn)",
