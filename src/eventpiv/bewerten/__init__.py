@@ -2,6 +2,7 @@
 
   metrics   Paar-Ebene [3]: Konfusionsmatrix, Raten, AUC
   evaluate  Cluster-Ebene [4]: Reinheit, Fragmentierung, Merge, Kanten
+  evaluate_trajektorien  Bahn-Ebene [7]: MedAE in Ort und Geschwindigkeit
   overlap   Runs nach Begegnungsdichte klassifizieren
 
 SCHICHTREGEL: bewerten importiert nur aus kern. Eine Bewertung, die eine

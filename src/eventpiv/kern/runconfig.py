@@ -522,7 +522,7 @@ class Fit(_Typed):
     """
     r_mess: float = 8.0
     q_c: float = 20.0
-    c0: float = 0.88
+    c0: float = 0.95
     c1: float = 29.1
     dt_aus: float = 16_667.0
     init_us: float = 100_000.0

@@ -134,4 +134,4 @@ def test_fit_default_ist_der_gemessene_arbeitspunkt():
 
     f = Fit()
     assert f.r_mess == 8.0 and f.q_c == 20.0
-    assert (f.c0, f.c1) == (0.88, 29.1)
+    assert (f.c0, f.c1) == (0.95, 29.1)
