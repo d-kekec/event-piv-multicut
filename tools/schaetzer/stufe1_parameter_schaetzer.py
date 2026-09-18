@@ -41,6 +41,8 @@ SIGNAL_Q = 99.9       # Quantil des Ueberschusses fuer R_Ausdehnung
 N_FENSTER = 3         # Stichprobenfenster je Run, gleichmaessig verteilt
 FENSTER_MS = 10.0     # Laenge eines Stichprobenfensters
 KANTEN = np.arange(0.0, 400.0 + BIN_PX, BIN_PX)   # gemeinsames Histogrammgitter
+WOLKE_PX = 8.0        # halbe Kantenlaenge des Bildes im Bewegungsrahmen
+SEKTOREN = 8          # Richtungssektoren fuer die Konventionsprobe
 
 
 # ============================================================
@@ -70,6 +72,8 @@ def messe_abstaende(split: str, run_nr: int, t0_us: int, dt_us: int) -> dict:
     z_s, tid_s, w_s = _zentren(b_s), b_s["track_id"], b_s["w"]
 
     d_alle, p_alle, w_alle = [], [], []
+    vek_alle, dl_alle, dq_alle = [], [], []
+    v_alle, phi_alle, ruhig_alle = [], [], []
     ohne_intervall = 0
 
     rng = np.random.default_rng(0)
@@ -94,6 +98,17 @@ def messe_abstaende(split: str, run_nr: int, t0_us: int, dt_us: int) -> dict:
         z0, z1 = z_s[a0][k0], z_s[a1][k1]
         w_gem = w_s[a0][k0]
 
+        # Bewegungsrichtung je Bahn, aus demselben Rasterintervall wie die
+        # Interpolation. Bahnen, die sich im Intervall gar nicht bewegen,
+        # haben keine definierte Richtung und werden markiert statt
+        # stillschweigend auf (1,0) gesetzt.
+        richt = z1 - z0
+        laenge = np.linalg.norm(richt, axis=1)
+        ein = richt / np.maximum(laenge, 1e-12)[:, None]
+        v_bahn = laenge / (r1 - r0) * 1000.0        # px/ms
+        phi_bahn = np.arctan2(ein[:, 1], ein[:, 0])
+        ruhig_bahn = laenge <= 1e-12
+
         ev_i = ev[im_intervall]
         for u0 in range(r0, r1, UNTER_US):
             m = (ev_i["t"] >= u0) & (ev_i["t"] < min(u0 + UNTER_US, r1))
@@ -111,11 +126,32 @@ def messe_abstaende(split: str, run_nr: int, t0_us: int, dt_us: int) -> dict:
             p_alle.append(ev_i["p"][m])
             w_alle.append(w_gem[j])
 
+            # Verschiebung Event -> Zentrum, einmal in BILD-, einmal in
+            # BEWEGUNGSkoordinaten. Die Konventionsfrage (Ecke oder Mitte)
+            # haengt an der ersten: ein Fehler dort steht in allen
+            # Richtungen gleich. Der Vorwaertsversatz haengt an der
+            # zweiten: er dreht sich mit dem Partikel.
+            vek = punkte - z[j]
+            vek_alle.append(vek)
+            dl_alle.append(vek[:, 0] * ein[j, 0] + vek[:, 1] * ein[j, 1])
+            dq_alle.append(-vek[:, 0] * ein[j, 1] + vek[:, 1] * ein[j, 0])
+            v_alle.append(v_bahn[j])
+            phi_alle.append(phi_bahn[j])
+            ruhig_alle.append(ruhig_bahn[j])
+
     return {
         "d": np.concatenate(d_alle) if d_alle else np.empty(0),
         "d_ref": np.concatenate(dref_alle) if dref_alle else np.empty(0),
         "p": np.concatenate(p_alle) if p_alle else np.empty(0, dtype=np.int8),
         "w": np.concatenate(w_alle) if w_alle else np.empty(0),
+        "vek": (np.concatenate(vek_alle) if vek_alle
+                else np.empty((0, 2))),
+        "dl": np.concatenate(dl_alle) if dl_alle else np.empty(0),
+        "dq": np.concatenate(dq_alle) if dq_alle else np.empty(0),
+        "v_lok": np.concatenate(v_alle) if v_alle else np.empty(0),
+        "phi": np.concatenate(phi_alle) if phi_alle else np.empty(0),
+        "ruhig": (np.concatenate(ruhig_alle) if ruhig_alle
+                  else np.empty(0, bool)),
         "n_events": int(ev.size),
         "ohne_intervall": ohne_intervall,
         "raster_us": schritt,
@@ -379,9 +415,150 @@ def bericht(split: str, runs: list[int]) -> None:
               f"{n_knoten:>9.0f} {gb:>8.2f}G")
 
 
+def messe_wolke(split: str, run_nr: int) -> dict:
+    """Wolkenform eines Runs aus N_FENSTER Stichprobenfenstern."""
+    b = data.load_bbox(split, run_nr)
+    t_ende = int(np.unique(b["t"])[-1])
+    dt_us = int(FENSTER_MS * 1000)
+    teile = [messe_abstaende(split, run_nr,
+                             int((k + 0.5) / N_FENSTER * (t_ende - dt_us)),
+                             dt_us)
+             for k in range(N_FENSTER)]
+    aus = {k: np.concatenate([t[k] for t in teile])
+           for k in ("d", "d_ref", "p", "w", "dl", "dq", "v_lok", "phi",
+                     "ruhig")}
+    aus["vek"] = np.concatenate([t["vek"] for t in teile])
+    return aus
+
+
+def regel_versatz(dl, dq, v_lok, n_gruppen: int = 5) -> list[dict]:
+    """Vorwaertsversatz und Querstreuung, nach Geschwindigkeit geschichtet.
+
+    REGEL-KANDIDAT, noch keine Regel. STELLA korrigiert um beta*sigma_quer
+    entgegen der Bewegungsrichtung, OHNE Geschwindigkeitsterm; unser
+    bisheriges c0 + c1*|u| hat keinen Groessenterm. Diese Tabelle
+    entscheidet zwischen beiden: bleibt beta = Versatz/sigma_quer ueber die
+    Quintile konstant, traegt STELLAs Form und beta ist direkt ablesbar.
+    Waechst es, fehlt ihr der Geschwindigkeitsterm.
+    """
+    grenzen = np.percentile(v_lok, np.linspace(0, 100, n_gruppen + 1))
+    zeilen = []
+    for lo, hi in zip(grenzen[:-1], grenzen[1:]):
+        m = (v_lok >= lo) & (v_lok <= hi)
+        if int(m.sum()) < 100:
+            continue
+        s_q = float(dq[m].std())
+        ver = float(dl[m].mean())
+        zeilen.append({"v": float(np.median(v_lok[m])), "n": int(m.sum()),
+                       "versatz": ver, "sigma_quer": s_q,
+                       "sigma_laengs": float(dl[m].std()),
+                       "beta": ver / s_q if s_q > 0 else float("nan")})
+    return zeilen
+
+
+def _bild(dl, dq, spalten: int = 41, zeilen: int = 21) -> None:
+    """Grobes Bild der Wolke im Bewegungsrahmen. Rechts = Bewegungsrichtung."""
+    h, _, _ = np.histogram2d(dq, dl, bins=[zeilen, spalten],
+                             range=[[-WOLKE_PX, WOLKE_PX],
+                                    [-WOLKE_PX, WOLKE_PX]])
+    rampe = " .:-=+*#%@"
+    m = h.max()
+    if m <= 0:
+        print("    (leer)")
+        return
+    for r in range(zeilen - 1, -1, -1):
+        print("    |" + "".join(
+            rampe[min(len(rampe) - 1,
+                      int(h[r, c] / m * (len(rampe) - 1) + 0.5))]
+            for c in range(spalten)) + "|")
+
+
+def bericht_wolke(split: str, runs: list[int]) -> None:
+    print(f"\nWolkenform, Split {split}, Runs {runs}, je {N_FENSTER} "
+          f"Fenster zu {FENSTER_MS} ms")
+    teile = [messe_wolke(split, nr) for nr in runs]
+    a = {k: np.concatenate([t[k] for t in teile])
+         for k in ("d", "d_ref", "p", "w", "dl", "dq", "v_lok", "phi",
+                   "ruhig")}
+    vek = np.concatenate([t["vek"] for t in teile])
+
+    r_ass, _ = regel_r_assign(*histogramme(a["d"], a["d_ref"]))
+    sig = (a["d"] < r_ass) & (~a["ruhig"])
+    print(f"  r_assign (gepoolt) {r_ass:.2f} px -- {int(sig.sum()):,} von "
+          f"{a['d'].size:,} Events im Signal, {int(a['ruhig'].sum()):,} "
+          f"ohne Bewegungsrichtung")
+    dlx, dqx, vkx = a["dl"][sig], a["dq"][sig], vek[sig]
+
+    print("\n  KONVENTIONSPROBE -- mittlere Verschiebung Event minus Zentrum.")
+    print("  Ein falsch gelesenes Boxzentrum steht in ALLEN Sektoren gleich")
+    print("  (Bild dx/dy konstant); ein Vorwaertsversatz dreht sich mit")
+    print("  (laengs konstant positiv, Bild dx/dy wechselnd).")
+    print(f"  {'Sektor':>8} {'n':>10} {'Bild dx':>9} {'Bild dy':>9} "
+          f"{'laengs':>9} {'quer':>9}")
+    kanten = np.linspace(-np.pi, np.pi, SEKTOREN + 1)
+    idx = np.clip(np.digitize(a["phi"][sig], kanten) - 1, 0, SEKTOREN - 1)
+    for s in range(SEKTOREN):
+        m = idx == s
+        if int(m.sum()) < 100:
+            continue
+        grad = np.degrees((kanten[s] + kanten[s + 1]) / 2.0)
+        print(f"  {grad:>7.0f}° {int(m.sum()):>10,} "
+              f"{vkx[m, 0].mean():>9.3f} {vkx[m, 1].mean():>9.3f} "
+              f"{dlx[m].mean():>9.3f} {dqx[m].mean():>9.3f}")
+
+    print(f"\n  Wolke im Bewegungsrahmen (rechts = Bewegungsrichtung, "
+          f"+/-{WOLKE_PX:.0f} px):")
+    _bild(dlx, dqx)
+    print(f"    laengs: Mittel {dlx.mean():+.3f}  Median "
+          f"{np.median(dlx):+.3f}  sigma {dlx.std():.3f} px")
+    print(f"    quer  : Mittel {dqx.mean():+.3f}  Median "
+          f"{np.median(dqx):+.3f}  sigma {dqx.std():.3f} px")
+
+    print("\n  Versatz gegen Geschwindigkeit (Quintile):")
+    print(f"  {'|u| px/ms':>10} {'n':>11} {'Versatz':>9} {'sig quer':>9} "
+          f"{'sig laengs':>11} {'beta':>8}")
+    for z in regel_versatz(dlx, dqx, a["v_lok"][sig]):
+        print(f"  {z['v']:>10.3f} {z['n']:>11,} {z['versatz']:>9.3f} "
+              f"{z['sigma_quer']:>9.3f} {z['sigma_laengs']:>11.3f} "
+              f"{z['beta']:>8.3f}")
+
+    print("\n  Nach Polaritaet -- auf einem Datensatz mit beiden Sicheln")
+    print("  heben sie sich im Mittel auf, und der Versatz kaeme null")
+    print("  heraus, obwohl es ihn je Polaritaet gibt.")
+    print(f"  {'p':>3} {'n':>11} {'laengs':>9} {'sig laengs':>11} "
+          f"{'sig quer':>9} {'beta':>8}")
+    ps = a["p"][sig]
+    for pv in np.unique(ps):
+        m = ps == pv
+        if int(m.sum()) < 100:
+            continue
+        s_q = float(dqx[m].std())
+        print(f"  {int(pv):>3} {int(m.sum()):>11,} {dlx[m].mean():>9.3f} "
+              f"{dlx[m].std():>11.3f} {s_q:>9.3f} "
+              f"{dlx[m].mean() / s_q if s_q > 0 else float('nan'):>8.3f}")
+
+    print("\n  Nach Boxbreite:")
+    ws = a["w"][sig]
+    werte = np.unique(ws)
+    if werte.size <= 6:
+        paare = [(float(v), float(v)) for v in werte]
+    else:
+        q = np.percentile(ws, (0, 33.3, 66.7, 100))
+        paare = [(float(q[i]), float(q[i + 1])) for i in range(3)]
+    for lo, hi in paare:
+        m = (ws >= lo) & (ws <= hi)
+        if int(m.sum()) < 100:
+            continue
+        r = np.hypot(dlx[m], dqx[m])
+        print(f"    w in [{lo:.2f},{hi:.2f}]  n={int(m.sum()):>10,}  "
+              f"Versatz {dlx[m].mean():+.3f}  sig quer {dqx[m].std():.3f}  "
+              f"R(p99.9) {np.percentile(r, 99.9):.3f} px")
+
+
 if __name__ == "__main__":
     from eventpiv.kern import config
 
-    split = sys.argv[1]
-    runs = [int(a) for a in sys.argv[2:]] or config.available_runs(split)
-    bericht(split, runs)
+    argv = [a for a in sys.argv[1:] if a != "wolke"]
+    split = argv[0]
+    runs = [int(a) for a in argv[1:]] or config.available_runs(split)
+    (bericht_wolke if "wolke" in sys.argv else bericht)(split, runs)
