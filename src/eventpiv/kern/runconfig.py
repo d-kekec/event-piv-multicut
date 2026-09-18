@@ -638,8 +638,10 @@ class IO(_Typed):
 class Overlap(_Typed):
     """Werkzeug: Runs nach Partikel-Ueberlappung klassifizieren.
 
-    box_w ist dieselbe Datensatzkonstante wie in Labeling -- hier dient sie
-    als Schwelle fuer "nah". cross_thresh und mean_clean_max sind EMPIRISCH
+    box_w ist hier die Schwelle fuer "nah" und keine Umrechnung -- die
+    Boxmitte kommt aus den Spalten. Der Name ist historisch; solange er
+    steht, ist er nicht mit einer Boxgroesse zu verwechseln.
+    cross_thresh und mean_clean_max sind EMPIRISCH
     an den Ergebnissen kalibriert, nicht hergeleitet -- wer sie aendert,
     aendert die Run-Listen.
     """

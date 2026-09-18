@@ -434,6 +434,30 @@ def test_fenster_umschliesst_das_raster():
         abstand_im_fenster(raster_t, ids, d, 20_000, 30_000), [4.0, 4.0])
 
 
+def test_abstaende_kommen_aus_der_w_spalte():
+    """Verschieden grosse Boxen: die Mitte folgt der ZEILE.
+
+    Ein gleichmaessiger Versatz aller Zentren aendert die Abstaende nicht
+    -- deshalb braucht dieser Test Boxen VERSCHIEDENER Groesse. Partikel 0
+    hat w = 4 an der Ecke (98, 98), Zentrum also (100, 100); Partikel 1
+    hat w = 10 an der Ecke (105, 95), Zentrum (110, 100). Abstand 10,0 px.
+    Mit einer Konstanten von 11 laegen die Zentren bei (103.5, 103.5) und
+    (110.5, 100.5), Abstand 7,62 px.
+
+    _bbox_paar wird hier NICHT benutzt: es setzt w und h fuer alle
+    Eintraege gleich, und genau davon soll dieser Test unabhaengig sein.
+    """
+    from conftest import BBOX_DTYPE
+    from eventpiv.bewerten.evaluate import min_abstand_je_partikel
+
+    b = np.zeros(2, dtype=BBOX_DTYPE)
+    b[0] = (1000, 98.0, 98.0, 4.0, 4.0, 0, 0, 1.0)
+    b[1] = (1000, 105.0, 95.0, 10.0, 10.0, 0, 1, 1.0)
+    _, ids, d = min_abstand_je_partikel(b)
+    np.testing.assert_array_equal(ids, [0, 1])
+    np.testing.assert_allclose(d[0], [10.0, 10.0])
+
+
 def test_nah_maske_je_event():
     """Die Maske haengt am PARTIKEL des Events, nicht an seiner Position."""
     from eventpiv.bewerten.evaluate import nah_maske

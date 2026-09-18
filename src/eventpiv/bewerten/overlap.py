@@ -19,6 +19,10 @@ MASS (je 60-Hz-Rasterzeitpunkt, dann ueber den Run aggregiert):
 mean11 zaehlt PAARE, nicht Boxen -- drei sich beruehrende Boxen ergeben 3.
 Die Schwelle 1.4 ist empirisch kalibriert, nicht hergeleitet.
 
+box_w ist hier ausschliesslich eine SCHWELLE, keine Umrechnung: die
+Boxmitte kommt aus den Spalten w und h. Der Name stammt aus der Zeit, in
+der beides derselbe Wert war.
+
 KATEGORIEN:
   MAX_OVERLAP  frac11 == 1.0                         durchgehende Ueberlappung
   MIN_OVERLAP  min_dist >= box_w UND mean11 < 0.05   praktisch sauber
@@ -39,10 +43,14 @@ from eventpiv.kern.runconfig import Overlap, OverlapCfg
 
 
 def overlap_metrics(bbox, *, box_w) -> dict:
-    """Kennzahlen fuer EINEN Run. Reine Funktion -- bbox rein, dict raus."""
+    """Kennzahlen fuer EINEN Run. Reine Funktion -- bbox rein, dict raus.
+
+    box_w ist die Schwelle fuer "nah". Die Boxmitte kommt aus w und h je
+    Zeile, wie in labels.assign_track_ids.
+    """
     raster_t = np.unique(bbox["t"])
-    bx = bbox["x"].astype(np.float64) + box_w / 2
-    by = bbox["y"].astype(np.float64) + box_w / 2
+    bx = bbox["x"].astype(np.float64) + bbox["w"].astype(np.float64) / 2
+    by = bbox["y"].astype(np.float64) + bbox["h"].astype(np.float64) / 2
 
     min_dist = np.inf
     n_hits = 0                 # Zeitpunkte mit minimalem Paarabstand < box_w

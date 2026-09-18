@@ -896,13 +896,19 @@ def gt_raster_dt(bbox, toleranz=0.01) -> float:
     return mitte
 
 
-def min_abstand_je_partikel(bbox, box_w=11.0):
+def min_abstand_je_partikel(bbox):
     """Kleinster Abstand JE PARTIKEL zu irgendeinem anderen, je Rasterpunkt.
 
     Nicht das globale Minimum ueber alle Paare: bei rund 50 Partikeln liegt
     IRGENDEINES praktisch immer naeher als NAH_PX -- gemessen fielen auf
     run76 alle 799 Fenster auf dieselbe Seite. Die Frage ist ohnehin eine je
     Partikel.
+
+    Die Boxmitte kommt aus w und h JE ZEILE, wie in
+    labels.assign_track_ids: auf polydispersen Datensaetzen unterscheiden
+    sich die Boxen je Partikel, und eine Konstante verzerrte gerade die
+    ABSTAENDE zwischen ihnen -- ein gleichmaessiger Versatz waere hier
+    folgenlos, ein je Partikel verschiedener ist es nicht.
 
     Rueckgabe: (raster_t, ids, d). `ids` sind die track_ids in aufsteigender
     Ordnung, `d` hat die Form (Rasterpunkte, Partikel). inf steht dort, wo
@@ -916,8 +922,10 @@ def min_abstand_je_partikel(bbox, box_w=11.0):
 
     for k, tt in enumerate(raster_t):
         m = bbox["t"] == tt
-        cx = bbox["x"][m].astype(np.float64) + box_w / 2.0
-        cy = bbox["y"][m].astype(np.float64) + box_w / 2.0
+        cx = (bbox["x"][m].astype(np.float64)
+              + bbox["w"][m].astype(np.float64) / 2.0)
+        cy = (bbox["y"][m].astype(np.float64)
+              + bbox["h"][m].astype(np.float64) / 2.0)
         tid = bbox["track_id"][m].astype(np.int64)
         if len(cx) < 2:
             continue

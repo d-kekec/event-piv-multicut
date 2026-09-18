@@ -5,9 +5,10 @@ Geschaetzt werden: v_max (aus den GT-Boxen), r_assign, R_Ausdehnung und
 r_max (aus Events gegen Boxzentren) sowie die beiden Schranken fuer
 alpha1 -- Geometrie ueber Drift/r_max, Speicher ueber die Eventrate.
 
-NICHT geschaetzt: r_ambig und box_w (je eine weitere Messung noetig) und
-alles, was nicht aus den Daten allein folgt -- cost_offset, feature_mode,
-die Trainingsparameter.
+NICHT geschaetzt: r_ambig (eine weitere Messung noetig) und alles, was
+nicht aus den Daten allein folgt -- cost_offset, feature_mode, die
+Trainingsparameter. Die Boxgroesse ist kein Parameter mehr, sie steht je
+Zeile in den Daten.
 
 Misst den Abstand jedes Events zum naechsten Partikelzentrum und stellt ihm
 ein NULLMODELL gegenueber: Zufallspunkte im selben Bild gegen dieselben
