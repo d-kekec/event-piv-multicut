@@ -1,5 +1,6 @@
 defaults:
   - solve_schema
+  - neighborhood: null
   - _self_
 
 # Der Treiber schreitet den GANZEN Run ab. Ohne diese beiden Zeilen griffen

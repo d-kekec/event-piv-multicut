@@ -2,6 +2,9 @@
 # hier stehen nur Abweichungen und die Hydra-Einstellungen.
 defaults:
   - solve_schema
+  # Platzhalter: ohne Override ignoriert, also gelten die Vorgaben aus
+  # runconfig.py. Mit `neighborhood=stella` wird die Gruppe zugeschaltet.
+  - neighborhood: null
   - _self_
 
 hydra:

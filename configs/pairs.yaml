@@ -1,5 +1,6 @@
 defaults:
   - pairs_schema
+  - neighborhood: null
   - _self_
 
 hydra:

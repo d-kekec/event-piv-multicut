@@ -1,0 +1,14 @@
+# Nachbarschaft fuer den STELLA-Datensatz. Zuschalten mit
+# `neighborhood=stella`; ohne Angabe gelten die Vorgaben aus runconfig.py.
+#
+# Gesetzt werden nur ABWEICHUNGEN. polarity bleibt "on" -- der Datensatz
+# enthaelt ohnehin ausschliesslich positive Events.
+#
+# alpha ist ein KANDIDAT, nicht gemessen: er folgt aus der Speicherschranke
+# des dichten Jaccard (n^2 Knoten je Fenster) und aus dem Verhaeltnis Drift
+# zu Wolkenausdehnung. Bestaetigt wird er erst ueber frag_mean und
+# merge_event_frac auf ganzen Runs, nicht ueber die AUC.
+alpha: 500
+r_max: 5.1
+geom: hyperboloid
+v_max: 1.79e-3

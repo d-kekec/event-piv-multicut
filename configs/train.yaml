@@ -1,5 +1,6 @@
 defaults:
   - train_schema
+  - neighborhood: null
   - _self_
 
 hydra:
