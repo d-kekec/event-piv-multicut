@@ -5,6 +5,8 @@ defaults:
   # Platzhalter: ohne Override ignoriert, also gelten die Vorgaben aus
   # runconfig.py. Mit `neighborhood=stella` wird die Gruppe zugeschaltet.
   - neighborhood: null
+  - pairsampling: null
+  - datensatz: null
   - _self_
 
 hydra:

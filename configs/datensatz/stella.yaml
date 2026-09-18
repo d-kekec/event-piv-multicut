@@ -1,0 +1,9 @@
+# @package _global_
+#
+# Setzt alle Gruppen eines Datensatzes auf einmal: `datensatz=stella`
+# statt `neighborhood=stella pairsampling=stella labeling=stella`. Die
+# Einzelgruppen bleiben bestehen und lassen sich weiter einzeln waehlen --
+# etwa um neue Daten mit dem alten Arbeitspunkt zu messen.
+defaults:
+  - override /neighborhood: stella
+  - override /pairsampling: stella

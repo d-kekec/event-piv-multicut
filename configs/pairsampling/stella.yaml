@@ -1,0 +1,23 @@
+# @package pairs
+#
+# Das Feld heisst `pairs`, die Gruppe `pairsampling` nach der Dataclass --
+# ein Verzeichnis `configs/pairs/` stuende neben der Treiberdatei
+# configs/pairs.yaml. Die Zeile oben sagt Hydra, wohin der Inhalt gehoert.
+#
+# Paarbau fuer den STELLA-Datensatz. Zuschalten mit `pairsampling=stella`.
+#
+# runs: dreissig Runs, ueber die Eventrate geschichtet. Ausgeschlossen ist
+# oben, was der dichte Jaccard je Fenster nicht traegt, und unten, was zu
+# wenige Partikel je Bild hat, um NEIN-Paare zu liefern. Nicht die
+# dichtesten genommen: die Rate bestimmt die lokale Nachbarschaftsdichte
+# und damit den Merkmalsraum, den das Netz sieht.
+#
+# fenster_schritt: so gewaehlt, dass fast jeder Run den NEIN-Deckel
+# erreicht -- dann traegt jeder gleich viel bei, und eine Gewichtung
+# eruebrigt sich. Zwei der dreissig verfehlen ihn knapp.
+#
+# ja_frac bleibt bei der Vorgabe: die rohen JA-Paare je Fenster liegen in
+# derselben Groessenordnung wie auf dem bisherigen Datensatz.
+runs: [2, 6, 8, 9, 13, 18, 23, 28, 30, 37, 38, 41, 42, 43, 46, 48, 49, 54,
+       55, 64, 65, 66, 72, 80, 82, 85, 92, 93, 96, 98]
+fenster_schritt: 20
