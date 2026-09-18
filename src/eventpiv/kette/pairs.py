@@ -55,12 +55,19 @@ FIELDS = ("dt", "dx", "dy", "jac", "label", "run")
 
 
 
-def collect_pairs(t, x, y, track_id, status, *, alpha, r_max, geom,
+def collect_pairs(t, x, y, track_id, status, *, alpha, r_max, geom, v_max,
                   ja_frac, rng, fenster_schritt=1, device="cpu"):
     """Schreitet EINEN Run in anstossenden Fenstern der Laenge alpha ab.
 
     Harter Schnitt, keine Ueberlappung, keine Erweiterung des rechten
     Randes -- genau die Fenster, die Stufe 1 im Einsatz bildet.
+
+    v_max : px/µs. PFLICHT, ohne Vorgabewert -- dieselbe Politik wie
+        polarity in fenster.lade_fenster. Bei geom="hyperboloid" bestimmt
+        v_max die Aufweitung und damit die Kantenmenge. Ein Vorgabewert
+        setzte hier still den Modulwert aus graph.py ein, waehrend
+        solve_window den KONFIGURIERTEN reicht -- Training und Einsatz
+        bauten verschiedene Graphen, und das faellt an keiner Kennzahl auf.
 
     ja_frac : Anteil der je Fenster gezogenen JA-Paare. NEIN bleibt
         vollstaendig, es ist die knappe Klasse -- mit mehrdeutigen
@@ -110,7 +117,8 @@ def collect_pairs(t, x, y, track_id, status, *, alpha, r_max, geom,
         tw, xw, yw = t[lo:hi], x[lo:hi], y[lo:hi]
         tidw, staw = track_id[lo:hi], status[lo:hi]
 
-        i, j = neighborhood_pairs(tw, xw, yw, alpha, r_max, geom=geom)
+        i, j = neighborhood_pairs(tw, xw, yw, alpha, r_max, geom=geom,
+                                  v_max=v_max)
         if len(i) == 0:
             # Auch das ist ein Fenster ohne NEIN -- sonst zaehlte
             # n_fenster_ohne_nein systematisch zu niedrig.
@@ -207,7 +215,7 @@ def build_pairs_for_run(cfg: PairCfg, run_nr, rng):
         m = polarity_mask(d["p"], nb.polarity)
         daten, zaehler = collect_pairs(
             d["t"][m], d["x"][m], d["y"][m], d["track_id"][m], d["status"][m],
-            alpha=nb.alpha, r_max=nb.r_max, geom=nb.geom,
+            alpha=nb.alpha, r_max=nb.r_max, geom=nb.geom, v_max=nb.v_max,
             ja_frac=ps.ja_frac, rng=rng,
             fenster_schritt=ps.fenster_schritt,
             device=cfg.compute.device)

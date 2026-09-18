@@ -4,12 +4,16 @@
 import numpy as np
 import pytest
 
+from eventpiv.kern.graph import V_MAX_DEFAULT
 from eventpiv.kern.status import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
 from eventpiv.kette.pairs import collect_pairs
 
 # ja_frac=1.0 in den meisten Tests: sie pruefen die Fensterlogik, nicht das
 # Ziehen, und sollen deterministisch sein. rng wird trotzdem gebraucht.
-PARAMS = dict(alpha=1_000.0, r_max=5.0, geom="ellipsoid", ja_frac=1.0,
+# v_max wirkt nur bei geom="hyperboloid"; hier steht der Vorgabewert aus
+# graph.py, damit die uebrigen Tests unveraendert bleiben.
+PARAMS = dict(alpha=1_000.0, r_max=5.0, geom="ellipsoid",
+              v_max=V_MAX_DEFAULT, ja_frac=1.0,
               rng=np.random.default_rng(0))
 
 
@@ -44,6 +48,31 @@ def test_geom_wird_durchgereicht(szene):
     z, _ = collect_pairs(t, x, y, tid, sta,
                          **{**PARAMS, "geom": "cylinder"})
     assert len(z["label"]) >= len(e["label"])
+
+def test_v_max_wird_durchgereicht():
+    """Beim Hyperboloid weitet v_max den erlaubten Radius mit Δt auf.
+
+    Zwei Events, 7 px auseinander bei Δt = 900 µs. Bei r_max = 5 liegen sie
+    ausserhalb, solange die Aufweitung klein ist, und innerhalb, sobald sie
+    gross ist. Wuerde v_max nicht durchgereicht, naehme neighborhood_pairs
+    seinen Modulvorgabewert und beide Aufrufe lieferten dasselbe -- genau
+    der Fehler, den dieser Test festhaelt.
+
+    Die Werte sind bewusst grob: geprueft wird das DURCHREICHEN, nicht die
+    Geometrie -- die deckt tests/test_graph.py gegen eine
+    Brute-Force-Referenz ab.
+    """
+    t = np.array([0.0, 900.0])
+    x = np.array([100.0, 107.0])
+    y = np.array([100.0, 100.0])
+    tid = np.array([1, 1], dtype=np.int16)
+    sta = np.zeros(2, np.uint8)
+    hyp = {**PARAMS, "geom": "hyperboloid"}
+    schmal, _ = collect_pairs(t, x, y, tid, sta, **{**hyp, "v_max": 1e-4})
+    weit, _ = collect_pairs(t, x, y, tid, sta, **{**hyp, "v_max": 1e-2})
+    assert len(schmal["label"]) == 0
+    assert len(weit["label"]) == 1
+
 
 def test_label_entspricht_track_id(szene):
     t, x, y, tid, sta = szene
