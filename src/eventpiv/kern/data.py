@@ -17,7 +17,9 @@ from eventpiv.psee_io.psee_loader import PSEELoader
 def load_bbox(split: str, run_nr: int) -> np.ndarray:
     """Bounding-Box-Array eines Runs (strukturiert: t,x,y,w,h,class_id,track_id,...).
 
-    (x,y) ist die ECKE oben links, w=h=11 (Konstante des Datensatzes).
+    (x,y) ist die ECKE oben links, (w,h) sind die Kantenlaengen der Box --
+    JE ZEILE, nicht konstant: auf polydispersen Datensaetzen unterscheiden
+    sie sich je Partikel (STELLA: 2,5 bis 5,2 px).
     """
     _, bbox_path = config.run_files(split, run_nr)
     return np.load(bbox_path)

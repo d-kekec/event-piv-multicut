@@ -554,7 +554,6 @@ class Labeling(_Typed):
     ("Wurde die Label-Datei ueber den GANZEN Run erzeugt?")."""
     r_assign: float = 8.0
     r_ambig: float = 2.0
-    box_w: float = BOX_W
 
 
 @dataclass

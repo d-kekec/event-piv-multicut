@@ -91,6 +91,26 @@ def test_bekannte_zuordnung(scene):
     assert tid[0] == tid[1] == 7 and tid[2] == 9
 
 
+def test_boxmitte_kommt_aus_der_w_spalte():
+    """Polydisperse Boxen: die Mitte folgt der ZEILE, nicht einer Konstanten.
+
+    Box mit w = h = 4 an der Ecke (98, 98) -- Zentrum also (100, 100). Ein
+    Event genau dort ist sauber. Mit einer Konstanten von 11 laege das
+    angenommene Zentrum bei (103.5, 103.5), also 4,95 px daneben, und bei
+    r_assign = 3 fiele das Event auf RAUSCH.
+
+    make_bbox wird hier NICHT benutzt: die Fixture setzt w = h = 11 fest,
+    und genau davon soll dieser Test unabhaengig sein.
+    """
+    from mini_dataset import BBOX_DTYPE
+
+    b = np.zeros(1, dtype=BBOX_DTYPE)
+    b[0] = (1000, 98.0, 98.0, 4.0, 4.0, 0, 5, 1.0)
+    t = np.array([1000.0]); x = np.array([100.0]); y = np.array([100.0])
+    tid, st = assign_track_ids(t, x, y, b, r_assign=3.0)
+    assert st[0] == STATUS_CLEAN and tid[0] == 5
+
+
 def test_monotonie_r_assign(scene):
     """Sehr grosses r_assign => es darf keinen Rausch-Status mehr geben."""
     t, x, y, bbox = scene

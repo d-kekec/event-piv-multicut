@@ -56,15 +56,13 @@ LABEL_FORMAT = 2
 # --- Defaults: EINE Quelle, runconfig.Labeling. Die Namen bleiben hier
 # bestehen, ihren Wert beziehen sie von dort.
 _LB_DEFAULT      = Labeling()
-BOX_W_DEFAULT    = _LB_DEFAULT.box_w      # px, Kantenlaenge der GT-Box
 R_ASSIGN_DEFAULT = _LB_DEFAULT.r_assign   # px, max. Abstand zum naechsten Zentrum
 R_AMBIG_DEFAULT  = _LB_DEFAULT.r_ambig    # px, (d2-d1) darunter -> mehrdeutig
 
 
 def assign_track_ids(t, x, y, bbox,
                      r_assign=R_ASSIGN_DEFAULT,
-                     r_ambig=R_AMBIG_DEFAULT,
-                     box_w=BOX_W_DEFAULT):
+                     r_ambig=R_AMBIG_DEFAULT):
     """Ordnet jedem Event (t,x,y) eine track_id + Status zu.
 
     Reine Funktion: keine Pfade, keine Globals, kein I/O -> ohne Datensatz
@@ -85,9 +83,17 @@ def assign_track_ids(t, x, y, bbox,
     track_id ist die ZUORDNUNG, status die VERLAESSLICHKEIT dieser
     Zuordnung. Nur RAUSCH traegt -1, weil dort kein Zentrum nahe genug ist.
 
-    Die BOXFORM geht nie ein: box_w dient allein dazu, die Ecke oben links
-    in das Zentrum umzurechnen. Danach ist ein Partikel ein Punkt, und
-    r_assign ist ein Radius um diesen Punkt.
+    Die BOXFORM geht nie ein: w und h dienen allein dazu, die Ecke oben
+    links in das Zentrum umzurechnen. Danach ist ein Partikel ein Punkt,
+    und r_assign ist ein Radius um diesen Punkt.
+
+    JE ZEILE, nicht aus einer Konstanten. Auf batch1 traegt jede Box
+    w = h = 11 und beides ist zahlengleich; auf STELLA liegen die Boxen
+    zwischen 2,5 und 5,2 px, und eine Konstante von 11 versetzte jedes
+    Zentrum um bis zu 4,2 px je Achse -- mehr als der Wolkenradius.
+    Gemessen (16.09.): der konstante Restanteil der Verschiebung Event
+    minus Zentrum betraegt mit der w-Spalte +0,04 px in x und -0,02 px
+    in y, der Rest ist Vorwaertsversatz.
 
     Rueckgabe: (track_id int32, status uint8), beide der Laenge len(t).
     """
@@ -100,8 +106,6 @@ def assign_track_ids(t, x, y, bbox,
     status   = np.full(n, STATUS_NOISE, dtype=np.uint8)  # Default, wird ueberschrieben
     if n == 0:
         return track_id, status
-
-    center_offset = box_w / 2.0          # (x,y)=Ecke oben links -> +5.5 = Zentrum
 
     # --- 60-Hz-Raster aus den bbox-Zeitstempeln ---
     raster_t = np.unique(bbox["t"])
@@ -120,8 +124,8 @@ def assign_track_ids(t, x, y, bbox,
                                pos - 1, pos)
 
     # --- Boxzentren vorbereiten (Ecke -> Zentrum) ---
-    bx = bbox["x"].astype(np.float64) + center_offset
-    by = bbox["y"].astype(np.float64) + center_offset
+    bx = bbox["x"].astype(np.float64) + bbox["w"].astype(np.float64) / 2.0
+    by = bbox["y"].astype(np.float64) + bbox["h"].astype(np.float64) / 2.0
 
     # --- Events nach Rasterpunkt buendeln, ohne Python-Schleife ueber
     # Events: argsort plus zwei searchsorted-Laeufe geben die Gruppengrenzen.
@@ -236,8 +240,8 @@ def build_labels_for_run(cfg: LabelCfg, run_nr, verbose=True):
             return out_path, None
         raise LabelingMismatch(
             f"{out_path.name} passt nicht: entweder ANDERE Labeling-Parameter "
-            f"(jetzt verlangt: r_assign={lb.r_assign}, r_ambig={lb.r_ambig}, "
-            f"box_w={lb.box_w}) oder ein aelteres LABEL_FORMAT "
+            f"(jetzt verlangt: r_assign={lb.r_assign}, "
+            f"r_ambig={lb.r_ambig}) oder ein aelteres LABEL_FORMAT "
             f"(jetzt {LABEL_FORMAT}; Format 1 trug track_id nur fuer SAUBERE "
             "Events). Ohne io.overwrite=true wuerde still die alte Datei "
             "weiterverwendet, und jedes Folgeartefakt hinge an einer "
@@ -249,7 +253,7 @@ def build_labels_for_run(cfg: LabelCfg, run_nr, verbose=True):
     tic = time.time()
     track_id, status = assign_track_ids(ev["t"], ev["x"], ev["y"], bbox,
                                         r_assign=lb.r_assign,
-                                        r_ambig=lb.r_ambig, box_w=lb.box_w)
+                                        r_ambig=lb.r_ambig)
     elapsed = time.time() - tic
 
     st = label_stats(status)
