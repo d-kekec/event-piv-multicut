@@ -6,6 +6,7 @@ defaults:
   # runconfig.py. Mit `neighborhood=stella` wird die Gruppe zugeschaltet.
   - neighborhood: null
   - pairsampling: null
+  - training: null
   - datensatz: null
   - _self_
 

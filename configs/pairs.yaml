@@ -1,8 +1,10 @@
 defaults:
   - pairs_schema
   - neighborhood: null
+  # Kein `datensatz` hier: das Schema kennt `training` nicht, und der
+  # Paarbau haengt nicht vom Netz ab. Einzelgruppen setzen:
+  # neighborhood=stella pairsampling=stella
   - pairsampling: null
-  - datensatz: null
   - _self_
 
 hydra:

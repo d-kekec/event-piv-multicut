@@ -1,5 +1,9 @@
 # @package _global_
 #
+# Gilt fuer alle Treiber AB DEM TRAINING. Labels und Paarbau nehmen die
+# Einzelgruppen: ihre Schemata kennen `training` nicht, und eine Gruppe,
+# die dort etwas setzt, braeche.
+#
 # Setzt alle Gruppen eines Datensatzes auf einmal: `datensatz=stella`
 # statt `neighborhood=stella pairsampling=stella labeling=stella`. Die
 # Einzelgruppen bleiben bestehen und lassen sich weiter einzeln waehlen --
@@ -7,3 +11,4 @@
 defaults:
   - override /neighborhood: stella
   - override /pairsampling: stella
+  - override /training: stella

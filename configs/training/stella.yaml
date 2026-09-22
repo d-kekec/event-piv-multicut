@@ -1,0 +1,10 @@
+# Training fuer den STELLA-Datensatz. Wird ueber `datensatz=stella`
+# mitgesetzt, einzeln ueber `training=stella`.
+#
+# feature_mode dr: auf diesem Datensatz trennt der Abstand allein. Die
+# NEIN-Paare liegen ueberwiegend nebeneinander statt uebereinander; bei
+# gleicher Fragmentierung verschmilzt dr nicht mehr als drjac. Ohne den
+# Jaccard entfaellt die quadratische Speicher- und Rechenlast im Einsatz.
+#
+# cost_offset bleibt bei der Vorgabe 0.0 und steht deshalb nirgends.
+feature_mode: dr

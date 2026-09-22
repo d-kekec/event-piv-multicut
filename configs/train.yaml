@@ -2,6 +2,7 @@ defaults:
   - train_schema
   - neighborhood: null
   - pairsampling: null
+  - training: null
   - datensatz: null
   - _self_
 
