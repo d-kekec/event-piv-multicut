@@ -103,6 +103,23 @@ def test_stufe2_identitaet_haengt_an_jedem_feld():
         assert slug(abweichend) != slug(t)
 
 
+def test_kandidaten_v_max_muss_zur_nachbarschaft_passen():
+    """kandidaten.v_max und neighborhood.v_max sind dieselbe Groesse in zwei
+    Gruppen. Wird eine Gruppe vergessen, sucht Stufe 2 still mit dem Wert
+    eines anderen Datensatzes. Jede Stufen-Konfiguration, die beide traegt,
+    bricht deshalb zur Konfigurationszeit ab -- ausser bei io.strict=false."""
+    from eventpiv.kern.runconfig import (IO, AnimTrajCfg, FitCfg, Kandidaten,
+                                         KandidatenCfg, Solve2Cfg, Stufe2Cfg)
+
+    nb = Neighborhood(v_max=1.79e-3)
+    for cfg in (KandidatenCfg, Stufe2Cfg, Solve2Cfg, FitCfg, AnimTrajCfg):
+        cfg()                                            # Vorgaben passen
+        with pytest.raises(ValueError, match="v_max"):
+            cfg(neighborhood=nb)                         # Gruppe vergessen
+        cfg(neighborhood=nb, kandidaten=Kandidaten(v_max=0.00179))
+        cfg(neighborhood=nb, io=IO(strict=False))        # bewusster Akt
+
+
 def test_weight_ist_kein_gueltiger_imbalance_modus():
     """Die Gewichtung war seit Wochen unbenutzt und tat in beiden Stufen
     Verschiedenes -- Stufe 1 gewichtete nur, Stufe 2 zog zusaetzlich. Ein

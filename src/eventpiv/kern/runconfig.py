@@ -7,8 +7,10 @@ PARAMETER, nicht Pfade. config.py bleibt die einzige Stelle mit Pfadwissen:
 hier steht, WAS gerechnet wird, dort, WOHIN es geschrieben wird.
 
 Der Gruppenschnitt folgt dem UEBEREINSTIMMUNGS-Kriterium: eine Gruppe ist,
-was zwischen zwei Stufen gleich sein MUSS. Nur `Neighborhood` muss das, und
-nur sie wird verglichen.
+was zwischen zwei Stufen gleich sein MUSS. Zwischen den Stufen muss das nur
+`Neighborhood`. Innerhalb einer Stufe bindet eine Groesse ueber die
+Gruppengrenze: `kandidaten.v_max` ist dieselbe wie `neighborhood.v_max`, und
+die Stufen-Konfigurationen, die beide tragen, pruefen das.
 
 KEIN frozen=True -- OmegaConf macht den Container dann read-only und jeder
 Hydra-Override scheitert. GEMESSEN, bei einem OmegaConf-Wechsel neu
@@ -788,6 +790,9 @@ class KandidatenCfg:
     kandidaten:   Kandidaten   = field(default_factory=Kandidaten)
     compute:      Compute      = field(default_factory=Compute)
 
+    def __post_init__(self) -> None:
+        _pruefe_v_max(self)
+
 
 @dataclass
 class Stufe2Cfg:
@@ -805,6 +810,9 @@ class Stufe2Cfg:
     kandidaten:   Kandidaten   = field(default_factory=Kandidaten)
     transformer:  Transformer  = field(default_factory=Transformer)
     compute:      Compute      = field(default_factory=Compute)
+
+    def __post_init__(self) -> None:
+        _pruefe_v_max(self)
 
 
 @dataclass
@@ -830,6 +838,9 @@ class Solve2Cfg:
     solver2:      Solver2      = field(default_factory=Solver2)
     compute:      Compute      = field(default_factory=Compute)
 
+    def __post_init__(self) -> None:
+        _pruefe_v_max(self)
+
 
 @dataclass
 class FitCfg:
@@ -850,6 +861,9 @@ class FitCfg:
     solver2:      Solver2      = field(default_factory=Solver2)
     fit:          Fit          = field(default_factory=Fit)
     selection:    Selection    = field(default_factory=Selection)
+
+    def __post_init__(self) -> None:
+        _pruefe_v_max(self)
 
 
 @dataclass
@@ -908,6 +922,9 @@ class AnimTrajCfg:
     compute:      Compute      = field(default_factory=Compute)
     anim:         AnimTraj     = field(default_factory=AnimTraj)
 
+    def __post_init__(self) -> None:
+        _pruefe_v_max(self)
+
 
 # ============================================================
 # Kanonische Form, Identitaet, Vertrag
@@ -957,6 +974,32 @@ def same_neighborhood(a: Neighborhood, b: Neighborhood) -> bool:
     """Der Vertrag. Nur diese Gruppe wird verglichen -- Solve-Konfigurationen
     unterscheiden sich per Konstruktion in run_nr, t0, dt, mode."""
     return canonical(a) == canonical(b)
+
+def _pruefe_v_max(cfg) -> None:
+    """kandidaten.v_max ist dieselbe Groesse wie neighborhood.v_max: die
+    schnellste Partikelgeschwindigkeit, in px/µs.
+
+    Zwei Gruppen, weil Stufe 1 sie auf Events anwendet und Stufe 2 auf
+    Zentroide. Weichen die Werte ab, ist in aller Regel eine Gruppe
+    vergessen worden -- dann sucht Stufe 2 mit dem v_max eines anderen
+    Datensatzes, und nichts faellt auf: die Kandidaten sehen plausibel aus.
+    Eine bewusste Abweichung geht nur mit io.strict = false, als sichtbarer
+    Akt.
+
+    Verglichen in der kanonischen Form, damit 1.79e-3 und 0.00179 gleich
+    sind.
+    """
+    if not cfg.io.strict:
+        return
+    a = _norm(float(cfg.kandidaten.v_max))
+    b = _norm(float(cfg.neighborhood.v_max))
+    if a != b:
+        raise ValueError(
+            f"kandidaten.v_max={a} weicht von neighborhood.v_max={b} ab. "
+            "Beide sind die schnellste Partikelgeschwindigkeit. Gruppe "
+            "vergessen (kandidatensatz=...)? Bewusste Abweichung nur mit "
+            "io.strict=false.")
+
 
 def identity_meta(**gruppen) -> dict:
     """Metadatenblock aus Gruppen -- ersetzt handgepflegte Feldlisten.
