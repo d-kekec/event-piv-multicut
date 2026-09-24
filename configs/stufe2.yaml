@@ -3,6 +3,7 @@ defaults:
   - neighborhood: null
   - pairsampling: null
   - training: null
+  - kandidatensatz: null
   - datensatz: null
   - _self_
 
