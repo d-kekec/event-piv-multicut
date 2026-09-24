@@ -17,7 +17,7 @@
 # Partikelgeschwindigkeit ueber alle Runs, in px/µs (0,00179 px/µs sind
 # 1,79 px/ms). Die Drift ist ueber die Zeitspannen beider Stufen linear;
 # der Suchkoerper muss die Fortsetzung der schnellsten Partikel enthalten.
-# Die Stufen-Konfigurationen pruefen die Gleichheit.
+# KandidatenCfg prueft die Gleichheit.
 #
 # r_max: die Taille. Sie deckt den Abstand der Zentroide zweier Knoten
 # derselben Bahn bei kleinem dt, vor allem Bruchstuecke im selben Fenster;

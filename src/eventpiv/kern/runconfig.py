@@ -9,8 +9,8 @@ hier steht, WAS gerechnet wird, dort, WOHIN es geschrieben wird.
 Der Gruppenschnitt folgt dem UEBEREINSTIMMUNGS-Kriterium: eine Gruppe ist,
 was zwischen zwei Stufen gleich sein MUSS. Zwischen den Stufen muss das nur
 `Neighborhood`. Innerhalb einer Stufe bindet eine Groesse ueber die
-Gruppengrenze: `kandidaten.v_max` ist dieselbe wie `neighborhood.v_max`, und
-die Stufen-Konfigurationen, die beide tragen, pruefen das.
+Gruppengrenze: `kandidaten.v_max` ist dieselbe wie `neighborhood.v_max`.
+Geprueft wird das in KandidatenCfg, wo der Kandidatensatz entsteht.
 
 KEIN frozen=True -- OmegaConf macht den Container dann read-only und jeder
 Hydra-Override scheitert. GEMESSEN, bei einem OmegaConf-Wechsel neu
@@ -811,9 +811,6 @@ class Stufe2Cfg:
     transformer:  Transformer  = field(default_factory=Transformer)
     compute:      Compute      = field(default_factory=Compute)
 
-    def __post_init__(self) -> None:
-        _pruefe_v_max(self)
-
 
 @dataclass
 class Solve2Cfg:
@@ -838,9 +835,6 @@ class Solve2Cfg:
     solver2:      Solver2      = field(default_factory=Solver2)
     compute:      Compute      = field(default_factory=Compute)
 
-    def __post_init__(self) -> None:
-        _pruefe_v_max(self)
-
 
 @dataclass
 class FitCfg:
@@ -861,9 +855,6 @@ class FitCfg:
     solver2:      Solver2      = field(default_factory=Solver2)
     fit:          Fit          = field(default_factory=Fit)
     selection:    Selection    = field(default_factory=Selection)
-
-    def __post_init__(self) -> None:
-        _pruefe_v_max(self)
 
 
 @dataclass
@@ -921,9 +912,6 @@ class AnimTrajCfg:
     fit:          Fit          = field(default_factory=Fit)
     compute:      Compute      = field(default_factory=Compute)
     anim:         AnimTraj     = field(default_factory=AnimTraj)
-
-    def __post_init__(self) -> None:
-        _pruefe_v_max(self)
 
 
 # ============================================================
@@ -985,6 +973,11 @@ def _pruefe_v_max(cfg) -> None:
     Datensatzes, und nichts faellt auf: die Kandidaten sehen plausibel aus.
     Eine bewusste Abweichung geht nur mit io.strict = false, als sichtbarer
     Akt.
+
+    Aufgerufen nur in KandidatenCfg: [6a] ist die einzige Stufe, die aus
+    diesen Werten ein Artefakt schreibt. Alle spaeteren lesen es ueber den
+    Slug; mit vergessener Gruppe zeigt der auf ein Verzeichnis ohne
+    Dateien, und dort kann nichts Plausibles entstehen.
 
     Verglichen in der kanonischen Form, damit 1.79e-3 und 0.00179 gleich
     sind.
