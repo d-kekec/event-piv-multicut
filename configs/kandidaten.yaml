@@ -1,5 +1,9 @@
 defaults:
   - kandidaten_schema
+  - neighborhood: null
+  - pairsampling: null
+  - training: null
+  - datensatz: null
   - _self_
 
 hydra:

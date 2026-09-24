@@ -9,9 +9,10 @@ ihre Parameter waehlt:
   min_events, n_events   Groessenverteilung der Tracklets, Filterkurve,
                          Abdeckung der Stichprobe; mit --gt dazu die
                          Kreuztabelle klein x Rauschen
-  r_max, v_max           nur mit --gt: Zentroidabstand zwischen Tracklets
-                         DERSELBEN GT-Bahn nach dt -- die Taille bei
-                         dt < alpha1, die Drift als Steigung der Huelle
+  r_max, v_max           nur mit --gt: Zentroidabstand zwischen Knoten
+                         DERSELBEN GT-Bahn nach dt, also Tracklets ab
+                         --filter Events -- die Taille bei dt < alpha1,
+                         die Drift als Steigung der Huelle
 
 WOHER DIE DATEIEN KOMMEN. Ohne --quelle aus den Vorgaben von runconfig,
 also dem Arbeitspunkt von batch1. Die Gruppen eines anderen Datensatzes
@@ -26,7 +27,7 @@ genau die Groesse, auf die knoten_bauen filtert. Billig, laeuft auf rema.
 
 MIT --gt zusaetzlich Eventstrom und Labels, ueber lade_fenster und
 knoten_bauen wie in [6a]: dieselben Zentroide, dieselbe Mehrheit, keine
-Nachbildung. Auf den dichten STELLA-Runs um 15 GB -- ein Compute-Node-Job.
+Nachbildung. Auf dichten Runs zu gross fuer rema -- ein Compute-Node-Job.
 
 Aufruf (Repo-Wurzel, venv aktiv, eventpiv_use passend zu den Dateien):
     python tools/schaetzer/stufe2_parameter_schaetzer.py
@@ -275,14 +276,19 @@ def _wurzel(pfad, marke: str):
     return Path(*teile[:teile.index(marke)]) if marke in teile else None
 
 
-def gt_messung(pfad, tid, meta, n_fenster: int):
+def gt_messung(pfad, tid, meta, n_fenster: int, min_events: int):
     """Labels dazu: n_on und n_gt je Tracklet, Zentroid-Histogramm.
 
     Derselbe Weg wie kandidaten_fuer_run: lade_fenster ueber den ganzen
     Run, Laengenvertrag zu (A) pruefen, knoten_bauen -- hier mit
     min_events = 1, damit auch die kleinen Tracklets in der Kreuztabelle
     stehen. Eine eigene Funktion, damit Strom und Knoten mit dem Ruecksprung
-    freigegeben werden; auf den dichten Runs sind das um 15 GB.
+    freigegeben werden -- auf dichten Runs sind das viele GB.
+
+    Der Zentroidabstand rechnet nur ueber Knoten, die [6a] bilden wuerde,
+    also ab min_events. Kruemel darunter haben Zentroide aus ein bis vier
+    Events, oft auf denselben Pixeln; mitgezaehlt beschriebe die Taille
+    die Kruemel statt der Knoten.
 
     Die Label-Datei muss unter derselben Ausgabewurzel liegen wie (A).
     Sonst passt eventpiv_use nicht zu den Dateien, und das fiele erst am
@@ -310,7 +316,7 @@ def gt_messung(pfad, tid, meta, n_fenster: int):
                       track_id=fe.track_id,
                       status_noise=np.asarray(fe.status) == STATUS_NOISE)
     tab = kn.tabelle
-    e = tab["n_gt"] == 1
+    e = (tab["n_gt"] == 1) & (tab["n_on"] >= int(min_events))
     hist = zentroid_histogramm(tab["gt_track_id"][e], tab["t_min"][e],
                                tab["x_c"][e], tab["y_c"][e],
                                meta["neighborhood"]["alpha"], n_fenster)
@@ -333,7 +339,7 @@ def zentroid_histogramm(gt, t, x, y, alpha1, n_fenster: int) -> np.ndarray:
     t_min), dann Versatz L = 1, 2, ... ueber die Zeilen. Innerhalb einer
     Bahn waechst dt mit L; findet ein Versatz kein Paar derselben Bahn
     unter der Grenze mehr, findet es auch kein groesserer. Jedes Paar wird
-    genau einmal gezaehlt -- gegen eine Schleife ueber alle Paare geprueft.
+    genau einmal gezaehlt.
     """
     n_dr = int(round(DR_MAX / DR_BREITE))
     h = np.zeros((n_fenster + 1, n_dr + 1), np.int64)
@@ -365,8 +371,8 @@ def drift_auswerten(h, alpha1) -> dict:
 
     DIE DRIFT ALS SEKANTE, NICHT AUS EINEM MODELL. Die Huelle aus Streuung
     plus Drift ist weder Kegel (Taille + v*dt) noch Hyperboloid
-    (sqrt(Taille^2 + (v*dt)^2)) -- an Zufallsdaten liegt die Wahrheit
-    dazwischen, und beide Formeln verfehlen v bei kleinem dt deutlich.
+    (sqrt(Taille^2 + (v*dt)^2)) -- sie liegt dazwischen, und beide Formeln
+    verfehlen v, solange die Drift klein gegen die Taille ist.
     Weit draussen nimmt jede glatte Huelle aber die Steigung der Drift an.
     Die Sekante zwischen der ersten belegten Klasse ab SEKANTE_AB und der
     letzten belegten trifft sie, sobald die Drift ueber diese Spanne die
@@ -398,7 +404,7 @@ def drift_auswerten(h, alpha1) -> dict:
 
 def drift_text(name, d, alpha1, v_max_stufe1, zeilen) -> str:
     """Tabelle je dt-Klasse, dazu Taille und Drift gegen neighborhood.v_max."""
-    s = (f"{name}: Zentroidabstand gleicher GT-Bahn (n_gt == 1), "
+    s = (f"{name}: Zentroidabstand gleicher GT-Bahn (n_gt == 1, ab --filter), "
          f"alpha1 = {alpha1:g} µs\n"
          f"  {'dt [alpha1]':>11} {'Paare':>12} {'p50':>7} {'p99':>7} "
          f"{'p99,9':>7} {'max':>7}   Sekante p99,9 [px/ms]\n")
@@ -481,7 +487,7 @@ def main() -> None:
         n_on, n_gt = groessen(tid), None
         if args.gt:
             n_on_kn, n_gt, hist_je_run[run_nr] = gt_messung(
-                pfad, tid, metas[run_nr], args.fenster)
+                pfad, tid, metas[run_nr], args.fenster, args.filter)
             # Zwei Wege zur selben Zahl: bincount ueber (A) gegen die
             # Knotentabelle, beide nach tracklet_id geordnet.
             if not np.array_equal(n_on_kn, n_on):
