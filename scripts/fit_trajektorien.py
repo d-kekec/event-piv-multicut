@@ -11,6 +11,7 @@ Beispielaufruf:
     python scripts/fit_trajektorien.py selection.split=train \\
         selection.runs=[32,40]
 """
+import resource
 import time
 from dataclasses import asdict, replace
 
@@ -119,7 +120,13 @@ def main(dcfg: DictConfig) -> None:
             lauf["gt"] = trajektorien_metriken(
                 spalten, load_bbox(split, r), zuo,
                 v_norm=cfg.neighborhood.v_max * 1e3)
-        lauf["diag"] = {"sec_total": round(time.time() - t0, 1)}
+        # Spitzenwert des PROZESSES bis hierher, nicht je Run: ru_maxrss
+        # faellt nie. Bei mehreren Runs in einem Aufruf traegt jeder den
+        # hoechsten Wert der Runs davor mit -- wie in [6c].
+        lauf["diag"] = {"sec_total": round(time.time() - t0, 1),
+                        "max_rss_mb": round(
+                            resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+                            / 1024, 1)}
 
         run = wandb.init(
             project=PROJECT, group=slug(cfg.neighborhood), job_type="fit",
@@ -134,7 +141,8 @@ def main(dcfg: DictConfig) -> None:
                   f"{lauf['n_bahnen_partition']} Bahnen, "
                   f"{lauf['n_punkte']:,} Punkte, "
                   f"|u| {lauf['u_median_px_ms']:.4f} px/ms "
-                  f"[{lauf['diag']['sec_total']:.0f}s]", flush=True)
+                  f"[{lauf['diag']['sec_total']:.0f}s, max_rss "
+                  f"{lauf['diag']['max_rss_mb']:,.0f} MB]", flush=True)
             if "gt" in lauf:
                 g = lauf["gt"]
                 print(f"  MedAE_xy {g['medae_xy']:.3f} px  "
