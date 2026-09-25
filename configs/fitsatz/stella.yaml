@@ -23,7 +23,8 @@
 # r_mess: die Quervarianz der Eventwolke (Journal 16.-18.09.). Wirksam ist
 # nur q_c/r_mess; der Wert haelt die Kovarianz des Filters lesbar.
 #
-# q_c: ein Startwert fuer den Sweep ueber Dekaden, keine Messung.
+# q_c: aus der Mitte eines flachen Tals, nicht von seinem Rand -- das
+# Minimum liegt nicht fuer jeden Run an derselben Stelle (Journal 25.09.).
 #
 # a_unbekannt: in der Groessenordnung der Beschleunigungen auf STELLA.
 # Zu gross schadet nicht, zu klein schon.
@@ -33,5 +34,5 @@ min_dauer_us: 10000.0
 c0: 2.26
 c1: 0.0
 r_mess: 3.0
-q_c: 1000000.0
+q_c: 10000000.0
 a_unbekannt: 10000.0
