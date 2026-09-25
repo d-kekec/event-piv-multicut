@@ -521,6 +521,12 @@ class Fit(_Typed):
     q_c steht noch auf dem Wert von VOR der P0-Korrektur; seither liegt
     das Optimum bei 10 (Journal 14.09.2026). Neu gesweept wird nach dem
     RTS-Glaetter.
+
+    a_unbekannt ist die Streuung der Beschleunigung beim Start, px/s^2.
+    Die Startgerade schaetzt Ort und Geschwindigkeit, die Beschleunigung
+    setzt sie null. UNTERSCHAETZEN IST DER TEURE FEHLER: ein zu sicherer
+    Start wird nur langsam korrigiert, ein zu unsicherer kostet nur die
+    ersten Schritte. Haengt am Datensatz, deshalb ein Feld.
     """
     r_mess: float = 8.0
     q_c: float = 20.0
@@ -529,6 +535,7 @@ class Fit(_Typed):
     dt_aus: float = 16_667.0
     init_us: float = 100_000.0
     min_dauer_us: float = 100_000.0
+    a_unbekannt: float = 100.0
     # RTS-Rueckwaertslauf. Ohne ihn ist der Filter kausal und laeuft
     # jeder Richtungsaenderung hinterher.
     glaetten: bool = True
@@ -547,6 +554,10 @@ class Fit(_Typed):
             if getattr(self, name) <= 0.0:
                 raise ValueError(
                     f"fit.{name}={getattr(self, name)} muss positiv sein")
+        if self.a_unbekannt < 0.0:
+            raise ValueError(
+                f"fit.a_unbekannt={self.a_unbekannt} ist eine Streuung und "
+                "darf nicht negativ sein")
 
 
 @dataclass

@@ -140,6 +140,8 @@ def test_fit_typcast_und_auswahlwerte():
     for feld in ("r_mess", "q_c", "dt_aus", "init_us", "min_dauer_us"):
         with pytest.raises(ValueError, match=feld):
             Fit(**{feld: 0.0})
+    with pytest.raises(ValueError, match="a_unbekannt"):
+        Fit(a_unbekannt=-1.0)
 
 
 def test_fit_default_ist_der_gemessene_arbeitspunkt():

@@ -255,7 +255,31 @@ def test_glaetter_verbessert_den_bahnanfang():
             < np.abs(xa[:k] - soll[:k]).mean())
 
 
-def test_glaetter_aendert_den_slug():
+def test_a_unbekannt_erreicht_den_filter():
+    """Die Streuung der Startbeschleunigung wirkt: auf einer stark
+    gekruemmten Bahn trifft ein grosszuegiger Wert den Bahnanfang, ein zu
+    kleiner haelt die Beschleunigung zu lange bei null. Die Vorgabe
+    bleibt 100 -- ohne das Feld rechnet der Filter wie bisher."""
+    from eventpiv.kette.trajektorien import kalman_bahn
+
+    n = 20_000
+    t = np.arange(n, dtype=np.float64) * 10.0          # 200 ms
+    ts = t * 1e-6
+    x = 100.0 + 1000.0 * ts + 0.5 * 5000.0 * ts ** 2   # a = 5000 px/s^2
+    y = np.full(n, 200.0)
+    kw = dict(r_mess=3.0, q_c=1e6, dt_aus=1_000.0, init_us=5_000.0,
+              glaetten=True)
+    klein = kalman_bahn(t, x, y, a_unbekannt=100.0, **kw)
+    gross = kalman_bahn(t, x, y, a_unbekannt=1e4, **kw)
+    soll = (1000.0 + 5000.0 * klein[0] * 1e-6) * 1e-6  # px/µs
+    k = 20                                             # erste 20 ms
+    f_klein = np.abs(klein[3][:k] - soll[:k]).mean()
+    f_gross = np.abs(gross[3][:k] - soll[:k]).mean()
+    assert f_gross < f_klein / 10
+
+    vorgabe = kalman_bahn(t, x, y, **kw)
+    for a, b in zip(vorgabe, klein):
+        np.testing.assert_array_equal(a, b)
     """Zwei Fit-Arbeitspunkte muessen nebeneinander liegen koennen."""
     from eventpiv.kern.runconfig import Fit, slug
 

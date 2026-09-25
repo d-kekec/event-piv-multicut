@@ -129,17 +129,15 @@ def bahn(tr: Trajektorien, i: int, t, x, y):
 # zwei Stellen, hier markiert mit S_JE_US.
 S_JE_US = 1e-6
 MIN_EVENTS_FIT = 10
-# Beschleunigung beim Start: unbekannt. Gemessen liegt sie bei rund
-# 25 px/s^2 (Journal 12.09.); 100 als Streuung ist grosszuegig, und zu
-# gross schadet hier nicht -- P schrumpft in wenigen hundert Schritten.
-A_UNBEKANNT = 100.0     # px/s^2
 
 
-def _start_p(n_init, t_spanne_s, r):
+def _start_p(n_init, t_spanne_s, r, a_unbekannt):
     """Startkovarianz aus der Statistik der Ausgleichsgeraden.
 
     sigma_p^2 = R/n, sigma_v^2 = 12 R/(n T^2) -- die Unsicherheit einer
     Regression, nicht ein geratenes Vielfaches. Faktor 4 als Reserve.
+    Die Beschleunigung schaetzt die Gerade nicht: dort steht die Streuung
+    a_unbekannt, in px/s^2.
 
     UNTERSCHAETZEN IST DER TEURE FEHLER: ein zu sicherer Startzustand
     wird nur langsam korrigiert, und der Bahnanfang bleibt sichtbar
@@ -149,7 +147,7 @@ def _start_p(n_init, t_spanne_s, r):
     tt = max(float(t_spanne_s), 1e-9)
     return (4.0 * r / n,
             4.0 * 12.0 * r / (n * tt * tt),
-            A_UNBEKANNT * A_UNBEKANNT)
+            a_unbekannt * a_unbekannt)
 
 
 def _startzustand(t, x, y, init_us):
@@ -260,7 +258,7 @@ def _rts_rueckwaerts(t, zp, zv, za, wp, wv, wa, pf, qc):
 
 
 def kalman_bahn(t, x, y, *, r_mess, q_c, dt_aus=None, t_aus=None,
-                init_us=100_000.0, glaetten=False):
+                init_us=100_000.0, glaetten=False, a_unbekannt=100.0):
     """EINE Bahn filtern und auf ein Zeitgitter legen. Reine Funktion.
 
     t, x, y   Events einer Bahn, t in µs aufsteigend
@@ -272,6 +270,7 @@ def kalman_bahn(t, x, y, *, r_mess, q_c, dt_aus=None, t_aus=None,
               Vergleich mit einem fremden Raster.
     init_us   Fenster fuer den Startzustand
     glaetten  RTS-Rueckwaertslauf anschliessen
+    a_unbekannt  Streuung der Startbeschleunigung, px/s^2
 
     Rueckgabe: (t_aus, x_aus, y_aus, ux_aus, uy_aus)
       t_aus in µs, Ort in px, Geschwindigkeit in px/µs.
@@ -325,7 +324,7 @@ def kalman_bahn(t, x, y, *, r_mess, q_c, dt_aus=None, t_aus=None,
 
     (xp, xv, xa), (yp, yv, ya), n_init, t_init = _startzustand(
         t, x, y, init_us)
-    p00, p11, p22 = _start_p(n_init, t_init, r)
+    p00, p11, p22 = _start_p(n_init, t_init, r, a_unbekannt)
     p01 = p02 = p12 = 0.0
 
     # Zustand und Kovarianz je Event. Der Glaetter braucht sie; ohne ihn
@@ -428,7 +427,8 @@ def versatz_korrektur(x, y, u, v, *, c0, c1):
 
 
 def fitte_run(tr: Trajektorien, t, x, y, *, r_mess, q_c, c0, c1,
-              dt_aus, min_dauer_us, init_us=100_000.0, glaetten=False):
+              dt_aus, min_dauer_us, init_us=100_000.0, glaetten=False,
+              a_unbekannt=100.0):
     """Alle Bahnen eines Runs filtern und korrigieren.
 
     Rueckgabe: sechs gleich lange Arrays (t, x, y, ux, uy,
@@ -447,7 +447,7 @@ def fitte_run(tr: Trajektorien, t, x, y, *, r_mess, q_c, c0, c1,
             continue
         ta, xa, ya, ua, va = kalman_bahn(
             tb, xb, yb, r_mess=r_mess, q_c=q_c, dt_aus=dt_aus,
-            init_us=init_us, glaetten=glaetten)
+            init_us=init_us, glaetten=glaetten, a_unbekannt=a_unbekannt)
         if len(ta) == 0:
             continue
         xk, yk = versatz_korrektur(xa, ya, ua, va, c0=c0, c1=c1)
