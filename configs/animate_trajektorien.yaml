@@ -1,5 +1,11 @@
 defaults:
   - animtraj_schema
+  - neighborhood: null
+  - pairsampling: null
+  - training: null
+  - kandidatensatz: null
+  - fitsatz: null
+  - datensatz: null
   - _self_
 
 hydra:

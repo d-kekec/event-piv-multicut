@@ -26,8 +26,10 @@ npz neben der Kennzahlen-JSON. Kein Rueckfallpfad auf Neurechnen -- zwei
 Wege zur selben Partition, von denen einer selten laeuft, veralten still.
 Damit braucht [D] weder GPU noch Netz.
 
-DER FIT-PANEL legt die gefittete Bahn ueber die Eventwolke. Er kostet
-rund 70 s je Run und laeuft nur, wenn er gewaehlt ist.
+DER FIT-PANEL legt die gefittete Bahn aus [7] ueber die Eventwolke, und
+auch sie wird GELESEN: ein eigener Fit hier zeigte einen anderen als den
+bewerteten, sobald ein Parameter nur einen der beiden Wege erreicht. Die
+Fit-Gruppe muss deshalb dieselbe sein wie beim Fit-Lauf.
 
 window schneidet nur die ANZEIGE. Geloest wird immer der ganze Run: die
 Farben eines Ausschnitts waeren sonst andere als die des vollen Laufs, und
@@ -51,10 +53,7 @@ from eventpiv.zeigen.visualize import (GREY, SENSOR_H, SENSOR_W, _crop_box,
 
 PANEL_NAMEN = ("roh", "tracklets", "trajektorien", "fit", "gt")
 
-# Die Linie braucht dichtere Stuetzpunkte als die Auswertung: bei
-# fit.dt_aus = 16 667 µs liegen zwei Punkte rund 0,8 px auseinander und
-# die Bahn zerfaellt sichtbar in Tupfen. 5 000 µs ergeben 0,25 px.
-FIT_DT_ANZEIGE_US = 5_000.0
+
 DUNKEL = 0.75           # Bahnlinie gegen ihre Eventwolke abgesetzt
 
 
@@ -106,6 +105,24 @@ def _partition(cfg, run_nr):
     with np.load(npz) as d:
         lab_ev = d["trajektorie_id"]
     return lab_ev, json.loads(js.read_text(encoding="utf-8"))["lauf"]
+
+
+def _fit(cfg):
+    """Gefittete Bahnen aus dem Artefakt von [7]: (t, x, y, trajektorie_id).
+
+    Der Pfad haengt am Fit-Slug. Eine andere Fit-Gruppe als beim Fit-Lauf
+    findet die Datei nicht, statt still einen anderen Fit zu zeigen.
+    """
+    pfad = config.fit_file(cfg.neighborhood, cfg.pairs, cfg.training,
+                           cfg.solver, cfg.kandidaten, cfg.transformer,
+                           cfg.selection, cfg.solver2, cfg.fit)
+    if not pfad.exists():
+        raise SystemExit(
+            f"{pfad.name} fehlt.\n"
+            "Erst scripts/fit_trajektorien.py mit denselben Gruppen laufen "
+            "lassen -- [D] fittet nicht nach.")
+    with np.load(pfad) as d:
+        return d["t"], d["x"], d["y"], d["trajektorie_id"]
 
 
 def _gt_mitten(cfg, run_nr, gt_ids):
@@ -189,20 +206,17 @@ def animate_trajektorien(cfg: AnimTrajCfg):
         _panel("trajektorien", "Stufe 2: Trajektorien",
                x, y, _farben(lab_ev, an.min_size), t, nein)
     if "fit" in wahl:
-        from eventpiv.kette.trajektorien import fitte_run, gruppiere
-
+        tfp, xfp, yfp, idfp = _fit(cfg)
         uniq, tab = color_lookup(lab_ev, min_size=an.min_size)
-        tf64 = t.astype(np.float64)
-        # Dichte Stuetzpunkte statt Linien: render_panel zeichnet Punkte,
-        # und bei FIT_DT_US liegen zwei davon unter einem Pixel
-        # auseinander. Die Linie entsteht von selbst und folgt
+        # Fit und Partition teilen den ID-Raum. Eine ID, die die Partition
+        # nicht kennt, bekaeme ueber searchsorted still eine fremde Farbe.
+        if not np.isin(idfp, uniq).all():
+            raise SystemExit(
+                "Fit-Artefakt und Partition passen nicht zusammen: der Fit "
+                "kennt Trajektorien, die die Partition nicht hat.")
+        # Stuetzpunkte statt Linien: render_panel zeichnet Punkte, und die
+        # Linie entsteht aus dem Gitter des Fits von selbst. Sie folgt
         # downscale und crop wie jedes Event.
-        tfp, xfp, yfp, _, _, idfp = fitte_run(
-            gruppiere(lab_ev, len(t)), tf64, x.astype(np.float64),
-            y.astype(np.float64), r_mess=cfg.fit.r_mess, q_c=cfg.fit.q_c,
-            c0=cfg.fit.c0, c1=cfg.fit.c1, dt_aus=FIT_DT_ANZEIGE_US,
-            min_dauer_us=cfg.fit.min_dauer_us, init_us=cfg.fit.init_us,
-            glaetten=cfg.fit.glaetten)
         farb_bahn = (tab[np.searchsorted(uniq, idfp)]
                      * DUNKEL).astype(np.uint8)
         _panel("fit", "Stufe 2 + Fit (dunkel: gefittete Bahn)",
@@ -276,11 +290,14 @@ def animate_trajektorien(cfg: AnimTrajCfg):
     out_dir = (config.results_dir() / "animations" if cfg.io.out_path is None
                else Path(cfg.io.out_path))
     p_tag = "_" + "".join(w[0] for w in wahl)
+    # Der Fit-Slug nur mit fit-Panel -- sonst schrieben zwei
+    # Fit-Arbeitspunkte in dieselbe Datei.
+    f_tag = f"_{slug(cfg.fit)}" if "fit" in wahl else ""
     # BEIDE Solver: Stufe 1 waehlt die Quelle, Stufe 2 die Rechnung. Ohne
     # den ersten schrieben zwei cost_offset-Werte in dieselbe Datei.
     name = (f"traj_{sel.split}_run{run_nr}_{slug(cfg.kandidaten)}_"
             f"{slug(cfg.transformer)}_{cfg.solver.short()}_"
-            f"{cfg.solver2.short()}{p_tag}.gif")
+            f"{cfg.solver2.short()}{f_tag}{p_tag}.gif")
     pfad = save_gif(frames, out_dir / name,
                     an.hold_ms or max(an.frame_ms * 2, 60))
     return pfad, lauf
