@@ -510,8 +510,12 @@ class Fit(_Typed):
     STELLA: die ist ueber unseren Bereich konstant, der Versatz wachsend.
     c0 = c1 = 0 schaltet die Korrektur ab.
 
-    dt_aus ist frei und folgt weder alpha noch dem GT-Raster -- zwischen
-    den Messungen wird propagiert, nicht interpoliert.
+    dt_aus ist fuer den FILTER frei -- zwischen den Messungen wird
+    propagiert, nicht interpoliert. Fuer die BEWERTUNG nicht:
+    trajektorien_metriken interpoliert die Ausgabe linear auf die
+    GT-Zeiten, ein groeberes Gitter als das GT-Raster kostet dort
+    Ortsfehler aus der Kruemmung. Im Arbeitspunkt eines Datensatzes steht
+    deshalb sein GT-Raster.
 
     min_dauer_us haelt Bahnen heraus, die kaum laenger sind als init_us:
     der Filter braucht das Fenster allein zum Einschwingen. Rund 10 % der
