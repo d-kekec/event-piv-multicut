@@ -8,7 +8,6 @@ archives/
 outputs/
 multirun/
 runs/
-slurm/
 .vscode/
 # Python
 __pycache__/
