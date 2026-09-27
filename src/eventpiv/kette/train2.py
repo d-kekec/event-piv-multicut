@@ -3,7 +3,7 @@
 """
 train2.py -- BAUSTEIN [6b]: Training des Paar-Transformers.
 
-  paar_ziele        Zielwert und Gueltigkeit je Paar, drei Modi
+  paar_ziele        Zielwert und Gueltigkeit je Paar, zwei Modi
   lade_kandidaten   die [6a]-Artefakte aller Runs zu EINEM Datensatz
   split_nach_runs   Holdout nach RUNS
   train_stufe2      die Schleife
@@ -40,12 +40,12 @@ from eventpiv.kern.runconfig import Selection, Stufe2Cfg, identity_meta
 from eventpiv.kette.transformer import (PaarTransformer, baue_tokens,
                                         save_checkpoint)
 
-# Obergrenze JEDER Bewertungsstichprobe -- Holdout wie Trainingsmenge. Der
-# Holdout traegt bei zwei Runs rund 4,5 Mio. Paare, die Trainingsmenge bei
-# dreissig Runs rund 12 Mio.; sie alle je Epoche zu bewerten kostete so
-# viel wie das Training selbst. KONSTANTE und kein Feld: die Zahl
-# beeinflusst nur die Genauigkeit einer Kennzahl, nicht das Ergebnis, und
-# gehoert damit nicht in die Identitaet -- der Slug bleibt unberuehrt.
+# Obergrenze JEDER Bewertungsstichprobe -- Holdout wie Trainingsmenge.
+# Beide tragen weit mehr Paare, als sich je Epoche zu bewerten lohnt; alle
+# zu bewerten kostete so viel wie das Training selbst. KONSTANTE und kein
+# Feld: die Zahl beeinflusst nur die Genauigkeit einer Kennzahl, nicht das
+# Ergebnis, und gehoert damit nicht in die Identitaet -- der Slug bleibt
+# unberuehrt.
 VAL_MAX = 1_000_000
 
 
@@ -57,6 +57,12 @@ class Daten:
     addiert, wie solve_run es fuer die Tracklet-IDs tut. Damit ist ein
     Paar durch zwei Zahlen bestimmt, ohne dass irgendwo eine Run-Nummer
     nachgeschlagen werden muss.
+
+
+    NUR GUELTIGE PAARE: die uebrigen bekommen nie einen Gradienten und
+    werden nie bewertet. Sie liegen je Run zusammen, in der Reihenfolge von
+    kandidaten.runs und darin in der des Artefakts; grenzen[k]:grenzen[k+1]
+    gehoert zu runs[k].
     """
     ev: torch.Tensor          # (M, n, 3) auf dem Geraet
     maske: torch.Tensor       # (M, n)
@@ -65,9 +71,10 @@ class Daten:
     y_c: torch.Tensor
     paar_i: np.ndarray        # (P,) int32, global
     paar_j: np.ndarray
-    ziel: np.ndarray          # (P,) float32 in [0, 1]
-    gueltig: np.ndarray       # (P,) bool
-    run: np.ndarray           # (P,) int16 -- die Einheit des Holdouts
+    ziel: np.ndarray          # (P,) bool
+    runs: np.ndarray          # (R,) Run-Nummern in Ladereihenfolge
+    grenzen: np.ndarray       # (R+1,) Paar-Offsets je Run
+    n_roh: np.ndarray         # (R,) Kandidatenpaare je Run, auch ungueltige
 
 
 def paar_ziele(gt, n_gt, gt_anteil, i, j, *, modus, min_anteil):
@@ -100,18 +107,31 @@ def paar_ziele(gt, n_gt, gt_anteil, i, j, *, modus, min_anteil):
     return ziel, gueltig
 
 
+def _npz_form(f, name):
+    """(Form, dtype) eines Arrays im npz, aus dem npy-Kopf -- ohne das Array
+    zu entpacken."""
+    with f.zip.open(f"{name}.npy") as fp:
+        version = np.lib.format.read_magic(fp)
+        lies = (np.lib.format.read_array_header_1_0 if version == (1, 0)
+                else np.lib.format.read_array_header_2_0)
+        form, _, dtype = lies(fp)
+    return form, dtype
+
+
 def lade_kandidaten(cfg: Stufe2Cfg, device="cpu") -> Daten:
     """Die [6a]-Artefakte aller Runs zu einem Datensatz.
 
     Knotentensoren wandern auf das Geraet, Paar-Arrays bleiben im RAM: die
     ersten werden je Stapel indiziert, die zweiten nur geschnitten.
+
+    ZWEI DURCHGAENGE, damit nichts doppelt liegt. Der erste liest nur die
+    npy-Koepfe und kennt danach alle Groessen. Der zweite fuellt Tensoren
+    und Arrays, die von Anfang an ihre endgueltige Groesse haben -- Knoten
+    je Run direkt auf das Geraet, Paare je Run in die Paar-Arrays. Keine
+    Teillisten neben einem zusammengefuegten Array.
     """
     kd, tf = cfg.kandidaten, cfg.transformer
-    teile_ev, teile_m = [], []
-    tmin, xc, yc = [], [], []
-    pi, pj, ziel, gueltig, run = [], [], [], [], []
-    versatz = 0
-
+    pfade = []
     for r in kd.runs:
         sel = Selection(split=kd.split, run_nr=r)
         pfad = config.kandidaten_file(cfg.neighborhood, cfg.pairs,
@@ -120,53 +140,80 @@ def lade_kandidaten(cfg: Stufe2Cfg, device="cpu") -> Daten:
             raise SystemExit(
                 f"{pfad} fehlt. Erst scripts/build_kandidaten.py mit "
                 "denselben Gruppen laufen lassen.")
+        pfade.append(pfad)
+
+    m_r, p_r = [], []
+    for pfad in pfade:
         with np.load(pfad) as f:
             if "gt_track_id" not in f.files:
                 raise SystemExit(
                     f"{pfad.name} traegt keine GT -- ohne Label kein Training.")
-            teile_ev.append(torch.from_numpy(f["ev"]))
-            teile_m.append(torch.from_numpy(f["maske"]))
-            tmin.append(f["t_min"]); xc.append(f["x_c"]); yc.append(f["y_c"])
-            # int32 DURCHHALTEN statt aufweiten: paar_i und paar_j sind die
-            # beiden groessten Arrays des Datensatzes, und weil die
-            # Teillisten bis zum Funktionsende leben, zaehlt der Unterschied
-            # doppelt. Bei 1,2 Mrd. Paaren sind es 9,5 statt 19 GB, im
-            # Spitzenbedarf 18 statt 36. Torch indiziert mit int32 -- Tokens,
-            # Logits und Gradienten sind bitgleich (geprueft, torch 2.13).
+            (m,), _ = _npz_form(f, "t_min")
+            (p,), _ = _npz_form(f, "paar_i")
+            form_ev, typ_ev = _npz_form(f, "ev")
+            _, typ_m = _npz_form(f, "maske")
+        m_r.append(m)
+        p_r.append(p)
+    n_knoten = sum(m_r)
+    # int32 DURCHHALTEN statt aufweiten: paar_i und paar_j sind die beiden
+    # groessten Arrays. Torch indiziert mit int32 -- Tokens, Logits und
+    # Gradienten sind bitgleich (geprueft, torch 2.13). Ein Ueberlauf waere
+    # STILL: int32 plus zu grossem Versatz ergibt ohne Warnung negative
+    # Indizes.
+    if n_knoten > np.iinfo(np.int32).max:
+        raise SystemExit(
+            f"{n_knoten:,} Knoten sprengen int32 -- paar_i/paar_j in "
+            "lade_kandidaten auf int64 stellen.")
+
+    def _auf_geraet(form, typ):
+        typ_t = torch.from_numpy(np.empty(0, typ)).dtype
+        return torch.empty(form, dtype=typ_t, device=device)
+
+    ev = _auf_geraet((n_knoten, *form_ev[1:]), typ_ev)
+    maske = _auf_geraet((n_knoten, form_ev[1]), typ_m)
+    t_min, x_c, y_c = (_auf_geraet(n_knoten, np.float32) for _ in range(3))
+    # Obergrenze ist die Zahl ALLER Kandidatenpaare; belegt werden nur die
+    # gueltigen, der Rest bleibt ungenutzt.
+    paar_i = np.empty(sum(p_r), np.int32)
+    paar_j = np.empty(sum(p_r), np.int32)
+    ziel = np.empty(sum(p_r), bool)
+    grenzen = np.zeros(len(pfade) + 1, np.int64)
+
+    a = b = 0
+    for k, (pfad, m) in enumerate(zip(pfade, m_r)):
+        with np.load(pfad) as f:
+            ev[a:a + m].copy_(torch.from_numpy(f["ev"]))
+            maske[a:a + m].copy_(torch.from_numpy(f["maske"]))
+            for spalte, name in ((t_min, "t_min"), (x_c, "x_c"),
+                                 (y_c, "y_c")):
+                spalte[a:a + m].copy_(
+                    torch.from_numpy(f[name]).to(torch.float32))
             i = f["paar_i"]
             j = f["paar_j"]
             z, g = paar_ziele(f["gt_track_id"], f["n_gt"], f["gt_anteil"],
                               i, j, modus=tf.label_modus,
                               min_anteil=tf.gt_min_anteil)
-            # Versatz wie bei den Tracklet-IDs in solve_run: danach ist ein
-            # Paar durch zwei globale Zahlen bestimmt.
-            pi.append(i + versatz); pj.append(j + versatz)
-            ziel.append(z); gueltig.append(g)
-            run.append(np.full(len(i), r, np.int16))
-            versatz += len(f["t_min"])
-            # Ein Ueberlauf waere STILL: numpy liefert bei int32 + zu
-            # grossem Summanden ein negatives Ergebnis ohne Warnung, und
-            # jedes Paar zeigte danach auf den falschen Knoten.
-            if versatz > np.iinfo(np.int32).max:
-                raise SystemExit(
-                    f"Knotenversatz {versatz:,} sprengt int32 -- paar_i/paar_j "
-                    "in lade_kandidaten wieder auf int64 stellen.")
+        n = int(g.sum())
+        # Versatz wie bei den Tracklet-IDs in solve_run: danach ist ein
+        # Paar durch zwei globale Zahlen bestimmt.
+        paar_i[b:b + n] = i[g] + a
+        paar_j[b:b + n] = j[g] + a
+        ziel[b:b + n] = z[g] >= 0.5
+        a += m
+        b += n
+        grenzen[k + 1] = b
 
-    def _dev(arrays, dtype):
-        return torch.as_tensor(np.concatenate(arrays), dtype=dtype).to(device)
-
-    return Daten(
-        ev=torch.cat(teile_ev).to(device),
-        maske=torch.cat(teile_m).to(device),
-        t_min=_dev(tmin, torch.float32), x_c=_dev(xc, torch.float32),
-        y_c=_dev(yc, torch.float32),
-        paar_i=np.concatenate(pi), paar_j=np.concatenate(pj),
-        ziel=np.concatenate(ziel), gueltig=np.concatenate(gueltig),
-        run=np.concatenate(run))
+    return Daten(ev=ev, maske=maske, t_min=t_min, x_c=x_c, y_c=y_c,
+                 paar_i=paar_i[:b], paar_j=paar_j[:b], ziel=ziel[:b],
+                 runs=np.asarray(kd.runs, np.int64), grenzen=grenzen,
+                 n_roh=np.asarray(p_r, np.int64))
 
 
-def split_nach_runs(run, ziel, gueltig, val_frac, seed, fest=()):
-    """Holdout nach RUNS. Rueckgabe: (idx_train, idx_val, val_runs).
+def split_nach_runs(runs, n_ja, n_nein, val_frac, seed, fest=()):
+    """Holdout nach RUNS. Rueckgabe: val_runs, aufsteigend.
+
+    runs, n_ja und n_nein sind parallel: je Run die Zahl gueltiger JA- und
+    NEIN-Paare. Entschieden wird je Run, die Paare folgen ihrem Run.
 
     `fest` nennt Runs, die im Training bleiben muessen. Die Groesse des
     Holdouts folgt weiterhin ALLEN Runs -- sonst schruempfte er mit jedem
@@ -178,37 +225,75 @@ def split_nach_runs(run, ziel, gueltig, val_frac, seed, fest=()):
     das kein Schoenheitsfehler, sondern eine wertlose Kennzahl ueber den
     ganzen Lauf. Deshalb bricht die Funktion ab statt nan zu liefern.
     """
-    runs = np.unique(run)
-    fest = np.asarray(fest, dtype=runs.dtype).reshape(-1)
-    unbekannt = np.setdiff1d(fest, runs)
+    runs = np.asarray(runs)
+    n_ja, n_nein = np.asarray(n_ja), np.asarray(n_nein)
+    alle = np.unique(runs)
+    fest = np.asarray(fest, dtype=alle.dtype).reshape(-1)
+    unbekannt = np.setdiff1d(fest, alle)
     if len(unbekannt):
         # Ein Tippfehler bliebe sonst still folgenlos: der Run waere weder
         # fest noch im Holdout, weil es ihn im Datensatz nicht gibt.
         raise SystemExit(
             f"train_fest nennt Runs {list(unbekannt)}, die nicht im "
-            f"Datensatz sind. Vorhanden: {list(runs)}")
-    waehlbar = np.setdiff1d(runs, fest)
-    n_val = max(1, int(round(len(runs) * val_frac)))
-    if n_val >= len(runs):
-        raise SystemExit(f"val_frac={val_frac} nimmt alle {len(runs)} Runs.")
+            f"Datensatz sind. Vorhanden: {list(alle)}")
+    waehlbar = np.setdiff1d(alle, fest)
+    n_val = max(1, int(round(len(alle) * val_frac)))
+    if n_val >= len(alle):
+        raise SystemExit(f"val_frac={val_frac} nimmt alle {len(alle)} Runs.")
     if n_val > len(waehlbar):
         raise SystemExit(
             f"val_frac={val_frac} verlangt {n_val} Holdout-Runs, aber nur "
-            f"{len(waehlbar)} von {len(runs)} sind waehlbar "
+            f"{len(waehlbar)} von {len(alle)} sind waehlbar "
             f"({len(fest)} in train_fest).")
     rng = np.random.default_rng(seed)
     val_runs = np.sort(rng.choice(waehlbar, n_val, replace=False))
 
-    ist_val = np.isin(run, val_runs)
-    idx_t = np.flatnonzero(gueltig & ~ist_val)
-    idx_v = np.flatnonzero(gueltig & ist_val)
-    for name, idx in (("train", idx_t), ("val", idx_v)):
-        ja = int((ziel[idx] >= 0.5).sum())
-        if ja == 0 or ja == len(idx):
+    ist_val = np.isin(runs, val_runs)
+    for name, seite in (("train", ~ist_val), ("val", ist_val)):
+        ja, nein = int(n_ja[seite].sum()), int(n_nein[seite].sum())
+        if ja == 0 or nein == 0:
             raise SystemExit(
                 f"Holdout-Split {name}: nur eine Klasse ({ja} JA von "
-                f"{len(idx)}). Anderen seed oder val_frac waehlen.")
-    return idx_t, idx_v, val_runs
+                f"{ja + nein}). Anderen seed oder val_frac waehlen.")
+    return val_runs
+
+
+def _bloecke(grenzen, auswahl):
+    """(lo, hi) der gewaehlten Runs in den Paar-Arrays, in Ladereihenfolge."""
+    return [(int(grenzen[k]), int(grenzen[k + 1]))
+            for k in np.flatnonzero(auswahl)]
+
+
+def _holdout_index(grenzen, ist_val):
+    """Alle Holdout-Paare, aufsteigend wie die Paare selbst."""
+    teile = [np.arange(lo, hi, dtype=np.int64)
+             for lo, hi in _bloecke(grenzen, ist_val)]
+    return np.concatenate(teile) if teile else np.empty(0, np.int64)
+
+
+def _toepfe(ziel, grenzen, ist_val):
+    """JA- und NEIN-Topf des Trainings, als Indizes in die Paar-Arrays.
+
+    Je Run gebaut, ohne eine Liste aller Trainingspaare daneben. Aufsteigend
+    wie die Paare selbst: die Ziehung greift nach Position, dieselbe
+    Reihenfolge heisst also dieselbe Ziehung. uint32, solange die Paarzahl
+    es zulaesst -- halber Speicher gegenueber int64.
+    """
+    typ = np.uint32 if len(ziel) <= 2**32 else np.int64
+    bloecke = _bloecke(grenzen, ~np.asarray(ist_val))
+    n_ja = sum(int(ziel[lo:hi].sum()) for lo, hi in bloecke)
+    n_alle = sum(hi - lo for lo, hi in bloecke)
+    ja = np.empty(n_ja, typ)
+    nein = np.empty(n_alle - n_ja, typ)
+    a = b = 0
+    for lo, hi in bloecke:
+        z = ziel[lo:hi]
+        k_ja, k_nein = np.flatnonzero(z), np.flatnonzero(~z)
+        ja[a:a + len(k_ja)] = lo + k_ja
+        nein[b:b + len(k_nein)] = lo + k_nein
+        a += len(k_ja)
+        b += len(k_nein)
+    return ja, nein
 
 
 def _epochengroesse(n_ja_topf, n_nein_topf, ratio, max_paare):
@@ -257,7 +342,8 @@ def _durchlauf(model, d, idx, batch, device, norm=None, opt=None, lossfn=None):
                               alpha=norm["alpha"], r_max=norm["r_max"])
         with torch.set_grad_enabled(train):
             out = model(tok, tm)
-            y = torch.from_numpy(d.ziel[teil]).to(device)
+            y = torch.from_numpy(d.ziel[teil]).to(device=device,
+                                                   dtype=torch.float32)
             l = lossfn(out, y)
         if train:
             opt.zero_grad(set_to_none=True)
@@ -313,23 +399,41 @@ def train_stufe2(cfg: Stufe2Cfg, on_start=None, on_epoch=None):
     rng = np.random.default_rng(tf.seed)
 
     d = lade_kandidaten(cfg, device=device)
-    idx_t, idx_v, val_runs = split_nach_runs(
-        d.run, d.ziel, d.gueltig, tf.val_frac, tf.seed, cfg.io.train_fest)
+    n_ja_r = np.array([int(d.ziel[lo:hi].sum())
+                       for lo, hi in zip(d.grenzen[:-1], d.grenzen[1:])],
+                      np.int64)
+    n_nein_r = np.diff(d.grenzen) - n_ja_r
+    mit = d.n_roh > 0            # ein Run ohne Kandidaten nimmt nicht teil
+    val_runs = split_nach_runs(d.runs[mit], n_ja_r[mit], n_nein_r[mit],
+                               tf.val_frac, tf.seed, cfg.io.train_fest)
+    ist_val = np.isin(d.runs, val_runs)
 
+    def _bilanz(auswahl):
+        teile = [d.ziel[lo:hi] for lo, hi in _bloecke(d.grenzen, auswahl)]
+        return class_balance(np.concatenate(teile).astype(np.int8))
+
+    n_paare = int(d.n_roh.sum())
     daten = {
-        "n_knoten": int(d.ev.shape[0]), "n_paare": int(len(d.paar_i)),
-        "n_gueltig": int(d.gueltig.sum()),
-        "gueltig_frac": float(d.gueltig.mean()),
+        "n_knoten": int(d.ev.shape[0]), "n_paare": n_paare,
+        "n_gueltig": int(len(d.ziel)),
+        "gueltig_frac": float(len(d.ziel) / n_paare),
         "val_runs": [int(r) for r in val_runs],
-        "roh": class_balance((d.ziel[d.gueltig] >= 0.5).astype(np.int8)),
-        "train_vor": class_balance((d.ziel[idx_t] >= 0.5).astype(np.int8)),
-        "val": class_balance((d.ziel[idx_v] >= 0.5).astype(np.int8)),
+        "roh": class_balance(d.ziel.astype(np.int8)),
+        "train_vor": _bilanz(~ist_val),
+        "val": _bilanz(ist_val),
     }
+
+    # Die Validierungsstichprobe EINMAL ziehen: eine je Epoche neu gezogene
+    # liesse die Kurve mit der Ziehung schwanken statt mit dem Lernen. VOR
+    # den Toepfen, damit die volle Holdout-Liste nie neben ihnen liegt.
+    idx_v = _holdout_index(d.grenzen, ist_val)
+    val_gestutzt = len(idx_v) > VAL_MAX
+    if val_gestutzt:
+        idx_v = np.sort(rng.choice(idx_v, VAL_MAX, replace=False))
 
     # Die Klassentoepfe EINMAL trennen -- der Gather ueber die ganze
     # Trainingsmenge faellt sonst je Epoche an.
-    ja_topf = idx_t[d.ziel[idx_t] >= 0.5]
-    nein_topf = idx_t[d.ziel[idx_t] < 0.5]
+    ja_topf, nein_topf = _toepfe(d.ziel, d.grenzen, ist_val)
     # Eigener Generator: eine Ziehung aus `rng` verschoebe jede folgende
     # Permutation und damit das Training selbst.
     rng_zieh = np.random.default_rng(tf.seed + 1)
@@ -350,10 +454,7 @@ def train_stufe2(cfg: Stufe2Cfg, on_start=None, on_epoch=None):
               "Betriebspunkt folgt den Daten, nicht der Konfiguration.",
               flush=True)
 
-    # Die Validierungsstichprobe EINMAL ziehen: eine je Epoche neu gezogene
-    # liesse die Kurve mit der Ziehung schwanken statt mit dem Lernen.
-    if len(idx_v) > VAL_MAX:
-        idx_v = np.sort(rng.choice(idx_v, VAL_MAX, replace=False))
+    if val_gestutzt:
         daten["val_gestutzt_auf"] = VAL_MAX
 
     if n_ep > VAL_MAX:
@@ -406,11 +507,9 @@ def train_stufe2(cfg: Stufe2Cfg, on_start=None, on_epoch=None):
             "sec": round(time.time() - t_ep, 1),
             "sec_train": round(t_train, 1),
             "train": {"loss": verlust, "loss_running": verlust_lauf,
-                      **pair_report((d.ziel[idx_te] >= 0.5).astype(np.int8),
-                                    lg_t)},
+                      **pair_report(d.ziel[idx_te].astype(np.int8), lg_t)},
             "holdout": {"loss": verlust_v,
-                        **pair_report((d.ziel[idx_v] >= 0.5).astype(np.int8),
-                                      lg_v)},
+                        **pair_report(d.ziel[idx_v].astype(np.int8), lg_v)},
         }
         if on_epoch is not None:
             on_epoch(zeile)
