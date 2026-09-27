@@ -102,6 +102,18 @@ def test_dedup_aendert_die_kantenmenge_nicht(wolke):
     assert als_menge(*ohne) == als_menge(*mit)
 
 
+def test_filterstapel_aendert_weder_menge_noch_reihenfolge(wolke):
+    """stapel bestimmt nur den Zwischenspeicher. Auch die REIHENFOLGE muss
+    bleiben: [6a] legt die Paare so ab, und [6b] zieht nach Position."""
+    t, x, y = wolke
+    for geom in ("cylinder", "hyperboloid"):
+        a = neighborhood_pairs(t, x, y, 10_000, 7.0, geom=geom)
+        b = neighborhood_pairs(t, x, y, 10_000, 7.0, geom=geom, stapel=7)
+        assert len(a[0]) > 7
+        np.testing.assert_array_equal(a[0], b[0])
+        np.testing.assert_array_equal(a[1], b[1])
+
+
 def test_knn_behaelt_die_naechsten_nachbarn(wolke):
     """k-NN darf nur WEGLASSEN, und zwar nur die ENTFERNTEN Nachbarn.
 

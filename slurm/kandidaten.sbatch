@@ -7,13 +7,13 @@
 #SBATCH --error=logs/%x-%j.err
 
 # KEIN --gres: build_kandidaten.py importiert torch nicht. Gerechnet wird
-# der KDTree (scipy) und connected_components; die Laufzeit liegt bei
-# Minuten fuer alle zehn Runs und wird vom NFS-Lesen der .dat bestimmt,
-# nicht vom Rechnen. Ohne GRES-Anforderung kommt der Job schneller dran.
+# der KDTree (scipy) und connected_components. Ohne GRES-Anforderung kommt
+# der Job schneller dran.
 #
 # Ein Prozess fuer ALLE Runs, anders als bei tracklets.sbatch: der
-# Spitzenspeicher liegt hier bei wenigen hundert MB je Run und wird nach
-# jedem Run wieder frei, weil kein Solver-Puffer gehalten wird.
+# Speicher wird nach jedem Run wieder frei. Die Spitze je Run waechst mit
+# seiner Eventzahl und mit kandidaten.alpha, auf dichten Daten auf mehrere
+# zehn GB -- dann per -w die Node waehlen.
 
 set -euo pipefail
 export PYTHONUNBUFFERED=1

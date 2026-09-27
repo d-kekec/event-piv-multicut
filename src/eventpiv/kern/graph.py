@@ -32,6 +32,10 @@ _NB_DEFAULT   = Neighborhood()
 V_MAX_DEFAULT = _NB_DEFAULT.v_max     # px/µs, p99.9 der Partikelgeschwindigkeit
 K_MAX_DEFAULT = Solver().k_max        # k-NN-Kappung
 
+# Rohpaare je Filterstapel in neighborhood_pairs. Bestimmt nur den
+# Zwischenspeicher, nicht das Ergebnis.
+FILTER_STAPEL = 20_000_000
+
 
 def time_scale(alpha: float, r_max: float) -> float:
     """Skalierung der Zeitachse, damit alpha in der Metrik r_max entspricht."""
@@ -73,7 +77,8 @@ def neighborhood_pairs(t, x, y, alpha, r_max, *,
                        v_max: float = V_MAX_DEFAULT,
                        use_knn: bool = False,
                        k_max: int = K_MAX_DEFAULT,
-                       dedup: bool = False):
+                       dedup: bool = False,
+                       stapel: int = FILTER_STAPEL):
     """Alle Paare in der (alpha, r_max)-Nachbarschaft. Reine Funktion.
 
     t, x, y : 1D-Arrays gleicher Laenge (float64 empfohlen -- KDTree)
@@ -89,6 +94,8 @@ def neighborhood_pairs(t, x, y, alpha, r_max, *,
     dedup   : doppelte ungerichtete Kanten entfernen. Bei use_knn NOETIG
               (die Abfrage liefert i->j und j->i getrennt), bei query_pairs
               ein No-op. ACHTUNG: sortiert die Kantenreihenfolge um.
+    stapel  : Rohpaare je Filterdurchgang. Nur Speicher -- Menge UND
+              Reihenfolge der Kanten haengen nicht davon ab.
     geom: die Raum-Zeit-Form der Nachbarschaft.
       "ellipsoid"   (Δx²+Δy²)/r_max² + Δt²/α² ≤ 1
                     Was der KDTree-Trick von sich aus liefert. Der erlaubte
@@ -150,11 +157,18 @@ def neighborhood_pairs(t, x, y, alpha, r_max, *,
         i, j = pairs[:, 0], pairs[:, 1]
 
     if geom != "ellipsoid":
-        dt = np.abs(t[i] - t[j])
-        dr2 = (x[i] - x[j])**2 + (y[i] - y[j])**2
-        grenze = (r_max**2 if geom == "cylinder"
-                  else r_max**2 + (v_max * dt)**2)
-        ok = (dt <= alpha) & (dr2 <= grenze)
+        # Stapelweise: sonst liegen die float64-Temporaere des Filters fuer
+        # ALLE Rohpaare der umschliessenden Kugel zugleich im Speicher, und
+        # die sind ein Vielfaches der Kanten. Die Reihenfolge bleibt die von
+        # query_pairs.
+        ok = np.empty(len(i), dtype=bool)
+        for a in range(0, len(i), stapel):
+            ii, jj = i[a:a + stapel], j[a:a + stapel]
+            dt = np.abs(t[ii] - t[jj])
+            dr2 = (x[ii] - x[jj])**2 + (y[ii] - y[jj])**2
+            grenze = (r_max**2 if geom == "cylinder"
+                      else r_max**2 + (v_max * dt)**2)
+            ok[a:a + stapel] = (dt <= alpha) & (dr2 <= grenze)
         i, j = i[ok], j[ok]
 
     if len(i) == 0:

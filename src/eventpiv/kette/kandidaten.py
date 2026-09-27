@@ -296,14 +296,21 @@ def kandidaten_fuer_run(cfg: KandidatenCfg, run_nr: int, verbose=True):
                            ev[:, :, 0] - kn.tabelle["t_min"][:, None], 0.0)
     ev = ev.astype(np.float32)
 
+    # Was _kennzahlen vom Strom braucht, VOR der Paarsuche zaehlen und den
+    # Strom dann freigeben: die Paarsuche ist die speicherhungrigste Stelle,
+    # und dort braucht ihn nichts mehr.
+    n_roh = int(len(np.unique(tid[tid >= 0])))
+    n_ev_zugeordnet = int((tid >= 0).sum())
+    n_events_run = len(ganz)
+    del ganz, tid, rausch
+
     i, j = kandidatenpaare(kn, alpha=kd.alpha, r_max=kd.r_max,
                            geom=kd.geom, v_max=kd.v_max)
     lab = paar_labels(kn, i, j)
 
-    n_roh = int(len(np.unique(tid[tid >= 0])))
-    lauf = _kennzahlen(kn, i, j, lab, n_roh, int((tid >= 0).sum()), nb.alpha)
+    lauf = _kennzahlen(kn, i, j, lab, n_roh, n_ev_zugeordnet, nb.alpha)
     lauf.update({"run": run_nr, "split": sel.split,
-                 "n_events_run": len(ganz),
+                 "n_events_run": n_events_run,
                  "diag": {
                      "sec_laden": round(t_laden, 1),
                      "sec_total": round(time.time() - t_start, 1),
@@ -321,8 +328,9 @@ def kandidaten_fuer_run(cfg: KandidatenCfg, run_nr: int, verbose=True):
               f"{lauf['knoten_event_frac']*100:.2f} % der Events), "
               f"{len(i):,} Kandidaten "
               f"({lauf['kandidaten_je_knoten']:.1f} je Knoten, "
-              f"{lauf.get('n_knoten_ohne_kandidat', 0):,} ohne)",
-              flush=True)
+              f"{lauf.get('n_knoten_ohne_kandidat', 0):,} ohne) "
+              f"[{lauf['diag']['sec_total']:.0f} s, "
+              f"{lauf['diag']['max_rss_mb'] / 1024:.1f} GB]", flush=True)
         if lab:
             print(f"  Label: {lauf['gueltig_frac']*100:.1f} % gueltig, "
                   f"davon {lauf['ja_frac']*100:.2f} % JA "
@@ -343,9 +351,9 @@ def kandidaten_fuer_run(cfg: KandidatenCfg, run_nr: int, verbose=True):
 def schreibe_kandidaten(cfg: KandidatenCfg, run_nr, daten, lauf, quelle):
     """Artefakt [6a]: Knoten, Eventstichprobe und Kandidatenpaare.
 
-    EINE Datei je Run, wie bei (A) und (B). Die Stichprobe ist der grosse
-    Teil: 93.000 Knoten mal 32 Events mal drei float32 sind rund 36 MB,
-    dieselbe Groessenordnung wie das Tracklet-Artefakt selbst.
+    EINE Datei je Run, wie bei (A) und (B). Den Umfang bestimmen die
+    Stichprobe (n_events mal drei float32 je Knoten) und die Paare (zehn
+    Byte je Kandidat).
 
     Komprimiert wie (A) und (B) -- der Gewinn auf den Koordinaten ist
     NICHT gemessen und vermutlich kleiner als dort, weil die Maske und die
