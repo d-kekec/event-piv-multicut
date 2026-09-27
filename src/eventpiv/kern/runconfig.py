@@ -240,11 +240,11 @@ class Solver(_Typed):
     Verbinden, ohne die Rangfolge der Kanten zu aendern.
 
     VORGABE 0,0: die Nullstelle des Logits IST der Schnittpunkt, die
-    Entscheidung entsteht also vollstaendig im Netz. Mit feature_mode="dr"
-    war das unmoeglich -- P(JA | dt, dr) lag in keiner Gitterzelle unter
-    0,5, die Kosten wurden nie negativ, und geschnitten wurde
-    ausschliesslich ueber diesen Versatz. Mit "drjac" liegt edge_tnr auch
-    ohne Versatz bei 0,86 (run32) bzw. 0,91 (run61).
+    Entscheidung entsteht also vollstaendig im Netz. Auf batch1 war das
+    mit feature_mode="dr" unmoeglich -- P(JA | dt, dr) lag in keiner
+    Gitterzelle unter 0,5, die Kosten wurden nie negativ, und geschnitten
+    wurde ausschliesslich ueber diesen Versatz; dort braucht es "drjac".
+    Auf STELLA schneidet schon "dr" ohne Versatz.
 
     Es gibt kein Optimum, nur eine Tauschkurve. Ueber ganze Runs steigt
     nah_merge_event_frac monoton mit dem Versatz und faellt die
@@ -505,10 +505,9 @@ class Fit(_Typed):
     gewaehlt ist das der Geschwindigkeit, weil das Ziel der Arbeit
     Geschwindigkeitsfelder sind.
 
-    c0 und c1 heben den Vorwaertsversatz der Eventwolke auf. Der Betrag
-    haengt an der GESCHWINDIGKEIT, nicht an der Querstreuung wie bei
-    STELLA: die ist ueber unseren Bereich konstant, der Versatz wachsend.
-    c0 = c1 = 0 schaltet die Korrektur ab.
+    c0 und c1 heben den Vorwaertsversatz der Eventwolke auf, Betrag
+    c0 + c1*|u|. Auf batch1 waechst er mit der Geschwindigkeit, auf STELLA
+    nicht (fitsatz=stella: c1 = 0). c0 = c1 = 0 schaltet die Korrektur ab.
 
     dt_aus ist fuer den FILTER frei -- zwischen den Messungen wird
     propagiert, nicht interpoliert. Fuer die BEWERTUNG nicht:
@@ -521,10 +520,10 @@ class Fit(_Typed):
     der Filter braucht das Fenster allein zum Einschwingen. Rund 10 % der
     Bahnen liegen unter 100 ms.
 
-    Alle Werte gemessen auf train/40, 43, 19, 32 (Journal 12.09.2026).
-    q_c steht noch auf dem Wert von VOR der P0-Korrektur; seither liegt
-    das Optimum bei 10 (Journal 14.09.2026). Neu gesweept wird nach dem
-    RTS-Glaetter.
+    Die Vorgaben sind der Arbeitspunkt von batch1, STELLA setzt
+    fitsatz=stella. Mit dem Glaetter ist q_c/r_mess ueber Faktor 128
+    nahezu gleichgueltig; je Datensatz genuegt ein grober Sweep ueber
+    Dekaden.
 
     a_unbekannt ist die Streuung der Beschleunigung beim Start, px/s^2.
     Die Startgerade schaetzt Ort und Geschwindigkeit, die Beschleunigung
@@ -736,7 +735,7 @@ class AnimTraj(_Typed):
     min_size: int = 15
     crop: bool = True
     # Komma-getrennt: roh, tracklets, trajektorien, fit, gt.
-    # fit kostet rund 70 s je Run, die uebrigen nichts.
+    # fit liest die Bahnen von [7] und braucht dafuer die Fit-Gruppe.
     panels: str = "tracklets,trajektorien,gt"
 
 

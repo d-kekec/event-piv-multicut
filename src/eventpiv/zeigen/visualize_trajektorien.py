@@ -31,9 +31,9 @@ auch sie wird GELESEN: ein eigener Fit hier zeigte einen anderen als den
 bewerteten, sobald ein Parameter nur einen der beiden Wege erreicht. Die
 Fit-Gruppe muss deshalb dieselbe sein wie beim Fit-Lauf.
 
-window schneidet nur die ANZEIGE. Geloest wird immer der ganze Run: die
-Farben eines Ausschnitts waeren sonst andere als die des vollen Laufs, und
-genau ihre Stabilitaet ist die Aussage.
+window schneidet nur die ANZEIGE. Die Farben werden einmal ueber den
+ganzen Run vergeben: die eines Ausschnitts waeren sonst andere als die des
+vollen Laufs, und genau ihre Stabilitaet ist die Aussage.
 """
 from __future__ import annotations
 
@@ -140,7 +140,7 @@ def _gt_mitten(cfg, run_nr, gt_ids):
 
 
 def animate_trajektorien(cfg: AnimTrajCfg):
-    """Loest Stufe 2 fuer einen Run und animiert das Ergebnis.
+    """Animiert Tracklets, Partition und Fit eines Runs aus den Artefakten.
 
     Rueckgabe: (gif_pfad, lauf).
     """
@@ -244,7 +244,7 @@ def animate_trajektorien(cfg: AnimTrajCfg):
                    np.concatenate([t, tgp]),
                    np.concatenate([nein, np.ones(len(tgp), bool)]))
 
-    # --- Anzeigeausschnitt. NACH dem Solve, damit die Farben die des
+    # --- Anzeigeausschnitt. NACH der Farbvergabe, damit die Farben die des
     # vollen Laufs bleiben.
     lo = t[0] if win.t0 is None else win.t0
     hi = t[-1] + 1 if win.dt is None else lo + win.dt

@@ -2,18 +2,17 @@
 # -*- coding: utf-8 -*-
 """CLI-Huelle fuer visualize_trajektorien.animate_trajektorien.
 
-Loest Stufe 2 fuer einen Run und stellt Tracklets, Trajektorien und GT
-nebeneinander. Der Solve laeuft ueber den GANZEN Run, window schneidet nur
-die Anzeige zu.
+Stellt Tracklets, Trajektorien und GT eines Runs nebeneinander. Gelesen
+werden die Artefakte von (A), [6c] und fuer das fit-Panel [7] -- also
+dieselben Gruppen und Overrides wie beim schreibenden Lauf. window
+schneidet nur die Anzeige zu.
 
-  # Das Bild der Stufe: links flackert es, rechts stehen die Farben
   python scripts/animate_trajektorien.py selection.split=val \\
-      selection.run_nr=4 solver.cost_offset=-0.5
+      selection.run_nr=4
 
-  # Fuer den Bericht: ein Panel, gross, kurzer Ausschnitt
+  # Fuer den Bericht: ein Panel, kurzer Ausschnitt
   python scripts/animate_trajektorien.py selection.split=val \\
-      selection.run_nr=4 solver.cost_offset=-0.5 \\
-      anim.panels=trajektorien anim.downscale=1 \\
+      selection.run_nr=4 anim.panels=trajektorien \\
       window.t0=2000000 window.dt=1000000
 """
 import hydra

@@ -13,13 +13,19 @@ In Stufe 2 ist jedes Tracklet ein Knoten. Ein Paar-Transformer bewertet, ob
 zwei Tracklets zum selben Partikel gehören, und gelöst wird **einmal über den
 ganzen Run**. Die Cluster dieser Partition sind die Trajektorien.
 
+Zuletzt ([7]) schätzt ein Kalman-Filter mit RTS-Glätter je Trajektorie Ort
+und Geschwindigkeit auf einem frei wählbaren Zeitgitter.
+
 > Bachelorarbeit Informatik, Heinrich-Heine-Universität Düsseldorf, betreut
 > von Prof. Dr. Paul Swoboda.
-> Der Datensatz ist nicht öffentlich und nicht Teil dieses Repositoriums.
+> Die Datensätze sind nicht Teil dieses Repositoriums. batch1 ist nicht
+> öffentlich, STELLA öffentlich (Referenz unten).
 
 ---
 
 ## Pipeline
+
+```
 dat + _bbox.npy
 │
 [1] build_event_labels   Event → track_id + Qualitätsstatus
@@ -37,6 +43,10 @@ dat + _bbox.npy
       [6b] train_stufe2      Paar-Transformer → Logit = Kantenkosten
       │
       [6c] solve_stufe2      EIN Multicut über den ganzen Run → Trajektorien
+      │
+      [7]  fit_trajektorien  Kalman + RTS je Trajektorie → Ort und
+                             Geschwindigkeit auf frei wählbarem Zeitgitter
+```
 
 **Es gibt keinen Orchestrator.** Jede Stufe leitet ihren Artefaktpfad aus der
 Konfiguration ab — Stufe [3] findet den Datensatz von [2], [4] das Netz von
@@ -54,7 +64,7 @@ Kurzfassung; die vollständige Einrichtung samt RAMA-Build steht in
 pip install torch --index-url https://download.pytorch.org/whl/cu130
 pip install -e ".[dev]" --no-build-isolation
 
-# zwei Umgebungsvariablen, ohne die nichts läuft
+# zwei Umgebungsvariablen, ohne die nichts läuft; je Datensatz ein eigenes Paar
 export EVENTPIV_DATA=/pfad/zum/ordner/mit/train_val_test
 export EVENTPIV_OUT=/pfad/fuer/erzeugte/artefakte
 
@@ -80,10 +90,13 @@ python scripts/build_tracklets.py selection.split=train selection.runs=[32]
 python scripts/build_kandidaten.py selection.split=train selection.runs=[32]
 python scripts/train_stufe2.py
 python scripts/solve_stufe2.py    selection.split=val   selection.runs=[4]
+python scripts/fit_trajektorien.py selection.split=val selection.runs=[4]
 ```
 
-Ohne Overrides läuft alles am dokumentierten Arbeitspunkt. Vollständige
-Parameterliste → [`docs/CLI_Referenz.md`](docs/CLI_Referenz.md).
+Ohne Overrides läuft alles am Arbeitspunkt von batch1. STELLA wird je Stufe
+über Gruppendateien unter `configs/` zugeschaltet, etwa `datensatz=stella`.
+Welche Stufe welche Gruppe braucht, und alle Parameter →
+[`docs/CLI_Referenz.md`](docs/CLI_Referenz.md).
 
 **Verifikationsanker.** Nach jeder Einrichtung und nach jeder Änderung, die
 das Verhalten nicht ändern soll:
@@ -93,9 +106,10 @@ pytest -m anker      # Stufe 1, rund 10 s
 pytest -m anker2     # Stufe 2, rund 3 min — ein ganzer Run
 ```
 
-Der Anker braucht den Datensatz, gebaute Label-Dateien und ein trainiertes
-Netz und läuft deshalb nicht in der normalen Suite. Er ist ein
-Reproduzierbarkeitsanker, keine Zielvorgabe.
+Beide Anker fahren die batch1-Vorgaben und brauchen den Datensatz samt der
+Artefakte ihrer Vorstufen; sie laufen deshalb nicht in der normalen Suite.
+Sie sind Reproduzierbarkeitsanker, keine Zielvorgabe.
+
 ---
 
 ## Dokumentation
@@ -108,9 +122,9 @@ wird nie überschrieben.
 | Datei | Frage, die sie beantwortet |
 |---|---|
 | **`Code_Guide.md`** | Wie funktioniert der Code? Mechanik und tragende Entscheidungen, entlang der Pipeline. **Der Einstieg.** |
-| **`Code_Karte.md`** | Erster Überblick. Wo liegt was? Module, Verzeichnisbaum, Aufbau der Slugs und Dateinamen. |
+| **`Code_Karte.md`** | Überblick zur Lage. Wo liegt was? Module, Verzeichnisbaum, Aufbau der Slugs und Dateinamen. |
 | **`CLI_Referenz.md`** | Welche Skripte und Parameter gibt es? Nachschlagewerk samt Stolperfallen. |
-| **`Experimente.md`** | Welche Läufe lohnen sich? Sieben Versuche mit Frage, Erwartung und Aussage. |
+| **`Experimente.md`** | Welche Läufe lohnen sich? Versuche mit Frage, Erwartung und Aussage. |
 | **`Datensatz.md`** | Woraus bestehen die Daten, und welche Messungen begründen die Parameter? |
 | **`Kantenkosten_NN.md`** | Warum diese Nachbarschaft, diese Merkmale, dieser Arbeitspunkt? |
 | **`RAMA_Anbindung.md`** | Was ist Multicut, wie löst RAMA es, welche Modi gibt es? |
@@ -128,5 +142,10 @@ wird nie überschrieben.
 ## Referenz
 
 Abbas & Swoboda, *RAMA: A Rapid Multicut Algorithm on GPU*, CVPR 2022.
+
+Sachs, Jung, Kahl, Keuper, Willert & Cierpka, *STELLA: a modular framework
+for SpatioTemporal Event-based Lagrangian particLe trAcking*, Experiments in
+Fluids 67, 110 (2026). Code und Datensätze: https://github.com/sesa1504/STELLA
+
 Der Eventloader `psee_io/` stammt aus der Prophesee-Toolbox (gepatcht für
 NumPy 2).

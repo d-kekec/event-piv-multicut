@@ -411,13 +411,13 @@ def tracking_metrics_je_partikel(labels, track_id, status) -> dict:
 
     VIER SIGNATUREN, und nur eine davon ist der gesuchte Fall:
 
-      sauber rekonstruiert  ass_re ~1   ass_pr ~1   n_cluster_10 = 1
-      Kruemel abgesplittert ass_re ab   ass_pr ~1   n_cluster_10 = 1
-      IDENTITAETSWECHSEL    ass_re ab   ass_pr ab   n_cluster_10 = 2
-      fremdes Stueck geerbt ass_re ~1   ass_pr ab   n_cluster_10 = 1
+      sauber rekonstruiert  ass_re ~1   ass_pr ~1   n_cluster_eff ~1
+      Kruemel abgesplittert ass_re ab   ass_pr ~1   n_cluster_eff ~1
+      IDENTITAETSWECHSEL    ass_re ab   ass_pr ab   n_cluster_eff ~2
+      fremdes Stueck geerbt ass_re ~1   ass_pr ab   n_cluster_eff ~1
 
     Nur der Identitaetswechsel senkt BEIDE Masse gleichzeitig und hebt
-    die Zahl der substanziellen Cluster ueber eins -- und er tritt
+    die effektive Clusterzahl deutlich ueber eins -- und er tritt
     PAARWEISE auf, an zwei Partikeln zugleich. Das macht ihn pruefbar
     statt bloss plausibel.
 
@@ -696,12 +696,12 @@ def idsw_metrics(labels, track_id, status, t, delta=None) -> dict:
     HybridBoosted Multi-Target Tracker for Crowded Scene", CVPR 2009,
     zurueckgehend auf Wu & Nevatia, CVPR 2006. NICHT zu verwechseln mit
     FragA aus dem HOTA-Papier (Gl. 33/34) und nicht mit unserem
-    lhn_frag_mean -- drei verschiedene Groessen unter demselben Kurznamen:
+    frag_mean -- drei verschiedene Groessen unter demselben Kurznamen:
 
-      lhn_frag_mean  Cluster je GT-Partikel, ZEITLOS (cluster_metrics)
-      lhn_frag       Zahl der UNTERBRECHUNGEN einer GT-Trajektorie (hier)
-      lhn_frag_a     Anteil der Assoziation im zusammenhaengenden Stueck
-                 (HOTA-Papier, Baustein von FA-HOTA)
+      frag_mean    Cluster je GT-Partikel, ZEITLOS (cluster_metrics)
+      lhn_frag     Zahl der UNTERBRECHUNGEN einer GT-Trajektorie (hier)
+      hota_frag_a  Anteil der Assoziation im zusammenhaengenden Stueck
+                   (HOTA-Papier, Baustein von FA-HOTA)
 
     IDSW: ein verfolgtes Ereignis zaehlt, wenn seine Cluster-ID von der
     des ZULETZT verfolgten Ereignisses desselben Partikels abweicht.

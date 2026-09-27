@@ -65,10 +65,9 @@ def _leer() -> Trajektorien:
 def lade_on_strom(split: str, run_nr: int, polarity: str = "on"):
     """(t, x, y) des Runs als float64, nach Polaritaet gefiltert.
 
-    float64, weil der Fit damit rechnet: die Zeitstempel gehen bis 8e6 µs
-    und liegen damit unter der float32-Grenze von 2^24, aber der Abstand
-    ist kleiner als eine Groessenordnung. Preis: rund 90 MB je Array bei
-    11 Mio. ON-Events.
+    float64, weil der Fit damit rechnet; float32 traegt ganzzahlige µs nur
+    bis 2^24, also rund 16,8 s. Preis: 8 Byte je Event und Array, drei
+    Arrays je Run.
     """
     ev = load_events(split, run_nr)
     m = polarity_mask(ev["p"], polarity)
@@ -409,13 +408,12 @@ def versatz_korrektur(x, y, u, v, *, c0, c1):
     """Den Zentroid gegen die Bewegungsrichtung zurueckschieben. Rein.
 
     Die ON-Events liegen an der VORDERKANTE des Partikelbilds, der
-    Schwerpunkt also in Bewegungsrichtung versetzt. Der Versatz waechst
-    mit der Geschwindigkeit: 1,60 px bei 0,028 px/ms gegen 3,03 px bei
-    0,076 px/ms.
+    Schwerpunkt also in Bewegungsrichtung versetzt.
 
-    Betrag c0 + c1*|u|, nicht beta*sigma_quer wie bei STELLA: die
-    Querstreuung ist ueber unseren Geschwindigkeitsbereich konstant
-    (3,03 bis 3,17 px) und kann den wachsenden Versatz nicht abbilden.
+    Betrag c0 + c1*|u|. Auf batch1 waechst der Versatz mit der
+    Geschwindigkeit, und die Querstreuung bleibt konstant -- STELLAs
+    beta*sigma_quer bildet das nicht ab. Auf STELLA ist er konstant,
+    dort gilt c1 = 0.
 
     u, v in px/µs; c1 in px je (px/ms), daher der Faktor 1e3. c0 = c1 = 0
     schaltet die Korrektur ab.

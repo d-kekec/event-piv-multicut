@@ -21,9 +21,8 @@ eine Ausgleichsgerade ueber 2*gt_fenster+1 Rasterpunkte.
 
 gt_fenster ist ein KOMPROMISS. Zu klein: die Referenz rauscht und
 verdeckt, was gemessen werden soll. Zu gross: sie glaettet selbst und
-bevorzugt einen zu traegen Filter. Gemessen ueber 1, 3 und 5 wandert der
-Arbeitspunkt des Filters NICHT mit -- der Verdacht ist widerlegt, und die
-bereinigten Werte bei 3 und 5 stimmen ueberein (Journal 14.09.2026).
+bevorzugt einen zu traegen Filter. Die Spanne haengt am GT-Raster und
+ist je Datensatz zu pruefen.
 
 MEDIAN UEBER BAHN-MEDIANE, nicht ueber alle Punkte. Bei Bahnlaengen von
 21 bis 390 048 Events dominierten sonst wenige lange Bahnen. Das Papier
@@ -36,7 +35,7 @@ import numpy as np
 
 __all__ = ["gt_bahnen", "bahn_metriken", "trajektorien_metriken"]
 
-GT_FENSTER = 5          # +-Rasterpunkte, also 11 Punkte oder rund 183 ms
+GT_FENSTER = 5          # +-Rasterpunkte (11 Punkte), Spanne je GT-Raster
 MIN_PUNKTE = 3          # weniger tragen keine Ausgleichsgerade
 REIN_MIN = 0.99         # ab hier gilt eine Bahn als unverschmolzen
 

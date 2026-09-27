@@ -555,8 +555,8 @@ def hota_naiv(labels, track_id, status):
         a_je_ptkl.setdefault(int(track_id[c]), []).append(wert)
     ass_a_ptkl = np.array([float(np.mean(v)) for v in a_je_ptkl.values()])
 
-    # Substanzielle Cluster je Partikel: >= 10 % seiner VOLLEN Eventzahl,
-    # unzugeordnete Events eingeschlossen.
+    # Effektive Clusterzahl je Partikel: Kehrwert des Simpson-Index ueber
+    # die Verteilung seiner zugeordneten Events auf die Cluster.
     eff, pr_je_ptkl = [], {}
     for c, wert in zip(tp, pp):
         pr_je_ptkl.setdefault(int(track_id[c]), []).append(wert)
@@ -728,7 +728,7 @@ def test_signatur_identitaetswechsel():
 
 def test_signatur_kruemel_unterscheidet_sich():
     """Ein Partikel verliert ein einzelnes Event an einen Splitter:
-    ass_re faellt leicht, ass_pr bleibt 1, n_cluster_10 bleibt 1.
+    ass_re faellt leicht, ass_pr bleibt 1, n_cluster_eff bleibt nahe 1.
     Genau das trennt den harmlosen Fall vom Identitaetswechsel."""
     from eventpiv.bewerten.evaluate import tracking_metrics_je_partikel
 

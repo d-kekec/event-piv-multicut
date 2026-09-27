@@ -280,6 +280,9 @@ def test_a_unbekannt_erreicht_den_filter():
     vorgabe = kalman_bahn(t, x, y, **kw)
     for a, b in zip(vorgabe, klein):
         np.testing.assert_array_equal(a, b)
+
+
+def test_fit_slug_trennt_glaetter():
     """Zwei Fit-Arbeitspunkte muessen nebeneinander liegen koennen."""
     from eventpiv.kern.runconfig import Fit, slug
 
