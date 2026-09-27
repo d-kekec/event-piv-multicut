@@ -234,6 +234,13 @@ def _kennzahlen(knoten, i, j, lab, n_roh, n_ev_zugeordnet, alpha1) -> dict:
     return out
 
 
+def _rss_mb() -> float:
+    """Hochwassermarke des Prozesses in MiB. Je Run aussagekraeftig nur fuer
+    den ERSTEN Run eines Prozesses -- danach traegt sie die Spitzen der
+    vorherigen mit."""
+    return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)
+
+
 def kandidaten_fuer_run(cfg: KandidatenCfg, run_nr: int, verbose=True):
     """Einen Run laden, Knoten bauen, Kandidatenpaare bilden.
 
@@ -270,6 +277,7 @@ def kandidaten_fuer_run(cfg: KandidatenCfg, run_nr: int, verbose=True):
     ganz = lade_fenster(rsel, Window(t0=None, dt=None),
                         polarity=nb.polarity, gt_path=gt_path)
     t_laden = time.time() - t_start
+    rss_laden = _rss_mb()
 
     if len(ganz) != len(tid):
         raise SystemExit(
@@ -295,6 +303,7 @@ def kandidaten_fuer_run(cfg: KandidatenCfg, run_nr: int, verbose=True):
     ev[:, :, 0] = np.where(maske,
                            ev[:, :, 0] - kn.tabelle["t_min"][:, None], 0.0)
     ev = ev.astype(np.float32)
+    rss_knoten = _rss_mb()
 
     # Was _kennzahlen vom Strom braucht, VOR der Paarsuche zaehlen und den
     # Strom dann freigeben: die Paarsuche ist die speicherhungrigste Stelle,
@@ -314,9 +323,9 @@ def kandidaten_fuer_run(cfg: KandidatenCfg, run_nr: int, verbose=True):
                  "diag": {
                      "sec_laden": round(t_laden, 1),
                      "sec_total": round(time.time() - t_start, 1),
-                     "max_rss_mb": round(
-                         resource.getrusage(
-                             resource.RUSAGE_SELF).ru_maxrss / 1024, 1)}})
+                     "max_rss_mb_laden": rss_laden,
+                     "max_rss_mb_knoten": rss_knoten,
+                     "max_rss_mb": _rss_mb()}})
 
     daten = {**{k: v for k, v in kn.tabelle.items()},
              "ev": ev, "maske": maske,
@@ -329,8 +338,10 @@ def kandidaten_fuer_run(cfg: KandidatenCfg, run_nr: int, verbose=True):
               f"{len(i):,} Kandidaten "
               f"({lauf['kandidaten_je_knoten']:.1f} je Knoten, "
               f"{lauf.get('n_knoten_ohne_kandidat', 0):,} ohne) "
-              f"[{lauf['diag']['sec_total']:.0f} s, "
-              f"{lauf['diag']['max_rss_mb'] / 1024:.1f} GB]", flush=True)
+              f"[{lauf['diag']['sec_total']:.0f} s, RSS bis Laden "
+              f"{rss_laden / 1024:.1f}, bis Knoten {rss_knoten / 1024:.1f}, "
+              f"gesamt {lauf['diag']['max_rss_mb'] / 1024:.1f} GB]",
+              flush=True)
         if lab:
             print(f"  Label: {lauf['gueltig_frac']*100:.1f} % gueltig, "
                   f"davon {lauf['ja_frac']*100:.2f} % JA "

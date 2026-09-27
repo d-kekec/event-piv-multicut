@@ -75,20 +75,26 @@ def lade_fenster(sel, win, *, polarity, gt_path=None) -> Fenster:
     gt_path = None oder eine fehlende Datei heisst: keine GT. Kein Fehler.
     """
     ev = load_events(sel.split, sel.run_nr, t0=win.t0, dt=win.dt)
-    t = ev["t"].astype(np.float64)
-    x = ev["x"].astype(np.float64)
-    y = ev["y"].astype(np.float64)
+    m = polarity_mask(ev["p"], polarity)
 
     # Erst auf dem UNGEFILTERTEN Strom ausrichten, dann dieselbe Maske auf
     # beide Seiten -- umgekehrt bekaeme align_gt_window eine Teilfolge.
+    # Auf den rohen Zeitstempeln: align_gt_window vergleicht ohnehin
+    # ganzzahlig. Maskiert wird noch im with-Block, sonst hielte der
+    # Ausschnitt die vollen GT-Arrays ueber ihn hinaus am Leben.
     tid = sta = None
     if gt_path is not None and Path(gt_path).exists():
         with np.load(gt_path) as g:
-            sl = align_gt_window(g["t"], t)
-            tid = g["track_id"][sl]
-            sta = g["status"][sl]
+            sl = align_gt_window(g["t"], ev["t"])
+            tid = g["track_id"][sl][m]
+            sta = g["status"][sl][m]
 
-    m = polarity_mask(ev["p"], polarity)
-    return Fenster(t=t[m], x=x[m], y=y[m], p=ev["p"][m],
-                   track_id=None if tid is None else tid[m],
-                   status=None if sta is None else sta[m])
+    # ERST maskieren, DANN nach float64: umgekehrt laege der ungefilterte
+    # Strom zweimal im Speicher, roh und in float64. Mit dem Neuzuweisen
+    # wird der rohe Strom frei. p als Kopie, nicht als Feldsicht -- die
+    # hielte den ganzen Strom am Leben.
+    ev = ev[m]
+    return Fenster(t=ev["t"].astype(np.float64),
+                   x=ev["x"].astype(np.float64),
+                   y=ev["y"].astype(np.float64), p=ev["p"].copy(),
+                   track_id=tid, status=sta)

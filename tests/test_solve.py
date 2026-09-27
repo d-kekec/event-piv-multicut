@@ -248,6 +248,24 @@ def test_gt_bleibt_unter_der_maske_ausgerichtet(mini_datensatz):
     np.testing.assert_array_equal(nur_on.status, beide.status[beide.p == 1])
 
 
+def test_fenster_besitzt_seine_arrays(mini_datensatz):
+    """Keine Sichten: eine Feldsicht auf den geladenen Strom oder ein
+    Ausschnitt der vollen GT-Arrays hielte beide ueber das Fenster hinaus
+    am Leben."""
+    from eventpiv.kern.runconfig import LabelCfg, Labeling
+    from eventpiv.kette.labels import build_labels
+    build_labels(LabelCfg(io=IO(), labeling=Labeling(),
+                          selection=Selection(split="train")), verbose=False)
+
+    sel, win = Selection(split="train", run_nr=1), Window(t0=450_000,
+                                                          dt=20_000)
+    for polarity in ("both", "on"):
+        f = lade_fenster(sel, win, polarity=polarity,
+                         gt_path=config.label_file("train", 1))
+        for a in (f.t, f.x, f.y, f.p, f.track_id, f.status):
+            assert a.flags.owndata
+
+
 def test_polarity_ist_pflicht():
     """Ohne Vorgabewert: ein vergessener Filter faellt an keiner Kennzahl
     auf, also muss er beim Aufruf auffallen."""
