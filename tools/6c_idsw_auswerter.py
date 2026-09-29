@@ -17,22 +17,37 @@ Je Wechsel die Art:
 und beim Bruch die Luecke zwischen beiden. Dazu je Wechsel: Rueckkehr in
 eine fruehere Bahn und mehrdeutige Events im Rasterpunkt (Ueberlapp).
 
-Anker: die IDSW-Summe je Run muss der Zahl aus [6c] gleichen.
+Fuer die fremd beteiligten Wechsel dazu der Mechanismus: In welchem
+Stufe-1-Tracklet stecken die Events des Partikels an dem Rasterpunkt, an
+dem es in der fremden Bahn liegt? Jedes dieser Events bekommt die Klasse
+seines Tracklets, nach dessen Zusammensetzung ohne Rauschen:
+  rein        eigener Anteil ab REIN_AB
+  gemischt    eigene Mehrheit, aber darunter
+  fremd       die Mehrheit gehoert einem anderen Partikel
+Der Wechsel zaehlt zur Klasse mit den meisten Events, bei Gleichstand zur
+kleineren. Wie das Ergebnis zu lesen ist, steht in LESART; die Auswertung
+gibt es am Ende aus.
+
+Anker: die IDSW-Summe je Run muss der Zahl aus [6c] gleichen, die
+Minderheit in den Stufe-1-Knoten dem Feld stufe1/merge_n_minderheit
+derselben [6c]-JSON. Der zweite prueft, dass (A) richtig gelesen wird.
 
 Aufruf mit dem solves-Verzeichnis aus dem Fit-Log und dem Versatz von
 Stufe 2 (solver2.cost_offset), mehrere Werte nacheinander:
     python tools/6c_idsw_auswerter.py <solves> 8 13 38 41 66 92 --versatz 0.5 1
 """
 import argparse
+import json
 from pathlib import Path
 
 import numpy as np
 
-from eventpiv.bewerten.evaluate import _einheiten, gt_raster_dt, idsw_metrics
+from eventpiv.bewerten.evaluate import (_einheiten, gt_raster_dt, idsw_metrics,
+                                        merge_metrics)
 from eventpiv.kern import config
 from eventpiv.kern.data import load_bbox
 from eventpiv.kern.graph import polarity_mask
-from eventpiv.kern.runconfig import Solver, Solver2
+from eventpiv.kern.runconfig import Solver, Solver2, Transformer
 from eventpiv.kern.status import STATUS_AMBIG, STATUS_NOISE
 
 SPLIT = "train"
@@ -40,6 +55,31 @@ STAMM = "train_run{r}_{stamm}.npz"                # Partition aus [6c]
 V_GRENZEN = (0.0, 0.1, 0.2, 0.4, 0.8, np.inf)     # px/ms
 RATE_GRENZE = 30.0                                # je ms; Nachweisgrenze bei min_events 15
 TOL = 2                                           # Rasterpunkte Spiel beim Bruch
+REIN_AB = Transformer().gt_min_anteil             # ab hier gilt ein Knoten als rein
+KLASSEN = ("rein", "gemischt", "fremd")           # Stufe-1-Tracklet, Gleichstand: kleinere
+
+LESART = f"""
+Lesart Mechanismus. Gezaehlt sind die fremd beteiligten Wechsel, nach dem
+Stufe-1-Tracklet, in dem die Events des Partikels am Rasterpunkt in der
+fremden Bahn stecken:
+  rein      eigener Anteil ab {REIN_AB:g}. Stufe 1 hat richtig getrennt, Stufe 2
+            hat ein reines Stueck an die fremde Bahn gehaengt. Ursache: das
+            Verbinden in Stufe 2.
+  gemischt  eigene Mehrheit unter {REIN_AB:g}. Stufe 1 hat vermischt, Stufe 2
+            hat den Knoten zur fremden Bahn gelegt. Beide beteiligt.
+  fremd     Mehrheit ein anderes Partikel. Das Partikel steckt als
+            Minderheit im Tracklet des anderen, Stufe 2 hat den Knoten nach
+            seiner Mehrheit richtig verbunden. Ursache: Stufe 1 -- kein Netz
+            in Stufe 2 kann einen Knoten teilen.
+Grundrate: dieselbe Einteilung ueber alle verfolgten Rasterpunkte, also
+wie oft ein Partikel ueberhaupt ueber ein solches Tracklet laeuft.
+Liegen fremd und gemischt an den Wechseln weit ueber ihrer Grundrate,
+tragen die Stufe-1-Knoten die Begegnungen, und ein negativer
+Stufe-1-Versatz ist der Hebel. Liegt rein vorn, entstehen sie beim
+Verbinden, und der Hebel liegt in Stufe 2.
+Vorbehalt: mehrdeutige Events zaehlen mit ihrer geschaetzten track_id --
+im Ueberlapp ist auch die Zusammensetzung eines Tracklets geschaetzt.
+"""
 
 
 def geschwindigkeit(bb, ids):
@@ -62,13 +102,44 @@ def geschwindigkeit(bb, ids):
     return aus
 
 
+def lade_tracklets(r, solves, n_on):
+    """tracklet_id aus (A), ein Eintrag je ON-Event wie in der Partition.
+
+    (A) liegt in dem tracklets-Verzeichnis, unter dem
+    stufe2/<kd>/<tf>/solves haengt; Stufe 1 an ihrer Vorgabe wie in
+    partition_stamm.
+    """
+    pfad = Path(solves).parents[3] / f"{SPLIT}_run{r}_{Solver().short()}.npz"
+    with np.load(pfad) as d:
+        tid = d["tracklet_id"].astype(np.int64)
+    if len(tid) != n_on:
+        raise SystemExit(f"run{r}: {n_on:,} ON-Events, {len(tid):,} in {pfad.name}")
+    return tid
+
+
+def mehrheitsklasse(schl, kl, anfrage):
+    """Je Schluessel aus anfrage die Klasse mit den meisten Events.
+
+    schl und kl gehoeren zusammen: Schluessel und Klasse je Event.
+    Gleichstand: die kleinere Klasse, also rein vor gemischt vor fremd --
+    gegen die Vermutung, die geprueft wird.
+    """
+    n = np.zeros((len(anfrage), len(KLASSEN)), np.int64)
+    for c in range(len(KLASSEN)):
+        s = np.sort(schl[kl == c])
+        n[:, c] = (np.searchsorted(s, anfrage, "right")
+                   - np.searchsorted(s, anfrage, "left"))
+    return n.argmax(axis=1)
+
+
 def auswerten(r, solves, stamm):
     with np.load(config.label_file(SPLIT, r)) as g:
         m = polarity_mask(g["p"], "on")
         t = g["t"][m].astype(np.int64)
         gt = g["track_id"][m].astype(np.int64)
         st = g["status"][m]
-    with np.load(Path(solves) / STAMM.format(r=r, stamm=stamm)) as d:
+    teil = Path(solves) / STAMM.format(r=r, stamm=stamm)
+    with np.load(teil) as d:
         lab = d["trajektorie_id"].astype(np.int64)
     if len(lab) != len(t):
         raise SystemExit(f"run{r}: {len(t):,} ON-Events, {len(lab):,} in der Partition")
@@ -151,14 +222,63 @@ def auswerten(r, solves, stamm):
     mehrd = (np.bincount(pe, weights=amb[ist_gt], minlength=n_i)
              / np.maximum(n_ev, 1))
 
+    # Mechanismus: Zusammensetzung jedes Stufe-1-Tracklets ohne Rauschen,
+    # Mehrheitspartikel und dessen Anteil. Dann je zugeordnetem Event die
+    # Klasse seines Tracklets aus Sicht SEINES Partikels (0 rein,
+    # 1 gemischt, 2 fremd).
+    tid = lade_tracklets(r, solves, len(t))
+    ev = np.flatnonzero(zug & ist_gt)                 # zugeordnet, ohne Rauschen
+    if (tid[ev] < 0).any():
+        raise SystemExit(f"run{r}: zugeordnete Events ohne Stufe-1-Tracklet")
+    mt = (tid >= 0) & ist_gt
+    k, c = np.unique(tid[mt] * n_i + np.searchsorted(ids, gt[mt]),
+                     return_counts=True)
+    o = np.lexsort((c, k // n_i))
+    k, c = k[o], c[o]
+    letzt = np.r_[k[1:] // n_i != k[:-1] // n_i, True]
+    t_u, t_maj = k[letzt] // n_i, k[letzt] % n_i
+    t_ant = c[letzt] / np.bincount(np.searchsorted(t_u, k // n_i), weights=c)
+    p_ev = np.searchsorted(ids, gt[ev])
+    t_i = np.searchsorted(t_u, tid[ev])
+    kl = np.where(t_maj[t_i] != p_ev, 2,
+                  np.where(t_ant[t_i] < REIN_AB, 1, 0)).astype(np.int8)
+
+    # Je Wechsel der Rasterpunkt, an dem das Partikel in der fremden Bahn
+    # liegt: nach dem Wechsel, wenn die neue Bahn fremd ist, sonst davor.
+    # Gefragt wird nach (Partikel, Rasterpunkt, Bahn) -- die Bahn ist dort
+    # die Mehrheitsbahn des Partikels, hat also Events. grund_mech: dasselbe
+    # fuer alle verfolgten Rasterpunkte.
+    n_l = int(lab.max()) + 1
+    schl_m = (p_ev * n_b + (t[ev] - t0) // int(delta)) * n_l + lab[ev]
+    neu_fremd = maj_p[np.searchsorted(maj_l, neu)] != wer
+    f_lab = np.where(neu_fremd, neu, alt)
+    f_bin = np.where(neu_fremd, b_neu, b_alt)
+    kl_q = mehrheitsklasse(schl_m, kl, np.concatenate(
+        [(wer * n_b + f_bin) * n_l + f_lab,
+         (inv[v] * n_b + b_s[v]) * n_l + lab_s[v]]))
+    mech = np.where(eigen, -1, kl_q[:len(wer)])       # -1: keine fremde Bahn
+    grund_mech = kl_q[len(wer):]
+
+    # Zweiter Anker: Minderheit in den Stufe-1-Knoten wie in [6c] -- Knoten
+    # sind Tracklets ab min_events ON-Events, Rauschen eingerechnet.
+    with open(teil.with_suffix(".json")) as f:
+        j = json.load(f)
+    n_on = np.bincount(tid[tid >= 0])
+    knoten = (tid >= 0) & (n_on[np.maximum(tid, 0)]
+                           >= j["meta"]["kandidaten"]["min_events"])
+    m1 = merge_metrics(np.where(knoten, tid, -1), gt, st).get(
+        "merge_n_minderheit", 0)
+
     anker = idsw_metrics(lab, gt, st, t, delta=delta).get("idsw", 0)
     print(f"run{r}: {len(ids)} Partikel, IDSW {int(idsw.sum())} "
-          f"(idsw_metrics {anker})", flush=True)
+          f"(idsw_metrics {anker}); Minderheit in Stufe-1-Knoten {m1} Events "
+          f"([6c] {j['lauf']['stufe1']['merge_n_minderheit']})", flush=True)
     return dict(idsw=idsw, v=vmed, rate=n_ev / (einheiten * delta / 1e3),
                 grau=grau / np.maximum(n_ev, 1), bruch=bruch, luecke=luecke,
                 in_luecke=in_luecke, v_w=vmed[wer], eigen=eigen, rueck=rueck,
                 ueberlapp=ueberlapp, grund=grund, mehrd=mehrd,
-                idsw_eind=np.array([idsw_eind]))
+                idsw_eind=np.array([idsw_eind]), mech=mech,
+                grund_mech=grund_mech)
 
 
 def tabelle(titel, a):
@@ -205,6 +325,13 @@ def tabelle(titel, a):
               f"{sel.sum() / max(n_w, 1) * 100:6.1f}% "
               f"{a['rueck'][sel].mean() * 100 if sel.any() else 0:9.0f}% "
               f"{a['ueberlapp'][sel].mean() * 100 if sel.any() else 0:9.0f}%")
+    mk, mg = a["mech"][~a["bruch"] & ~a["eigen"]], a["grund_mech"]
+    print("  Mechanismus der fremd beteiligten Wechsel, Lesart am Ende:")
+    print(f"  {'Stufe-1-Tracklet':<16} {'IDSW':>6} {'Anteil':>7} {'Grundrate':>10}")
+    for c, name in enumerate(KLASSEN):
+        print(f"  {name:<16} {(mk == c).sum():6d} "
+              f"{(mk == c).mean() * 100 if len(mk) else 0:6.1f}% "
+              f"{(mg == c).mean() * 100 if len(mg) else 0:9.2f}%")
     k = a["mehrd"] >= 0.5
     print(f"  Ueberlapp-Grundrate {a['grund'].mean() * 100:.1f} % der verfolgten "
           f"Rasterpunkte; ohne mehrdeutige Events IDSW "
@@ -240,3 +367,4 @@ if __name__ == "__main__":
     a = ap.parse_args()
     for v in a.versatz:
         main(a.solves, a.runs, partition_stamm(v))
+    print(LESART)
