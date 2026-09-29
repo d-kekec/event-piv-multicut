@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""WEGWERFSKRIPT: Wo entstehen die Identitaetswechsel?
+"""Wo entstehen die Identitaetswechsel? Zerlegung einer Partition aus [6c].
 
 Je GT-Partikel die IDSW auf dem GT-Raster, gerechnet wie in idsw_metrics,
 dazu die Geschwindigkeit aus den Boxmitten, die Eventrate und der Anteil
@@ -19,9 +19,9 @@ eine fruehere Bahn und mehrdeutige Events im Rasterpunkt (Ueberlapp).
 
 Anker: die IDSW-Summe je Run muss der Zahl aus [6c] gleichen.
 
-Aufruf, mit dem solves-Verzeichnis aus dem Fit-Log; --stamm waehlt die
-Partition (Vorgabe P_ramaP_o0.5, bei Versatz 0 P_ramaP):
-    python tools/throwaway/idsw_langsam.py <solves> 8 13 38 41 66 92 --stamm P_ramaP
+Aufruf mit dem solves-Verzeichnis aus dem Fit-Log und dem Versatz von
+Stufe 2 (solver2.cost_offset), mehrere Werte nacheinander:
+    python tools/6c_idsw_auswerter.py <solves> 8 13 38 41 66 92 --versatz 0.5 1
 """
 import argparse
 from pathlib import Path
@@ -32,12 +32,13 @@ from eventpiv.bewerten.evaluate import _einheiten, gt_raster_dt, idsw_metrics
 from eventpiv.kern import config
 from eventpiv.kern.data import load_bbox
 from eventpiv.kern.graph import polarity_mask
+from eventpiv.kern.runconfig import Solver, Solver2
 from eventpiv.kern.status import STATUS_AMBIG, STATUS_NOISE
 
 SPLIT = "train"
 STAMM = "train_run{r}_{stamm}.npz"                # Partition aus [6c]
 V_GRENZEN = (0.0, 0.1, 0.2, 0.4, 0.8, np.inf)     # px/ms
-RATE_GRENZE = 30.0                                # min_events / alpha1, Events je ms
+RATE_GRENZE = 30.0                                # je ms; Nachweisgrenze bei min_events 15
 TOL = 2                                           # Rasterpunkte Spiel beim Bruch
 
 
@@ -114,7 +115,7 @@ def auswerten(r, solves, stamm):
     einheiten = np.bincount(inv, minlength=len(ids))
     vmed = geschwindigkeit(bb, ids)
 
-        # Wem gehoeren die beiden Bahnen eines Wechsels? Mehrheitspartikel je
+    # Wem gehoeren die beiden Bahnen eines Wechsels? Mehrheitspartikel je
     # Bahn ueber ihre Events ausser Rauschen, dieselbe Menge wie in der
     # IDSW-Rechnung. eigen: beide gehoeren dem wechselnden Partikel, es
     # springt zwischen zwei eigenen Stuecken. Sonst ist ein anderes
@@ -215,6 +216,11 @@ def tabelle(titel, a):
           f"({k.mean() * 100:.1f} %) mit {a['idsw'][k].sum() / max(n_w, 1) * 100:.1f} % der IDSW")
 
 
+def partition_stamm(versatz):
+    """Solver-Teil des Partitionsnamens aus [6c], Stufe 1 an ihrer Vorgabe."""
+    return f"{Solver().short()}_{Solver2(cost_offset=versatz).short()}"
+
+
 def main(solves, runs, stamm):
     print(f"Partitionen train_run<r>_{stamm}.npz", flush=True)
     alle = [auswerten(r, solves, stamm) for r in runs]
@@ -229,8 +235,8 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("solves")
     ap.add_argument("runs", type=int, nargs="+")
-    ap.add_argument("--stamm", default="P_ramaP_o0.5",
-                    help="Solver-Teil des Partitionsnamens aus [6c]; "
-                         "P_ramaP bei Versatz 0")
+    ap.add_argument("--versatz", type=float, nargs="+", required=True,
+                    help="solver2.cost_offset der Partitionen aus [6c]")
     a = ap.parse_args()
-    main(a.solves, a.runs, a.stamm)
+    for v in a.versatz:
+        main(a.solves, a.runs, partition_stamm(v))
