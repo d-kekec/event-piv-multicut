@@ -31,6 +31,12 @@ IFS=';' read -ra SAETZE <<< "$EXTRA_SETS"
 # wortlos mit Erfolg.
 if [ ${#SAETZE[@]} -eq 0 ]; then SAETZE=(""); fi
 
+echo "Node $(hostname)  Job $SLURM_JOB_ID  Start: $(date)"
+# Welche Karte, und wie voll ist sie beim Start? Eine fremd belegte Karte
+# zeigt sich sonst erst als OOM mitten im Lauf.
+echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-}"
+nvidia-smi --query-gpu=index,name,memory.used,memory.total --format=csv,noheader || true
+
 for e in "${SAETZE[@]}"; do
   for r in $RUNS; do
     echo "=== run${r}   EXTRA='$e' ==="
@@ -40,3 +46,5 @@ for e in "${SAETZE[@]}"; do
       || echo "run${r} ($e) FEHLGESCHLAGEN -- weiter" >&2
   done
 done
+
+echo "Ende: $(date)"
