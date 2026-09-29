@@ -65,7 +65,8 @@ def test_stufe2_gruppen_pruefen_ihre_auswahlwerte():
     with pytest.raises(ValueError, match="geom"):
         Kandidaten(geom="wuerfel")
     with pytest.raises(ValueError, match="min_events"):
-        Kandidaten(min_events=1)
+        Kandidaten(min_events=0)
+    Kandidaten(min_events=1)                 # muss durchlaufen
     with pytest.raises(ValueError, match="n_events"):
         Kandidaten(n_events=0)
     with pytest.raises(ValueError, match="pooling"):

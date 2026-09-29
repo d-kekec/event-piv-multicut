@@ -342,12 +342,12 @@ class Kandidaten(_Typed):
             raise ValueError(
                 f"kandidaten.geom={self.geom!r} unbekannt. "
                 f"Erlaubt: {NEIGHBORHOOD_GEOMS}")
-        if self.min_events < 2:
-            # Unter zwei Events hat ein Tracklet keine Ausdehnung und
-            # traegt keine Form -- dann ist der Transformer das falsche
-            # Werkzeug.
+        if self.min_events < 1:
+            # 0 filterte dasselbe wie 1, nur unter anderem Slug. Ein
+            # Einzelevent-Knoten ist zulaessig: baue_tokens normiert ueber
+            # feste Nenner (alpha, r_max), nicht ueber seine Ausdehnung.
             raise ValueError(
-                f"kandidaten.min_events={self.min_events} -- mindestens 2.")
+                f"kandidaten.min_events={self.min_events} -- mindestens 1.")
         if self.n_events < 1:
             raise ValueError(
                 f"kandidaten.n_events={self.n_events} -- mindestens 1.")
