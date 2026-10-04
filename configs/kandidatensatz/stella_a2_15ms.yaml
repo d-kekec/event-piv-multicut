@@ -1,0 +1,14 @@
+# @package kandidaten
+#
+# Zweiter Arbeitspunkt auf STELLA: alpha2 15 ms, min_events 2. Zuschalten
+# mit `kandidatensatz=stella_a2_15ms transformersatz=stella_a2_15ms`.
+# Weniger Brueche, mehr Verschmelzung als der Arbeitspunkt mit 7,5 ms
+# (Journal 27.09.-02.10.).
+#
+# runs, v_max und r_max wie in kandidatensatz=stella.
+runs: [2, 6, 8, 9, 13, 18, 23, 28, 30, 37, 38, 41, 42, 43, 46, 48, 49, 54,
+       55, 64, 65, 66, 72, 80, 82, 85, 92, 93, 96, 98]
+v_max: 0.00179
+r_max: 8.0
+alpha: 15000
+min_events: 2

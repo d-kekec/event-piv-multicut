@@ -4,6 +4,7 @@ defaults:
   - pairsampling: null
   - training: null
   - kandidatensatz: null
+  - transformersatz: null
   - datensatz: null
   - _self_
 

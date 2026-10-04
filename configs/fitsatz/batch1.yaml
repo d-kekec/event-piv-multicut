@@ -1,0 +1,16 @@
+# @package fit
+#
+# Fit-Arbeitspunkt fuer batch1, ab [7]. Zuschalten mit
+# `datensatz=batch1 kandidatensatz=batch1 transformersatz=batch1
+# fitsatz=batch1`.
+#
+# dt_aus: das GT-Raster von batch1. c1: auf batch1 waechst der
+# Vorwaertsversatz mit der Geschwindigkeit.
+dt_aus: 16667.0
+init_us: 100000.0
+min_dauer_us: 100000.0
+c0: 0.95
+c1: 29.1
+r_mess: 8.0
+q_c: 20.0
+a_unbekannt: 100.0

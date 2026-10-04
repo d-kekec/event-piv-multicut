@@ -25,11 +25,12 @@
 #
 # alpha: Reichweite zwischen den t_min zweier Knoten, in µs.
 #
-# min_events und n_events bleiben bei der Vorgabe: die Schwelle liegt in
-# der Luecke der Groessenverteilung und entfernt Kruemel echter Partikel,
-# die als Knoten keine Form tragen.
+# min_events 1: jedes Tracklet wird ein Knoten, auch ein Einzelevent;
+# kantenlose Events (tracklet_id < 0) bleiben ohne Knoten. n_events bleibt
+# bei der Vorgabe. Vergleich mit 2 und 15 -> Journal 27.09.-02.10.
 runs: [2, 6, 8, 9, 13, 18, 23, 28, 30, 37, 38, 41, 42, 43, 46, 48, 49, 54,
        55, 64, 65, 66, 72, 80, 82, 85, 92, 93, 96, 98]
 v_max: 0.00179
 r_max: 8.0
-alpha: 5000
+alpha: 7500
+min_events: 1

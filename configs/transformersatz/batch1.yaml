@@ -1,0 +1,6 @@
+# @package transformer
+#
+# Stufe-2-Netz fuer batch1, ab [6b]. Zuschalten mit
+# `transformersatz=batch1`. Die uebrigen Felder sind auf beiden
+# Datensaetzen gleich.
+epochs: 50

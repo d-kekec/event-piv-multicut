@@ -1,0 +1,5 @@
+# @package transformer
+#
+# Netz zum zweiten STELLA-Arbeitspunkt, zusammen mit
+# `kandidatensatz=stella_a2_15ms`.
+epochs: 50

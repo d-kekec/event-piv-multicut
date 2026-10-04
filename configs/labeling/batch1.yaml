@@ -1,0 +1,3 @@
+# Labeling fuer batch1. Zuschalten mit `labeling=batch1`. r_ambig ist auf
+# beiden Datensaetzen gleich.
+r_assign: 8.0

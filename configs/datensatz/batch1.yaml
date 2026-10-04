@@ -1,0 +1,8 @@
+# @package _global_
+#
+# Alle Gruppen von batch1 ab dem Training: `datensatz=batch1`. Labels und
+# Paarbau nehmen die Einzelgruppen, wie bei stella.
+defaults:
+  - override /neighborhood: batch1
+  - override /pairsampling: batch1
+  - override /training: batch1

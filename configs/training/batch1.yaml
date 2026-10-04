@@ -1,0 +1,6 @@
+# Training fuer batch1. Wird ueber `datensatz=batch1` mitgesetzt, einzeln
+# ueber `training=batch1`.
+#
+# feature_mode drjac: auf batch1 werden die Kosten mit dr allein nie
+# negativ, ohne Jaccard wird nicht geschnitten.
+feature_mode: drjac

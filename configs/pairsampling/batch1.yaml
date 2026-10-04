@@ -1,0 +1,9 @@
+# @package pairs
+#
+# Paarbau fuer batch1. Zuschalten mit `pairsampling=batch1`.
+#
+# runs: dreissig Overlap-Runs, aufsteigend -- die Reihenfolge geht in den
+# Hash ein.
+runs: [2, 9, 11, 12, 13, 14, 19, 23, 24, 28, 30, 32, 34, 35, 44, 51, 55,
+       58, 59, 61, 63, 66, 67, 70, 73, 76, 77, 80, 83, 90]
+fenster_schritt: 4

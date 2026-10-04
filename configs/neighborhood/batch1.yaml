@@ -1,0 +1,9 @@
+# Nachbarschaft fuer batch1. Zuschalten mit `neighborhood=batch1`, ab dem
+# Training ueber `datensatz=batch1`.
+#
+# Gesetzt sind die Felder, in denen sich batch1 und STELLA unterscheiden.
+# polarity ist auf beiden "on".
+alpha: 10000
+r_max: 5.0
+geom: cylinder
+v_max: 1.02e-4

@@ -1,0 +1,9 @@
+# @package transformer
+#
+# Das Feld heisst `transformer`, die Gruppe `transformersatz` -- nach dem
+# Muster von kandidatensatz und fitsatz.
+#
+# Stufe-2-Netz fuer STELLA, ab [6b]. Zuschalten mit
+# `transformersatz=stella`. Die uebrigen Felder sind auf beiden
+# Datensaetzen gleich.
+epochs: 100
