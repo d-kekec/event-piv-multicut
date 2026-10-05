@@ -16,8 +16,9 @@ export WANDB_SILENT=true
 source "$HOME/eventpiv-env/bin/activate"
 cd "$HOME/event-piv-multicut"
 
-RUNS="${RUNS:-2 11 19 30 32 35 44 59 61 76}"
-SPLIT="${SPLIT:-train}"
+RUNS="${RUNS:?RUNS fehlt, etwa RUNS=66}"
+SPLIT="${SPLIT:?SPLIT fehlt, etwa SPLIT=val}"
+echo "Daten: $EVENTPIV_DATA"
 EXTRA_SETS="${EXTRA_SETS:-${EXTRA:-}}"
 IFS=';' read -ra SAETZE <<< "$EXTRA_SETS"
 # read liefert bei leerer Eingabe ein LEERES Array, nicht eines mit einem

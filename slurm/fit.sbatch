@@ -27,7 +27,7 @@ cd "$HOME/event-piv-multicut"
 # Ohne Vorgabe: ein leeres selection.runs liesse das Skript ALLE Runs des
 # Splits nehmen, und QC vervielfacht das noch.
 RUNS="${RUNS:?RUNS fehlt, etwa RUNS=66}"
-SPLIT="${SPLIT:-train}"
+SPLIT="${SPLIT:?SPLIT fehlt, etwa SPLIT=val}"
 LISTE=$(echo "$RUNS" | tr ' ' ',')
 
 EXTRA_SETS="${EXTRA_SETS:-${EXTRA:-}}"

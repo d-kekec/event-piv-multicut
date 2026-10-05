@@ -21,14 +21,15 @@ export WANDB_SILENT=true
 source "$HOME/eventpiv-env/bin/activate"
 cd "$HOME/event-piv-multicut"
 
-RUNS="${RUNS:-2 11 19 30 32 35 44 59 61 76}"
-SPLIT="${SPLIT:-train}"
+RUNS="${RUNS:?RUNS fehlt, etwa RUNS=66}"
+SPLIT="${SPLIT:?SPLIT fehlt, etwa SPLIT=val}"
+echo "Daten: $EVENTPIV_DATA"
 # Kommaliste fuer Hydra: selection.runs=[2,11,...]
 LISTE=$(echo "$RUNS" | tr ' ' ',')
 # Die IDENTITAET des Kandidatensatzes, getrennt von dem, WAS gebaut wird.
 # selection.runs sagt, welche Runs entstehen; kandidaten.runs bestimmt den
-# Slug und damit das Verzeichnis. Die Liste gehoert der Gruppe
-# (kandidatensatz=...), auf batch1 den Vorgaben. KD_RUNS ueberschreibt sie
+# Slug und damit das Verzeichnis. Die Liste gehoert den Vorgaben, auf
+# batch1 der Gruppe (kandidatensatz=batch1). KD_RUNS ueberschreibt sie
 # nur, wenn es ausdruecklich gesetzt ist -- etwa fuer eine Probe unter
 # eigenem Slug. Aufsteigend sortiert: die REIHENFOLGE geht in den Hash ein.
 KD_ARG=()

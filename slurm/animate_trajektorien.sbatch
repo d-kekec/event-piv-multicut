@@ -18,7 +18,8 @@ export PYTHONUNBUFFERED=1
 source "$HOME/eventpiv-env/bin/activate"
 cd "$HOME/event-piv-multicut"
 
-SPLIT="${SPLIT:-train}"
+SPLIT="${SPLIT:?SPLIT fehlt, etwa SPLIT=train}"
+echo "Daten: $EVENTPIV_DATA"
 RUN="${RUN:?RUN=<nr> setzen}"
 PANELS="${PANELS:-tracklets,fit,gt}"
 

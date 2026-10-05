@@ -19,8 +19,9 @@ export WANDB_SILENT=true
 source "$HOME/eventpiv-env/bin/activate"
 cd "$HOME/event-piv-multicut"
 
-RUNS="${RUNS:-2 11 19 30 32 35 44 59 61 76}"
-SPLIT="${SPLIT:-train}"
+RUNS="${RUNS:?RUNS fehlt, etwa RUNS=66}"
+SPLIT="${SPLIT:?SPLIT fehlt, etwa SPLIT=val}"
+echo "Daten: $EVENTPIV_DATA"
 
 # Mehrere Parametersaetze in EINER Allokation. Semikolon trennt die
 # Saetze: EXTRA_SETS="solver.cost_offset=-1;solver.cost_offset=-0.5"

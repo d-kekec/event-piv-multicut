@@ -15,6 +15,7 @@ source "$HOME/eventpiv-env/bin/activate"
 cd "$HOME/event-piv-multicut"
 
 : "${SPLIT:?SPLIT nicht gesetzt -- vor dem sbatch exportieren}"
+echo "Daten: $EVENTPIV_DATA"
 
 # Zusaetzliche Hydra-Overrides, z.B. EXTRA="io.overwrite=true" beim
 # Neubau nach einer Formataenderung. BEWUSST nicht fest eingebaut:

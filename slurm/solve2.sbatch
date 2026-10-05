@@ -20,8 +20,9 @@ export WANDB_SILENT=true
 source "$HOME/eventpiv-env/bin/activate"
 cd "$HOME/event-piv-multicut"
 
-RUNS="${RUNS:-1 4}"
-SPLIT="${SPLIT:-val}"
+RUNS="${RUNS:?RUNS fehlt, etwa RUNS=66}"
+SPLIT="${SPLIT:?SPLIT fehlt, etwa SPLIT=val}"
+echo "Daten: $EVENTPIV_DATA"
 LISTE=$(echo "$RUNS" | tr ' ' ',')
 
 # Dieselbe Liste wie beim Kandidatenbau -- sie IST der Pfad zum Netz.
