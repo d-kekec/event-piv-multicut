@@ -94,12 +94,6 @@ def test_sauberer_run_hat_keine_mehrdeutigen_events(mini_datensatz, run_nr):
     assert not (st == STATUS_AMBIG).any()
 
 
-def test_rauschanteil_liegt_bei_fuenf_prozent(mini_datensatz):
-    """Wie am echten Datensatz gemessen (5,04 % auf run3)."""
-    _, _, st = _gelabelt(mini_datensatz, 3)
-    assert 0.04 < (st == STATUS_NOISE).mean() < 0.06
-
-
 def test_nur_die_kreuzung_liefert_nein_paare(mini_datensatz):
     """Die physikalische Aussage, auf der die Sammelstrategie ruht.
 

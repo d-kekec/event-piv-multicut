@@ -39,12 +39,17 @@ from eventpiv.kette.solve import solve_and_evaluate
 from eventpiv.kette.train import train_edge_nn
 
 # --- Der Arbeitspunkt des Tests ---------------------------------------
-# Nicht die Vorgabewerte: die sind auf 8-s-Runs geeicht, die Fixture ist
-# 1 s lang. r_max = 5 und alpha = 10 000 liegen zugleich im Zielregime von
-# Stufe 1.
-# Vollstaendig ausgeschrieben, auch wo es der Vorgabe entspricht: ein Test
-# soll sich nicht mitverschieben, wenn eine Vorgabe wandert.
-NB = dict(alpha=10_000, r_max=5.0, geom="cylinder", polarity="on")
+# Nicht die Vorgabewerte: die sind auf STELLA geeicht, die Fixture bildet
+# batch1 nach, in 1 s statt 8 s -- daher der batch1-Arbeitspunkt von
+# Stufe 1. Vollstaendig ausgeschrieben, auch wo es einer Vorgabe
+# entspricht: ein Test soll sich nicht mitverschieben, wenn eine Vorgabe
+# wandert.
+NB = dict(alpha=10_000, r_max=5.0, geom="cylinder", v_max=1.02e-4,
+          polarity="on")
+
+# r_assign ueber R_CLIP der Fixture (7 px): Signalevents duerfen nicht
+# zufaellig zu RAUSCH werden.
+LB = dict(r_assign=8.0, r_ambig=2.0)
 
 # Nur die Kreuzungs-Runs: saubere liefern physikalisch null NEIN, und die
 # Kreuzungs-Runs tragen selbst reichlich JA. Zwei Runs sind das Minimum
@@ -58,7 +63,8 @@ MIND_JA, MIND_NEIN = 300, 50
 def _gruppen(mini_datensatz):
     nb = Neighborhood(**NB)
     ps = PairSampling(split="train", runs=list(mini_datensatz.kreuzung),
-                      ja_frac=0.02, max_no=200_000, ja_vorrat=4.0, seed=0)
+                      ja_frac=0.02, max_no=200_000, ja_vorrat=4.0,
+                      fenster_schritt=4, seed=0)
     tr = Training(feature_mode="dr", imbalance="sample", sample_ratio=3.0,
                   hidden=4, epochs=3, batch=4096, val_frac=0.2, seed=0)
     return nb, ps, tr
@@ -74,7 +80,7 @@ def test_kette_labels_paare_training_solve(mini_datensatz):
     # config.available_runs gegen echte Dateien.
     # ---------------------------------------------------------------
     from eventpiv.kette.labels import build_labels
-    failed = build_labels(LabelCfg(io=IO(), labeling=Labeling(),
+    failed = build_labels(LabelCfg(io=IO(), labeling=Labeling(**LB),
                                    selection=Selection(split="train")),
                           verbose=False)
     assert failed == []
@@ -203,7 +209,7 @@ def test_falsche_nachbarschaft_faellt_beim_solve_auf(mini_datensatz):
     cp = Compute(device="cpu", cost_batch=1_000_000)
 
     from eventpiv.kette.labels import build_labels
-    build_labels(LabelCfg(io=IO(), labeling=Labeling(),
+    build_labels(LabelCfg(io=IO(), labeling=Labeling(**LB),
                           selection=Selection(split="train")), verbose=False)
     pcfg = PairCfg(io=IO(), neighborhood=nb, pairs=ps, compute=cp)
     build_pair_dataset(pcfg, verbose=False)

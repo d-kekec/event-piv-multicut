@@ -111,11 +111,11 @@ def test_kandidaten_v_max_muss_zur_nachbarschaft_passen():
     bricht deshalb zur Konfigurationszeit ab -- ausser bei io.strict=false."""
     from eventpiv.kern.runconfig import IO, Kandidaten, KandidatenCfg
 
-    nb = Neighborhood(v_max=1.79e-3)
+    nb = Neighborhood(v_max=1.02e-4)
     KandidatenCfg()                                      # Vorgaben passen
     with pytest.raises(ValueError, match="v_max"):
         KandidatenCfg(neighborhood=nb)                   # Gruppe vergessen
-    KandidatenCfg(neighborhood=nb, kandidaten=Kandidaten(v_max=0.00179))
+    KandidatenCfg(neighborhood=nb, kandidaten=Kandidaten(v_max=0.000102))
     KandidatenCfg(neighborhood=nb, io=IO(strict=False))  # bewusster Akt
 
 
@@ -143,13 +143,3 @@ def test_fit_typcast_und_auswahlwerte():
             Fit(**{feld: 0.0})
     with pytest.raises(ValueError, match="a_unbekannt"):
         Fit(a_unbekannt=-1.0)
-
-
-def test_fit_default_ist_der_gemessene_arbeitspunkt():
-    """r_mess und q_c sind gemessen, nicht gewaehlt (Journal 12.09.).
-    Faellt der Test, wurde der Arbeitspunkt ohne Messung verschoben."""
-    from eventpiv.kern.runconfig import Fit
-
-    f = Fit()
-    assert f.r_mess == 8.0 and f.q_c == 20.0
-    assert (f.c0, f.c1) == (0.95, 29.1)

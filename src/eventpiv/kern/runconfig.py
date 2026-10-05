@@ -12,6 +12,12 @@ was zwischen zwei Stufen gleich sein MUSS. Zwischen den Stufen muss das nur
 Gruppengrenze: `kandidaten.v_max` ist dieselbe wie `neighborhood.v_max`.
 Geprueft wird das in KandidatenCfg, wo der Kandidatensatz entsteht.
 
+DIE VORGABEN SIND DER ARBEITSPUNKT VON STELLA. batch1 und der zweite
+STELLA-Arbeitspunkt liegen als Gruppen unter configs/ (`datensatz=batch1`
+usw.). Eine Vorgabe zu aendern verschiebt den Arbeitspunkt;
+test_vorgaben_sind_ein_arbeitspunkt vergleicht dafuer alle Slugs mit
+festen Werten.
+
 KEIN frozen=True -- OmegaConf macht den Container dann read-only und jeder
 Hydra-Override scheitert. GEMESSEN, bei einem OmegaConf-Wechsel neu
 pruefen.
@@ -23,7 +29,7 @@ import json
 from dataclasses import asdict, dataclass, field, fields
 
 BOX_W = 11.0                    # px, Kantenlaenge der quadratischen
-                                # GT-Bounding-Box. Konstante des Datensatzes.
+                                # GT-Box von batch1.
 
 _CAST = {"int": int, "float": float, "str": str, "bool": bool}
 
@@ -94,10 +100,10 @@ class Neighborhood(_Typed):
     # Arbeitspunkt von Stufe 1. alpha ist zugleich die Laenge eines
     # Tracklet-Fensters -- ein Regler fuer Kantenreichweite UND
     # Tracklet-Laenge, siehe Code_Guide §1.
-    alpha: int = 10_000
-    r_max: float = 5.0
-    geom: str = "cylinder"
-    v_max: float = 1.02e-4
+    alpha: int = 500
+    r_max: float = 5.1
+    geom: str = "hyperboloid"
+    v_max: float = 1.79e-3
     polarity: str = "on"
 
     def short(self) -> str:
@@ -125,10 +131,9 @@ class PairSampling(_Typed):
     -- nicht zu verwechseln mit Selection.split (was geloest wird).
 
     `runs` sind AUSSCHLIESSLICH Overlap-Runs. Saubere Runs liefern
-    physikalisch null NEIN, und die Overlap-Runs tragen selbst reichlich JA
-    (gemessen 95:1 auf run32 bis 534:1 auf run55). Beide Klassen stammen
-    damit aus DENSELBEN Fenstern -- nur so sieht das Netz eine
-    Eingangsverteilung und nicht zwei.
+    physikalisch null NEIN, und die Overlap-Runs tragen selbst reichlich JA.
+    Beide Klassen stammen damit aus DENSELBEN Fenstern -- nur so sieht das
+    Netz eine Eingangsverteilung und nicht zwei.
 
     `ja_frac` ist keine Feinabstimmung, sondern die Speicherbedingung: ein
     Run liefert bei voller Abdeckung ueber eine Milliarde JA-Paare. NEIN
@@ -144,15 +149,15 @@ class PairSampling(_Typed):
     """
     split: str = "train"
     runs: list[int] = field(
-        default_factory=lambda: [2, 9, 11, 12, 13, 14, 19, 23, 24, 28, 30,
-                                 32, 34, 35, 44, 51, 55, 58, 59, 61, 63, 66,
-                                 67, 70, 73, 76, 77, 80, 83, 90])
+        default_factory=lambda: [2, 6, 8, 9, 13, 18, 23, 28, 30, 37, 38,
+                                 41, 42, 43, 46, 48, 49, 54, 55, 64, 65, 66,
+                                 72, 80, 82, 85, 92, 93, 96, 98])
     ja_frac: float = 2e-2
     max_no: int = 1_000_000
     # Jedes n-te Fenster abschreiten. Ein Fenster bleibt vollstaendig, es
-    # sind nur weniger davon. Bei 4 erreichen 29 der 30 Runs den
-    # max_no-Deckel; run55 liefert 926.996 NEIN.
-    fenster_schritt: int = 4
+    # sind nur weniger davon. So gewaehlt, dass fast jeder Run den
+    # max_no-Deckel erreicht.
+    fenster_schritt: int = 20
     # Groesser als training.sample_ratio: [2] legt Vorrat an, [3] setzt den
     # Arbeitspunkt.
     ja_vorrat: float = 2.0
@@ -192,7 +197,7 @@ class Training(_Typed):
     in die Verteilung, damit TPR, TNR und pred_neg_frac waehrend des
     Trainings ablesbar bleiben; bei 3:1 stand TNR bei 0,206.
     """
-    feature_mode: str = "drjac"
+    feature_mode: str = "dr"
     imbalance: str = "sample"
     sample_ratio: float = 1.0
     hidden: int = 32
@@ -301,31 +306,27 @@ class Kandidaten(_Typed):
     `polarity` hat auf Zentroiden keinen Sinn. Eine verschachtelte Gruppe,
     deren Haelfte nicht gilt, waere eine spaetere Falle.
 
-    alpha = 250 000 µs, gemessen ueber 50/100/150/200/250/300/350/500 ms
-    (Journal 28.08.2026). HOTA und IDF1 haben dort ihr Maximum, IDSW und
-    betroffene Partikel ihr Minimum. Darueber faellt edge_auc weiter
-    (0,951 -> 0,941 bei 350 ms) und der IDSW-Gewinn wird durch
-    Verschmelzung erkauft.
+    alpha ist die Reichweite zwischen den t_min zweier Knoten. Mehr
+    Reichweite ueberbrueckt laengere Luecken einer Bahn und bringt zugleich
+    mehr fremde Knoten in den Suchkoerper: sie tauscht Brueche gegen
+    Verschmelzung (Journal 23.-29.09.).
 
-    r_max bleibt bei 15 px. Die Aufweitung v_max*alpha traegt bei 250 ms
-    51 px und damit die ganze Drift; r_max ist nur noch die Taille. Ein
-    groesseres r_max kostet sofort -- bei 50 ms hebt r_max = 40 die
-    Fremdbelegung des Suchkoerpers um Faktor 5, ohne der eigenen Seite zu
-    nuetzen. geom bleibt hyperboloid.
+    r_max ist die Taille: der Abstand der Zentroide zweier Knoten derselben
+    Bahn bei kleinem dt. Die Drift traegt die Aufweitung v_max * dt.
 
-    min_events = 15 und n_events = 32 sind gemessen (Journal 14.08.2026):
-    unter 15 liegt das Mittel bei 1,8 Events, und 92,0 % der behaltenen
-    Tracklets tragen mindestens 32, aber nur 68,3 % mindestens 64.
+    min_events = 1: jedes Tracklet wird ein Knoten, auch ein Einzelevent.
+    n_events ist die Zahl der Event-Tokens je Knoten; kleinere Knoten werden
+    maskiert aufgefuellt.
     """
     split: str = "train"
     runs: list[int] = field(default_factory=lambda: [
-        2, 9, 11, 12, 13, 14, 19, 23, 24, 28, 30, 32, 34, 35, 44,
-        51, 55, 58, 59, 61, 63, 66, 67, 70, 73, 76, 77, 80, 83, 90])
-    alpha: int = 250_000
-    r_max: float = 15.0
+        2, 6, 8, 9, 13, 18, 23, 28, 30, 37, 38, 41, 42, 43, 46,
+        48, 49, 54, 55, 64, 65, 66, 72, 80, 82, 85, 92, 93, 96, 98])
+    alpha: int = 7_500
+    r_max: float = 8.0
     geom: str = "hyperboloid"
-    v_max: float = 1.02e-4
-    min_events: int = 15
+    v_max: float = 1.79e-3
+    min_events: int = 1
     n_events: int = 32
     seed: int = 0
 
@@ -406,7 +407,7 @@ class Transformer(_Typed):
     # Deckel. Die Kandidatenzahl waechst mit kandidaten.alpha, die noetige
     # Zahl gesehener Kanten nicht.
     train_max: int | None = 4_000_000
-    epochs: int = 50
+    epochs: int = 100
     batch: int = 1024
     lr: float = 1e-3
     val_frac: float = 0.2
@@ -492,22 +493,19 @@ class Fit(_Typed):
     auf dem gemessenen Wert, damit die Kovarianz des Filters etwas ueber
     die Wirklichkeit aussagt.
 
-    r_mess = 8 px^2 ist die Streuung eines EINZELEVENTS um die Bahn: die
-    ON-Events liegen auf einem Ring von 4 bis 6 px um das Partikel, ein
-    einzelnes ist also von vornherein mehrere Pixel vom Zentrum entfernt.
-    Gemessen laengs 2,6 px, quer 3,1 px; ein Skalar mittelt die
-    Anisotropie weg.
+    r_mess ist die Streuung eines EINZELEVENTS um die Bahn, gemessen als
+    Quervarianz der Eventwolke. Ein Skalar mittelt die Anisotropie weg.
 
     q_c ist die Intensitaet des Prozessrauschens in px^2/s^5 -- die
     Q-Matrix des Modells mit weissem Ruck, gewichtet mit der verstrichenen
     ZEIT und nicht mit der Zahl der Messungen. Position und
-    Geschwindigkeit haben verschiedene Optima (12 bis 60 gegen 2,5);
-    gewaehlt ist das der Geschwindigkeit, weil das Ziel der Arbeit
-    Geschwindigkeitsfelder sind.
+    Geschwindigkeit haben verschiedene Optima; massgeblich ist das der
+    Geschwindigkeit, weil das Ziel der Arbeit Geschwindigkeitsfelder sind.
 
     c0 und c1 heben den Vorwaertsversatz der Eventwolke auf, Betrag
-    c0 + c1*|u|. Auf batch1 waechst er mit der Geschwindigkeit, auf STELLA
-    nicht (fitsatz=stella: c1 = 0). c0 = c1 = 0 schaltet die Korrektur ab.
+    c0 + c1*|u|. Auf STELLA haengt er nicht an der Geschwindigkeit (c1 = 0),
+    auf batch1 waechst er mit ihr (fitsatz=batch1). c0 = c1 = 0 schaltet
+    die Korrektur ab.
 
     dt_aus ist fuer den FILTER frei -- zwischen den Messungen wird
     propagiert, nicht interpoliert. Fuer die BEWERTUNG nicht:
@@ -517,11 +515,10 @@ class Fit(_Typed):
     deshalb sein GT-Raster.
 
     min_dauer_us haelt Bahnen heraus, die kaum laenger sind als init_us:
-    der Filter braucht das Fenster allein zum Einschwingen. Rund 10 % der
-    Bahnen liegen unter 100 ms.
+    der Filter braucht das Fenster allein zum Einschwingen.
 
-    Die Vorgaben sind der Arbeitspunkt von batch1, STELLA setzt
-    fitsatz=stella. Mit dem Glaetter ist q_c/r_mess ueber Faktor 128
+    Die Vorgaben sind der Arbeitspunkt von STELLA, batch1 setzt
+    fitsatz=batch1. Mit dem Glaetter ist q_c/r_mess ueber weite Bereiche
     nahezu gleichgueltig; je Datensatz genuegt ein grober Sweep ueber
     Dekaden.
 
@@ -531,14 +528,14 @@ class Fit(_Typed):
     Start wird nur langsam korrigiert, ein zu unsicherer kostet nur die
     ersten Schritte. Haengt am Datensatz, deshalb ein Feld.
     """
-    r_mess: float = 8.0
-    q_c: float = 20.0
-    c0: float = 0.95
-    c1: float = 29.1
-    dt_aus: float = 16_667.0
-    init_us: float = 100_000.0
-    min_dauer_us: float = 100_000.0
-    a_unbekannt: float = 100.0
+    r_mess: float = 3.0
+    q_c: float = 1e7
+    c0: float = 2.26
+    c1: float = 0.0
+    dt_aus: float = 1_000.0
+    init_us: float = 5_000.0
+    min_dauer_us: float = 10_000.0
+    a_unbekannt: float = 1e4
     # RTS-Rueckwaertslauf. Ohne ihn ist der Filter kausal und laeuft
     # jeder Richtungsaenderung hinterher.
     glaetten: bool = True
@@ -568,7 +565,7 @@ class Labeling(_Typed):
     """Stufe [1]. Bewusst OHNE Zeitfenster: Labels gelten IMMER fuer den
     ganzen Run. Ein Teilfenster bricht spaeter in evaluate.align_gt_window
     ("Wurde die Label-Datei ueber den GANZEN Run erzeugt?")."""
-    r_assign: float = 8.0
+    r_assign: float = 5.5
     r_ambig: float = 2.0
 
 

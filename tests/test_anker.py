@@ -61,7 +61,7 @@ SATZ = os.environ.get("EVENTPIV_NAME")
 CONFIGS = Path(__file__).resolve().parents[1] / "configs"
 
 # Welcher Arbeitspunkt in den Vorgaben von runconfig.py steht.
-VORGABE = "batch1"
+VORGABE = "stella"
 
 # Feld der Stufen-Konfiguration -> (Gruppenverzeichnis, Dataclass)
 GRUPPEN = {

@@ -3,7 +3,7 @@
 defaults:
   - solve_schema
   # Platzhalter: ohne Override ignoriert, also gelten die Vorgaben aus
-  # runconfig.py. Mit `neighborhood=stella` wird die Gruppe zugeschaltet.
+  # runconfig.py. Mit `neighborhood=batch1` wird die Gruppe zugeschaltet.
   - neighborhood: null
   - pairsampling: null
   - training: null

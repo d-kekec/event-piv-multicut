@@ -3,7 +3,7 @@ defaults:
   - neighborhood: null
   # Kein `datensatz` hier: das Schema kennt `training` nicht, und der
   # Paarbau haengt nicht vom Netz ab. Einzelgruppen setzen:
-  # neighborhood=stella pairsampling=stella
+  # neighborhood=batch1 pairsampling=batch1
   - pairsampling: null
   - _self_
 

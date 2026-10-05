@@ -1,7 +1,7 @@
 defaults:
   - labels_schema
   # Platzhalter: ohne Override ignoriert, also gelten die Vorgaben aus
-  # runconfig.py. Mit `labeling=stella` wird die Gruppe zugeschaltet.
+  # runconfig.py. Mit `labeling=batch1` wird die Gruppe zugeschaltet.
   - labeling: null
   - _self_
 
