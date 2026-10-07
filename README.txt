@@ -85,7 +85,8 @@ Es gibt keine `--flags`. Überschrieben wird mit `gruppe.feld=wert`:
 python scripts/build_event_labels.py selection.split=train
 python scripts/build_pair_dataset.py
 python scripts/train_edge_nn.py
-python scripts/solve_with_nn.py selection.split=train selection.run_nr=3
+python scripts/solve_with_nn.py selection.split=train selection.run_nr=66 \
+    window.t0=1000000 window.dt=500
 python scripts/build_tracklets.py selection.split=train selection.runs=[32]
 python scripts/build_kandidaten.py selection.split=train selection.runs=[32]
 python scripts/train_stufe2.py
@@ -93,8 +94,8 @@ python scripts/solve_stufe2.py    selection.split=val   selection.runs=[4]
 python scripts/fit_trajektorien.py selection.split=val selection.runs=[4]
 ```
 
-Ohne Overrides läuft alles am Arbeitspunkt von batch1. STELLA wird je Stufe
-über Gruppendateien unter `configs/` zugeschaltet, etwa `datensatz=stella`.
+Ohne Overrides läuft alles am STELLA-Arbeitspunkt. batch1 wird je Stufe
+über Gruppendateien unter `configs/` zugeschaltet, etwa `datensatz=batch1`.
 Welche Stufe welche Gruppe braucht, und alle Parameter →
 [`docs/CLI_Referenz.md`](docs/CLI_Referenz.md).
 
@@ -102,13 +103,15 @@ Welche Stufe welche Gruppe braucht, und alle Parameter →
 das Verhalten nicht ändern soll:
 
 ```bash
-pytest -m anker      # Stufe 1, rund 10 s
-pytest -m anker2     # Stufe 2, rund 3 min — ein ganzer Run
+pytest -m anker      # Stufe 1, zwei Fenster
+pytest -m anker2     # Stufe 2, ein ganzer Run, rund 4 min
 ```
 
-Beide Anker fahren die batch1-Vorgaben und brauchen den Datensatz samt der
+Die Anker wählen Sollwerte und Gruppen nach `EVENTPIV_NAME` (`batch1` oder
+`stella`, gesetzt über `eventpiv_use`) und brauchen die Daten samt der
 Artefakte ihrer Vorstufen; sie laufen deshalb nicht in der normalen Suite.
-Sie sind Reproduzierbarkeitsanker, keine Zielvorgabe.
+Stufe 2 auf STELLA läuft über `slurm/anker.sbatch`, rema hat dafür zu wenig
+Speicher. Sie sind Reproduzierbarkeitsanker, keine Zielvorgabe.
 
 ---
 
