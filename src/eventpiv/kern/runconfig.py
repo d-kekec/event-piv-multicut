@@ -568,6 +568,7 @@ class Fit(_Typed):
                 f"fit.beta={self.beta} ist ein Faktor auf eine Streuung "
                 "und darf nicht negativ sein")
 
+
 @dataclass
 class Labeling(_Typed):
     """Stufe [1]. Bewusst OHNE Zeitfenster: Labels gelten IMMER fuer den
