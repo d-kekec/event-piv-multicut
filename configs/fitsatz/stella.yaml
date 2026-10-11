@@ -17,8 +17,10 @@
 # min_dauer_us: das Doppelte von init_us -- der Filter braucht das
 # Startfenster allein zum Einschwingen.
 #
-# c0, c1: der Vorwaertsversatz haengt auf STELLA nicht an der
-# Geschwindigkeit (Journal 16.-18.09.).
+# c0, c1, beta: der Vorwaertsversatz haengt auf STELLA an der
+# Partikelgroesse und nicht an der Geschwindigkeit -- STELLAs eigene Form
+# beta*sigma_quer, beta = Versatz / sigma_quer (Journal 16.-18.09.,
+# 11.10.).
 #
 # r_mess: die Quervarianz der Eventwolke (Journal 16.-18.09.). Wirksam ist
 # nur q_c/r_mess; der Wert haelt die Kovarianz des Filters lesbar.
@@ -31,8 +33,9 @@
 dt_aus: 1000.0
 init_us: 5000.0
 min_dauer_us: 10000.0
-c0: 2.26
+c0: 0.0
 c1: 0.0
+beta: 1.31
 r_mess: 3.0
 q_c: 10000000.0
 a_unbekannt: 10000.0

@@ -85,7 +85,7 @@ SLUGS = {
         "labeling": "8579fe",
         "kandidaten": "split_train_rn30_a250000_rmax15_n32-a9e3a6",
         "transformer": "d64_l2_cls_sample_mehrheit-b6d239",
-        "fit": "q20_r8_rts-ab4b11",
+        "fit": "q20_r8_rts-89fc90",
     },
     "stella": {
         "neighborhood": "a500_rmax5.1_hyperboloid_on-cf244e",
@@ -94,7 +94,7 @@ SLUGS = {
         "labeling": "2845f5",
         "kandidaten": "split_train_rn30_a7500_rmax8_n32-010e37",
         "transformer": "d64_l2_cls_sample_mehrheit-e71ec8",
-        "fit": "q1e+07_r3_rts-e3eb78",
+        "fit": "q1e+07_r3_rts_b1.31-c26ca0",
     },
 }
 # Zweiter Arbeitspunkt auf STELLA: nur Kandidaten und Netz weichen ab.

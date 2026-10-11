@@ -502,10 +502,13 @@ class Fit(_Typed):
     Geschwindigkeit haben verschiedene Optima; massgeblich ist das der
     Geschwindigkeit, weil das Ziel der Arbeit Geschwindigkeitsfelder sind.
 
-    c0 und c1 heben den Vorwaertsversatz der Eventwolke auf, Betrag
-    c0 + c1*|u|. Auf STELLA haengt er nicht an der Geschwindigkeit (c1 = 0),
-    auf batch1 waechst er mit ihr (fitsatz=batch1). c0 = c1 = 0 schaltet
-    die Korrektur ab.
+    c0, c1 und beta heben den Vorwaertsversatz der Eventwolke auf, Betrag
+    c0 + c1*|u| + beta*sigma_quer, sigma_quer je Bahn aus ihren Events
+    (kette.trajektorien.quer_streuung). Auf STELLA haengt er an der
+    Partikelgroesse und nicht an der Geschwindigkeit: STELLAs eigene Form,
+    c0 = c1 = 0. Auf batch1 waechst er mit der Geschwindigkeit bei
+    konstanter Querstreuung (fitsatz=batch1, beta = 0). Alle drei null
+    schalten die Korrektur ab.
 
     dt_aus ist fuer den FILTER frei -- zwischen den Messungen wird
     propagiert, nicht interpoliert. Fuer die BEWERTUNG nicht:
@@ -530,8 +533,9 @@ class Fit(_Typed):
     """
     r_mess: float = 3.0
     q_c: float = 1e7
-    c0: float = 2.26
+    c0: float = 0.0
     c1: float = 0.0
+    beta: float = 1.31
     dt_aus: float = 1_000.0
     init_us: float = 5_000.0
     min_dauer_us: float = 10_000.0
@@ -541,8 +545,9 @@ class Fit(_Typed):
     glaetten: bool = True
 
     def short(self) -> str:
+        b = f"_b{_num(self.beta)}" if self.beta else ""
         return (f"q{_num(self.q_c)}_r{_num(self.r_mess)}"
-                f"{'_rts' if self.glaetten else ''}")
+                f"{'_rts' if self.glaetten else ''}{b}")
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -558,7 +563,10 @@ class Fit(_Typed):
             raise ValueError(
                 f"fit.a_unbekannt={self.a_unbekannt} ist eine Streuung und "
                 "darf nicht negativ sein")
-
+        if self.beta < 0.0:
+            raise ValueError(
+                f"fit.beta={self.beta} ist ein Faktor auf eine Streuung "
+                "und darf nicht negativ sein")
 
 @dataclass
 class Labeling(_Typed):

@@ -8,6 +8,7 @@ trajektorien.py -- BAUSTEIN [7]: aus der Partition die BAHNEN.
   bahn               (t, x, y) EINER Trajektorie
   kalman_bahn        EINE Bahn filtern, wahlweise mit RTS-Glaetter
   versatz_korrektur  den Vorwaertsversatz der Eventwolke aufheben
+  quer_streuung      Streuung der Events quer zur gefitteten Bahn
   fitte_run          alle Bahnen eines Runs
 
 Was [6c] als Event -> Trajektorie ablegt, wird hier zur Eingabe des Fits:
@@ -410,10 +411,12 @@ def versatz_korrektur(x, y, u, v, *, c0, c1):
     Die ON-Events liegen an der VORDERKANTE des Partikelbilds, der
     Schwerpunkt also in Bewegungsrichtung versetzt.
 
-    Betrag c0 + c1*|u|. Auf batch1 waechst der Versatz mit der
-    Geschwindigkeit, und die Querstreuung bleibt konstant -- STELLAs
-    beta*sigma_quer bildet das nicht ab. Auf STELLA ist er konstant,
-    dort gilt c1 = 0.
+    Betrag c0 + c1*|u|. c0 gilt je Aufruf, also je Bahn: fitte_run legt
+    dort beta*sigma_quer dazu, STELLAs eigene Form (Sachs et al., Gl. 1).
+    Auf STELLA haengt der Versatz an der Partikelgroesse und nicht an der
+    Geschwindigkeit, dort gilt c0 = c1 = 0. Auf batch1 waechst er mit der
+    Geschwindigkeit bei konstanter Querstreuung -- das bildet
+    beta*sigma_quer nicht ab, dort gilt beta = 0.
 
     u, v in px/µs; c1 in px je (px/ms), daher der Faktor 1e3. c0 = c1 = 0
     schaltet die Korrektur ab.
@@ -424,9 +427,44 @@ def versatz_korrektur(x, y, u, v, *, c0, c1):
     return x - schub * u / e, y - schub * v / e
 
 
+def quer_streuung(t, x, y, ta, xa, ya, ua, va) -> float:
+    """Streuung der Events quer zur gefitteten Bahn, px. Rein.
+
+    t, x, y             Events der Bahn, t in µs aufsteigend
+    ta, xa, ya, ua, va  ihr Fit aus kalman_bahn, VOR der Korrektur
+
+    Das sigma_quer aus STELLA Gl. 1: die Standardabweichung der Events
+    senkrecht zur Bewegungsrichtung. Fitort und Richtung werden auf jede
+    Eventzeit interpoliert; Events ausserhalb des Ausgaberasters zaehlen
+    nicht, dort muesste extrapoliert werden. Ein Laengsversatz zwischen
+    Fit und Events geht nicht ein.
+
+    JE BAHN, NICHT JE ZEITSCHRITT wie bei STELLA: die Partikelgroesse ist
+    je Bahn konstant, und eine Schaetzung je Zeitschritt truege ihr
+    eigenes Rauschen ueber beta in den Ort. Aendert sich die Wolke entlang
+    der Bahn, mittelt die Bahn das weg.
+
+    NaN, wenn weniger als zwei Events auswertbar sind.
+    """
+    if len(ta) == 0:
+        return float("nan")
+    t = np.asarray(t, np.float64)
+    m = (t >= ta[0]) & (t <= ta[-1])
+    tm = t[m]
+    dx = np.asarray(x, np.float64)[m] - np.interp(tm, ta, xa)
+    dy = np.asarray(y, np.float64)[m] - np.interp(tm, ta, ya)
+    u = np.interp(tm, ta, ua)
+    v = np.interp(tm, ta, va)
+    b = np.hypot(u, v)
+    ok = b > 0
+    if int(ok.sum()) < 2:
+        return float("nan")
+    return float(np.std((dy[ok] * u[ok] - dx[ok] * v[ok]) / b[ok]))
+
+
 def fitte_run(tr: Trajektorien, t, x, y, *, r_mess, q_c, c0, c1,
               dt_aus, min_dauer_us, init_us=100_000.0, glaetten=False,
-              a_unbekannt=100.0):
+              a_unbekannt=100.0, beta=0.0):
     """Alle Bahnen eines Runs filtern und korrigieren.
 
     Rueckgabe: sechs gleich lange Arrays (t, x, y, ux, uy,
@@ -437,6 +475,10 @@ def fitte_run(tr: Trajektorien, t, x, y, *, r_mess, q_c, c0, c1,
     allein zum Einschwingen, und ein Fit ueber wenig mehr ist eine Zahl
     ohne Aussage. Bahnen unter MIN_EVENTS_FIT ebenfalls -- sonst wuerfe
     kalman_bahn mitten in der Schleife.
+
+    beta > 0 legt je Bahn beta*sigma_quer auf c0 (quer_streuung). Eine
+    Bahn, deren Querstreuung nicht bestimmbar ist, faellt dann heraus.
+    beta = 0 ist der Weg ohne sie, Bit fuer Bit.
     """
     tf, xf, yf, uf, vf, idf = [], [], [], [], [], []
     for i in range(len(tr)):
@@ -448,7 +490,13 @@ def fitte_run(tr: Trajektorien, t, x, y, *, r_mess, q_c, c0, c1,
             init_us=init_us, glaetten=glaetten, a_unbekannt=a_unbekannt)
         if len(ta) == 0:
             continue
-        xk, yk = versatz_korrektur(xa, ya, ua, va, c0=c0, c1=c1)
+        schub0 = c0
+        if beta:
+            sq = quer_streuung(tb, xb, yb, ta, xa, ya, ua, va)
+            if not np.isfinite(sq):
+                continue
+            schub0 = c0 + beta * sq
+        xk, yk = versatz_korrektur(xa, ya, ua, va, c0=schub0, c1=c1)
         tf.append(ta);  xf.append(xk);  yf.append(yk)
         uf.append(ua);  vf.append(va)
         idf.append(np.full(len(ta), tr.trajektorie_id[i], np.int64))

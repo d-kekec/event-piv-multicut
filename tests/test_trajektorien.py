@@ -289,3 +289,83 @@ def test_fit_slug_trennt_glaetter():
     assert slug(Fit(glaetten=True)) != slug(Fit(glaetten=False))
     assert "_rts" in Fit(glaetten=True).short()
     assert "_rts" not in Fit(glaetten=False).short()
+
+
+def test_fit_slug_trennt_beta():
+    """Fits mit und ohne Querkorrektur muessen nebeneinander liegen
+    koennen; ein negatives beta schoebe in Bewegungsrichtung."""
+    from eventpiv.kern.runconfig import Fit, slug
+
+    assert slug(Fit(beta=1.31)) != slug(Fit(beta=0.0))
+    assert Fit(beta=1.31).short().endswith("_b1.31")
+    assert "_b" not in Fit(beta=0.0).short()
+    with pytest.raises(ValueError, match="beta"):
+        Fit(beta=-1.0)
+
+
+def _wolke(n=6000, dt=50.0, v=(0.48, 0.36), sq=1.5, sl=0.9, vor=2.0,
+           seed=0):
+    """Eventwolke um eine gerade Bahn, schraeg zu den Achsen: vor px
+    voraus, Streuung sl laengs und sq quer. t in µs, v in px/ms.
+    Laengs wird vor quer gezogen -- gleicher seed, gleiche Querwerte."""
+    rng = np.random.default_rng(seed)
+    t = np.arange(n, dtype=np.float64) * dt
+    b = np.hypot(*v)
+    ex, ey = v[0] / b, v[1] / b
+    laengs = vor + rng.normal(0.0, sl, n)
+    quer = rng.normal(0.0, sq, n)
+    x = 100.0 + v[0] * t / 1e3 + laengs * ex - quer * ey
+    y = 200.0 + v[1] * t / 1e3 + laengs * ey + quer * ex
+    return t, x, y
+
+
+def test_quer_streuung_misst_nur_quer():
+    """Gegen die exakte Bahn: der Wert ist sigma_quer, und Laengsversatz
+    wie Laengsstreuung gehen nicht ein."""
+    from eventpiv.kette.trajektorien import quer_streuung
+
+    ta = np.arange(0.0, 299_000.0, 1_000.0)
+    fit = (ta, 100.0 + 0.48 * ta / 1e3, 200.0 + 0.36 * ta / 1e3,
+           np.full(len(ta), 0.48e-3), np.full(len(ta), 0.36e-3))
+    a = quer_streuung(*_wolke(sl=0.9, vor=2.0), *fit)
+    b = quer_streuung(*_wolke(sl=2.5, vor=0.0), *fit)
+    assert abs(a - 1.5) < 0.05
+    assert np.isclose(a, b, rtol=1e-9)
+
+
+def test_quer_streuung_ohne_auswertbare_events_ist_nan():
+    from eventpiv.kette.trajektorien import quer_streuung
+
+    t, x, y = np.array([0.0, 100.0]), np.zeros(2), np.zeros(2)
+    ta = np.array([5_000.0, 6_000.0])
+    eins, null = np.full(2, 1e-3), np.zeros(2)
+    assert np.isnan(quer_streuung(t, x, y, ta, null, null, eins, null))
+    assert np.isnan(quer_streuung(t, x, y, ta[:0], null[:0], null[:0],
+                                  eins[:0], null[:0]))
+
+
+def test_fitte_run_beta_schiebt_um_beta_mal_querstreuung():
+    """beta = 0 ist der alte Weg, Bit fuer Bit. beta > 0 schiebt jede
+    Bahn um beta*sigma_quer gegen die Bewegung, und der Fit schluckt die
+    Querstreuung nicht."""
+    from eventpiv.kette.trajektorien import (fitte_run, gruppiere,
+                                             quer_streuung)
+
+    t, x, y = _wolke()
+    tr = gruppiere(np.zeros(len(t), np.int32), len(t))
+    kw = dict(r_mess=3.0, q_c=1e7, c0=0.0, c1=0.0, dt_aus=1_000.0,
+              min_dauer_us=10_000.0, init_us=5_000.0, glaetten=True,
+              a_unbekannt=1e4)
+    vorher = fitte_run(tr, t, x, y, **kw)
+    beta0 = fitte_run(tr, t, x, y, beta=0.0, **kw)
+    for p, q in zip(vorher, beta0):
+        np.testing.assert_array_equal(p, q)
+
+    mit = fitte_run(tr, t, x, y, beta=1.3, **kw)
+    sq = quer_streuung(t, x, y, *vorher[:5])
+    assert abs(sq - 1.5) < 0.05
+    b = np.hypot(vorher[3], vorher[4])
+    np.testing.assert_allclose(vorher[1] - mit[1], 1.3 * sq * vorher[3] / b,
+                               rtol=1e-9, atol=1e-12)
+    np.testing.assert_allclose(vorher[2] - mit[2], 1.3 * sq * vorher[4] / b,
+                               rtol=1e-9, atol=1e-12)

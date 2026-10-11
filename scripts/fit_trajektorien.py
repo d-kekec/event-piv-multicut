@@ -101,6 +101,7 @@ def main(dcfg: DictConfig) -> None:
         tr = gruppiere(tid, len(t))
         spalten = fitte_run(tr, t, x, y, r_mess=cfg.fit.r_mess,
                             q_c=cfg.fit.q_c, c0=cfg.fit.c0, c1=cfg.fit.c1,
+                            beta=cfg.fit.beta,
                             dt_aus=cfg.fit.dt_aus,
                             min_dauer_us=cfg.fit.min_dauer_us,
                             init_us=cfg.fit.init_us,
