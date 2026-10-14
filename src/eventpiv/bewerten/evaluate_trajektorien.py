@@ -255,11 +255,18 @@ def stella_fehler(spalten, bb, *, r_zuordnung: float = R_ZUORDNUNG,
     Ortsfehler mit Vorzeichen in GT-Bewegungsrichtung, positiv heisst
     VORAUS: ein konstanter Versatz der Positionskorrektur zeigt sich dort
     und nicht in d_u.
+
+    LESARTEN: das Papier sagt nur "median absolute error". d_xy und d_u
+    sind die Norm des Fehlervektors -- die Zahl der Arbeit. Zum Einordnen
+    stehen zwei weitere Lesarten daneben: je Achse gepoolt (d_xy_achse,
+    d_u_achse: |dx| und |dy| als getrennte Werte in einem Median) und fuer
+    u der Fehler im Betrag (d_u_betrag = ||u| - |u_gt||).
     """
     t, x, y, ux, uy, tid = (np.asarray(a) for a in spalten)
     tg, cxg, cyg, gug, gvg, kg = _gt_punkte(bb, gt_fenster)
     leer = np.empty(0)
     aus = {"d_xy": leer, "d_u": leer, "d_laengs": leer,
+           "d_xy_achse": leer, "d_u_achse": leer, "d_u_betrag": leer,
            "n_punkte": 0, "n_punkte_zugeordnet": 0,
            "n_gt": int(len(np.unique(kg))), "n_gt_punkte": int(len(tg)),
            "n_gt_gedeckt": 0, "n_bahnen": 0, "n_bahnen_verworfen": 0,
@@ -320,9 +327,19 @@ def stella_fehler(spalten, bb, *, r_zuordnung: float = R_ZUORDNUNG,
     ok = np.isfinite(g) & (g > 0)
     laengs = ((xq[zu] - cxg[jz]) * gug[jz]
               + (yq[zu] - cyg[jz]) * gvg[jz])[ok] / g[ok]
+    # Die Lesarten aus dem Docstring, auf denselben Punkten wie d_xy und
+    # d_u: dieselbe Zuordnung, dieselbe Maske fuer fehlendes u_gt.
+    hat_u = np.isfinite(du)
+    d_xy_achse = np.abs(np.concatenate([xq[zu] - cxg[jz],
+                                        yq[zu] - cyg[jz]]))
+    d_u_achse = np.abs(np.concatenate([(uq[zu] - gug[jz])[hat_u],
+                                       (vq[zu] - gvg[jz])[hat_u]])) * 1e3
+    d_u_betrag = np.abs(np.hypot(uq[zu], vq[zu]) - g)[hat_u] * 1e3
     gedeckt = np.zeros(len(tg), bool)
     gedeckt[jz] = True
     aus.update(d_xy=d[zu], d_u=du[np.isfinite(du)], d_laengs=laengs,
+               d_xy_achse=d_xy_achse, d_u_achse=d_u_achse,
+               d_u_betrag=d_u_betrag,
                n_punkte=int(len(zi)), n_punkte_zugeordnet=int(zu.sum()),
                n_gt_gedeckt=int(gedeckt.sum()))
     return aus
@@ -345,6 +362,11 @@ def stella_kennzahlen(fehler, u_norm: float = U_NORM_STELLA) -> dict:
                            abgedeckt
     verworfen_frac         Anteil der Bahnen, den der Ausreisserfilter nahm
     zugeordnet_frac        Anteil der Bahnpunkte mit Partner
+
+    Andere Lesarten derselben MedAE (stella_fehler), nur zum Einordnen:
+    medae_xy_achse, medae_u_achse  je Achse gepoolt
+    medae_u_betrag                 Fehler im Betrag von u
+    jeweils mit p25_*, p75_*; fuer u zusaetzlich *_rel gegen u_norm.
     """
     if isinstance(fehler, dict):
         fehler = [fehler]
@@ -368,6 +390,13 @@ def stella_kennzahlen(fehler, u_norm: float = U_NORM_STELLA) -> dict:
     p25_u, med_u, p75_u = _quartile(_cat("d_u"))
     laengs = _cat("d_laengs")
     n_tracks = _sum("n_bahnen") - _sum("n_bahnen_verworfen")
+    lesarten = {}
+    for k in ("xy_achse", "u_achse", "u_betrag"):
+        p25, med, p75 = _quartile(_cat(f"d_{k}"))
+        lesarten.update({f"medae_{k}": med, f"p25_{k}": p25,
+                         f"p75_{k}": p75})
+    for k in ("u_achse", "u_betrag"):
+        lesarten[f"medae_{k}_rel"] = _quot(lesarten[f"medae_{k}"], u_norm)
     return {"n_punkte_zugeordnet": _sum("n_punkte_zugeordnet"),
             "medae_xy": med_xy, "p25_xy": p25_xy, "p75_xy": p75_xy,
             "medae_u": med_u, "p25_u": p25_u, "p75_u": p75_u,
@@ -380,4 +409,5 @@ def stella_kennzahlen(fehler, u_norm: float = U_NORM_STELLA) -> dict:
             "verworfen_frac": _quot(_sum("n_bahnen_verworfen"),
                                     _sum("n_bahnen")),
             "zugeordnet_frac": _quot(_sum("n_punkte_zugeordnet"),
-                                     _sum("n_punkte"))}
+                                     _sum("n_punkte")),
+            **lesarten}

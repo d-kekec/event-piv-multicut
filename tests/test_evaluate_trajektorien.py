@@ -244,3 +244,40 @@ def test_stella_ungruppierte_ids_brechen_ab():
                        (0, 20, 10, 100.0, 200.0, 0.5)])
     with pytest.raises(ValueError, match="gruppiert"):
         stella_fehler(spalten, bb)
+
+
+def test_stella_lesart_ort_je_achse():
+    """1,5 px in x und 2 px in y: die Norm ist 2,5, je Achse gepoolt liegt
+    der Median zwischen beiden Werten, bei 1,75."""
+    bb = _boxen_ms({1: (40, 100.0, 200.0, 0.5)})
+    k = stella_kennzahlen(stella_fehler(
+        _fit_ms([(0, 0, 40, 101.5, 202.0, 0.5)]), bb))
+    assert k["medae_xy"] == pytest.approx(2.5, abs=1e-4)
+    assert k["medae_xy_achse"] == pytest.approx(1.75, abs=1e-4)
+
+
+def test_stella_lesarten_der_geschwindigkeit():
+    """GT (0,5; 0) px/ms, Fit (0,6; 0,1): Norm sqrt(0,02), je Achse 0,1,
+    im Betrag sqrt(0,37) - 0,5. Drei Lesarten, drei verschiedene Zahlen."""
+    bb = _boxen_ms({1: (40, 100.0, 200.0, 0.5)})
+    spalten = _fit_ms([(0, 0, 40, 100.0, 200.0, 0.5)])
+    spalten[3][:] = 0.6e-3
+    spalten[4][:] = 0.1e-3
+    k = stella_kennzahlen(stella_fehler(spalten, bb))
+    assert k["medae_u"] == pytest.approx(np.sqrt(0.02), rel=1e-4)
+    assert k["medae_u_achse"] == pytest.approx(0.1, rel=1e-4)
+    assert k["medae_u_betrag"] == pytest.approx(np.sqrt(0.37) - 0.5,
+                                                rel=1e-4)
+    assert k["medae_u_achse_rel"] == pytest.approx(0.1 / 0.6, rel=1e-4)
+
+
+def test_stella_lesarten_ueberstehen_einen_leeren_run():
+    """Ein Run ohne Bahnen geht ueber den fruehen Ausgang. Fehlten dort die
+    neuen Schluessel, braeche das Pooling mit KeyError ab."""
+    bb = _boxen_ms({1: (40, 100.0, 200.0, 0.5)})
+    a = stella_fehler(_fit_ms([(0, 0, 40, 101.5, 202.0, 0.5)]), bb)
+    leer = stella_fehler(tuple(np.empty(0) for _ in range(5))
+                         + (np.empty(0, np.int32),), bb)
+    k = stella_kennzahlen([a, leer])
+    assert k["medae_xy_achse"] == pytest.approx(1.75, abs=1e-4)
+    assert np.isnan(stella_kennzahlen(leer)["medae_u_betrag_rel"])

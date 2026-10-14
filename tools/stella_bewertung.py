@@ -12,6 +12,9 @@ mit Vorzeichen, je Run. Liegt der Ort eines Runs systematisch voraus
 oder zurueck, passt die Positionskorrektur aus [7] nicht zu seinen
 Partikeln.
 
+Dazu die MedAE in zwei weiteren Lesarten, je Achse gepoolt und im Betrag
+von u (stella_fehler). Die Zahl der Arbeit bleibt die Norm.
+
 Liest fit_<split>_run<N>_<stamm>.npz aus dem solves-Verzeichnis und die
 Boxen ueber EVENTPIV_DATA; [7] laeuft dafuer nicht neu. Der Stamm folgt
 ohne Angabe aus den Vorgaben von Solver, Solver2 und Fit, ein anderer
@@ -45,7 +48,10 @@ def zeile(name, k):
             f"N {k['n_tracks']}/{k['n_gt']} = {k['n_tracks_je_gt']:.3f}  "
             f"verworfen {k['verworfen_frac'] * 100:.2f} %  "
             f"zugeordnet {k['zugeordnet_frac'] * 100:.1f} %  |  "
-            f"laengs {k['laengs_median']:+.3f} px"
+            f"laengs {k['laengs_median']:+.3f} px  |  "
+            f"je Achse {k['medae_xy_achse']:.3f} px, "
+            f"{k['medae_u_achse_rel'] * 100:.2f} %  "
+            f"Betrag {k['medae_u_betrag_rel'] * 100:.2f} %"
             + (f"  Box {k['box_w_median']:.2f} px"
                if "box_w_median" in k else ""))
 
