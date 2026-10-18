@@ -106,7 +106,8 @@ def main(dcfg: DictConfig) -> None:
                             min_dauer_us=cfg.fit.min_dauer_us,
                             init_us=cfg.fit.init_us,
                             glaetten=cfg.fit.glaetten,
-                            a_unbekannt=cfg.fit.a_unbekannt)
+                            a_unbekannt=cfg.fit.a_unbekannt,
+                            spline_eps=cfg.fit.spline_eps)
         lauf = {"run": r, "split": split,
                 "n_bahnen_partition": len(tr),
                 "n_bahnen_gefittet": int(len(np.unique(spalten[5]))),

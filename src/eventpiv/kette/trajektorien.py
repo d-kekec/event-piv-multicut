@@ -9,6 +9,7 @@ trajektorien.py -- BAUSTEIN [7]: aus der Partition die BAHNEN.
   kalman_bahn        EINE Bahn filtern, wahlweise mit RTS-Glaetter
   versatz_korrektur  den Vorwaertsversatz der Eventwolke aufheben
   quer_streuung      Streuung der Events quer zur gefitteten Bahn
+  spline_bahn        Ort und Geschwindigkeit einer Bahn aus einem Spline
   fitte_run          alle Bahnen eines Runs
 
 Was [6c] als Event -> Trajektorie ablegt, wird hier zur Eingabe des Fits:
@@ -28,6 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.interpolate import UnivariateSpline
 
 from eventpiv.kern.data import load_events
 from eventpiv.kern.graph import polarity_mask
@@ -462,9 +464,48 @@ def quer_streuung(t, x, y, ta, xa, ya, ua, va) -> float:
     return float(np.std((dy[ok] * u[ok] - dx[ok] * v[ok]) / b[ok]))
 
 
+# Kubisch wie STELLAs B-Splines. Ein Spline vom Grad k braucht mehr als k
+# Stuetzpunkte.
+SPLINE_K = 3
+
+
+def spline_bahn(t, x, y, *, eps):
+    """Ort und Geschwindigkeit einer Bahn aus einem Glaettungsspline. Rein.
+
+    t     Stuetzzeiten in µs, aufsteigend -- die Ausgabe von kalman_bahn
+    x, y  der Ort NACH versatz_korrektur, px
+    eps   Ziel-RMSE in px
+
+    Rueckgabe: (x, y, ux, uy), Ort in px, u in px/µs als Ableitung des
+    Splines.
+
+    Je Achse ein kubischer Glaettungsspline, wie STELLAs Hybrid
+    (X_KS, u_KS): FITPACK sucht den glattesten Spline, dessen quadratische
+    Abweichung von den Stuetzwerten s = n*eps^2 nicht uebersteigt. Fest ist
+    damit die Abweichung, die Glaettungsstaerke ergibt sich je Bahn.
+
+    WARUM u AUS DEM ORT: versatz_korrektur schiebt nur den Ort, u bleibt
+    die Geschwindigkeit der Eventwolke. Auf einer gekruemmten Bahn dreht
+    die Schubrichtung mit, und der korrigierte Ort bewegt sich mit
+    u - schub*dû/dt. Die Ableitung des korrigierten Orts passt zu ihm, das
+    u des Filters nicht.
+
+    Gerechnet wird in ms ab dem ersten Stuetzpunkt.
+    """
+    t = np.asarray(t, np.float64)
+    tm = (t - t[0]) * 1e-3
+    s = len(tm) * eps * eps
+    aus = []
+    for w in (x, y):
+        sp = UnivariateSpline(tm, np.asarray(w, np.float64), k=SPLINE_K, s=s)
+        aus.append((sp(tm), sp.derivative()(tm) * 1e-3))
+    (xs, us), (ys, vs) = aus
+    return xs, ys, us, vs
+
+
 def fitte_run(tr: Trajektorien, t, x, y, *, r_mess, q_c, c0, c1,
               dt_aus, min_dauer_us, init_us=100_000.0, glaetten=False,
-              a_unbekannt=100.0, beta=0.0):
+              a_unbekannt=100.0, beta=0.0, spline_eps=0.0):
     """Alle Bahnen eines Runs filtern und korrigieren.
 
     Rueckgabe: sechs gleich lange Arrays (t, x, y, ux, uy,
@@ -479,6 +520,11 @@ def fitte_run(tr: Trajektorien, t, x, y, *, r_mess, q_c, c0, c1,
     beta > 0 legt je Bahn beta*sigma_quer auf c0 (quer_streuung). Eine
     Bahn, deren Querstreuung nicht bestimmbar ist, faellt dann heraus.
     beta = 0 ist der Weg ohne sie, Bit fuer Bit.
+
+    spline_eps > 0 legt nach der Korrektur je Bahn spline_bahn darueber:
+    Ort aus dem Spline, u als seine Ableitung. Eine Bahn mit hoechstens
+    SPLINE_K Stuetzpunkten traegt keinen Spline und faellt dann heraus.
+    spline_eps = 0 ist der Weg ohne ihn, Bit fuer Bit.
     """
     tf, xf, yf, uf, vf, idf = [], [], [], [], [], []
     for i in range(len(tr)):
@@ -497,6 +543,10 @@ def fitte_run(tr: Trajektorien, t, x, y, *, r_mess, q_c, c0, c1,
                 continue
             schub0 = c0 + beta * sq
         xk, yk = versatz_korrektur(xa, ya, ua, va, c0=schub0, c1=c1)
+        if spline_eps:
+            if len(ta) <= SPLINE_K:
+                continue
+            xk, yk, ua, va = spline_bahn(ta, xk, yk, eps=spline_eps)
         tf.append(ta);  xf.append(xk);  yf.append(yk)
         uf.append(ua);  vf.append(va)
         idf.append(np.full(len(ta), tr.trajektorie_id[i], np.int64))

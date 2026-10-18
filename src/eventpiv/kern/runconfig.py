@@ -505,10 +505,17 @@ class Fit(_Typed):
     c0, c1 und beta heben den Vorwaertsversatz der Eventwolke auf, Betrag
     c0 + c1*|u| + beta*sigma_quer, sigma_quer je Bahn aus ihren Events
     (kette.trajektorien.quer_streuung). Auf STELLA haengt er an der
-    Partikelgroesse und nicht an der Geschwindigkeit: STELLAs eigene Form,
-    c0 = c1 = 0. Auf batch1 waechst er mit der Geschwindigkeit bei
+    Partikelgroesse und nicht an der Geschwindigkeit: STELLAs eigene Form
+    beta*sigma_quer, c1 = 0, dazu ein kleiner fester Rest c0, der nicht an
+    der Groesse haengt. Auf batch1 waechst er mit der Geschwindigkeit bei
     konstanter Querstreuung (fitsatz=batch1, beta = 0). Alle drei null
     schalten die Korrektur ab.
+
+    spline_eps legt nach der Korrektur je Bahn einen kubischen
+    Glaettungsspline ueber den Ort, Ziel-RMSE in px -- STELLAs Hybrid
+    (X_KS, u_KS). Ort aus dem Spline, u als seine Ableitung. Damit passt u
+    zum korrigierten Ort; die Korrektur allein verschiebt nur den Ort
+    (kette.trajektorien.spline_bahn). 0 schaltet den Spline ab.
 
     dt_aus ist fuer den FILTER frei -- zwischen den Messungen wird
     propagiert, nicht interpoliert. Fuer die BEWERTUNG nicht:
@@ -533,7 +540,7 @@ class Fit(_Typed):
     """
     r_mess: float = 3.0
     q_c: float = 1e7
-    c0: float = 0.0
+    c0: float = 0.06
     c1: float = 0.0
     beta: float = 1.31
     dt_aus: float = 1_000.0
@@ -543,11 +550,13 @@ class Fit(_Typed):
     # RTS-Rueckwaertslauf. Ohne ihn ist der Filter kausal und laeuft
     # jeder Richtungsaenderung hinterher.
     glaetten: bool = True
+    spline_eps: float = 0.02
 
     def short(self) -> str:
         b = f"_b{_num(self.beta)}" if self.beta else ""
+        s = f"_s{_num(self.spline_eps)}" if self.spline_eps else ""
         return (f"q{_num(self.q_c)}_r{_num(self.r_mess)}"
-                f"{'_rts' if self.glaetten else ''}{b}")
+                f"{'_rts' if self.glaetten else ''}{b}{s}")
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -567,6 +576,10 @@ class Fit(_Typed):
             raise ValueError(
                 f"fit.beta={self.beta} ist ein Faktor auf eine Streuung "
                 "und darf nicht negativ sein")
+        if self.spline_eps < 0.0:
+            raise ValueError(
+                f"fit.spline_eps={self.spline_eps} ist eine Abweichung und "
+                "darf nicht negativ sein; 0 schaltet den Spline ab")
 
 
 @dataclass

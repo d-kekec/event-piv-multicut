@@ -297,7 +297,7 @@ def test_fit_slug_trennt_beta():
     from eventpiv.kern.runconfig import Fit, slug
 
     assert slug(Fit(beta=1.31)) != slug(Fit(beta=0.0))
-    assert Fit(beta=1.31).short().endswith("_b1.31")
+    assert Fit(beta=1.31, spline_eps=0.0).short().endswith("_b1.31")
     assert "_b" not in Fit(beta=0.0).short()
     with pytest.raises(ValueError, match="beta"):
         Fit(beta=-1.0)
@@ -369,3 +369,99 @@ def test_fitte_run_beta_schiebt_um_beta_mal_querstreuung():
                                rtol=1e-9, atol=1e-12)
     np.testing.assert_allclose(vorher[2] - mit[2], 1.3 * sq * vorher[4] / b,
                                rtol=1e-9, atol=1e-12)
+
+
+def test_fit_slug_trennt_spline():
+    """Fits mit und ohne Spline muessen nebeneinander liegen koennen; eine
+    negative Abweichung gibt es nicht."""
+    from eventpiv.kern.runconfig import Fit, slug
+
+    assert slug(Fit(spline_eps=0.02)) != slug(Fit(spline_eps=0.0))
+    assert Fit(spline_eps=0.02).short().endswith("_s0.02")
+    assert "_s" not in Fit(spline_eps=0.0).short()
+    with pytest.raises(ValueError, match="spline_eps"):
+        Fit(spline_eps=-0.01)
+
+
+def test_spline_bahn_haelt_eps_und_u_ist_die_ableitung():
+    """Der Spline weicht im quadratischen Mittel hoechstens eps ab, und u
+    ist die Ableitung des ausgegebenen Orts. Am Rand rechnet np.gradient
+    einseitig, verglichen wird deshalb innen."""
+    from eventpiv.kette.trajektorien import spline_bahn
+
+    t = np.arange(400, dtype=np.float64) * 1_000.0     # 1-ms-Raster
+    ph = 0.004 * t / 1e3                               # 0,6 px/ms auf r = 150
+    x, y = 300.0 + 150.0 * np.cos(ph), 200.0 + 150.0 * np.sin(ph)
+    xs, ys, us, vs = spline_bahn(t, x, y, eps=0.02)
+    for a, b in ((xs, x), (ys, y)):
+        assert np.sqrt(np.mean((a - b) ** 2)) <= 0.02 * 1.001
+    np.testing.assert_allclose(us[1:-1], np.gradient(xs, t)[1:-1], atol=1e-8)
+    np.testing.assert_allclose(vs[1:-1], np.gradient(ys, t)[1:-1], atol=1e-8)
+
+
+def _bogen(n=8000, dt=50.0, r=100.0, v=0.5, vor=2.0, sq=1.0, sl=0.7,
+           seed=0):
+    """Eventwolke um eine Kreisbahn, vor px voraus, Streuung sl laengs und
+    sq quer. Dazu die Mitte als Funktion der Zeit: Ort in px, u in px/µs.
+    t in µs, v in px/ms."""
+    rng = np.random.default_rng(seed)
+    t = np.arange(n, dtype=np.float64) * dt
+
+    def mitte(tt):
+        ph = v / r * tt / 1e3
+        return (300.0 + r * np.cos(ph), 200.0 + r * np.sin(ph),
+                -v * np.sin(ph) * 1e-3, v * np.cos(ph) * 1e-3)
+
+    mx, my, mu, mv = mitte(t)
+    ex, ey = mu / np.hypot(mu, mv), mv / np.hypot(mu, mv)
+    laengs = vor + rng.normal(0.0, sl, n)
+    quer = rng.normal(0.0, sq, n)
+    return (t, mx + laengs * ex - quer * ey, my + laengs * ey + quer * ex,
+            mitte)
+
+
+_KW_BOGEN = dict(r_mess=3.0, q_c=1e7, c0=2.0, c1=0.0, dt_aus=1_000.0,
+                 min_dauer_us=10_000.0, init_us=5_000.0, glaetten=True,
+                 a_unbekannt=1e4)
+
+
+def test_fitte_run_spline_eps_null_ist_der_alte_weg():
+    from eventpiv.kette.trajektorien import fitte_run, gruppiere
+
+    t, x, y, _ = _bogen()
+    tr = gruppiere(np.zeros(len(t), np.int32), len(t))
+    vorher = fitte_run(tr, t, x, y, **_KW_BOGEN)
+    null = fitte_run(tr, t, x, y, spline_eps=0.0, **_KW_BOGEN)
+    for p, q in zip(vorher, null):
+        np.testing.assert_array_equal(p, q)
+
+
+def test_fitte_run_spline_u_trifft_die_mitte_auf_dem_bogen():
+    """Die Korrektur schiebt den Ort um c0 gegen die Bewegung, das u des
+    Filters bleibt das der Wolke. Auf dem Bogen weicht es dadurch um
+    c0*omega von der Mitte ab; die Ableitung des korrigierten Orts nicht."""
+    from eventpiv.kette.trajektorien import fitte_run, gruppiere
+
+    t, x, y, mitte = _bogen()
+    tr = gruppiere(np.zeros(len(t), np.int32), len(t))
+    ohne = fitte_run(tr, t, x, y, **_KW_BOGEN)
+    mit = fitte_run(tr, t, x, y, spline_eps=0.02, **_KW_BOGEN)
+    np.testing.assert_array_equal(ohne[0], mit[0])
+    _, _, mu, mv = mitte(mit[0])
+    f_ohne = np.median(np.hypot(ohne[3] - mu, ohne[4] - mv))
+    f_mit = np.median(np.hypot(mit[3] - mu, mit[4] - mv))
+    assert f_mit < f_ohne / 4
+
+
+def test_fitte_run_spline_laesst_zu_kurze_bahnen_aus():
+    """Ein kubischer Spline braucht mehr als drei Stuetzpunkte; ohne
+    Spline bleibt dieselbe Bahn."""
+    from eventpiv.kette.trajektorien import fitte_run, gruppiere
+
+    t, x, y = _gerade(n=30, dt=100.0)                  # 2,9 ms
+    tr = gruppiere(np.zeros(30, np.int32), 30)
+    kw = dict(r_mess=8.0, q_c=20.0, c0=0.0, c1=0.0, dt_aus=1_000.0,
+              min_dauer_us=1_000.0)
+    assert len(fitte_run(tr, t, x, y, **kw)[0]) == 3
+    assert all(len(a) == 0
+               for a in fitte_run(tr, t, x, y, spline_eps=0.02, **kw))

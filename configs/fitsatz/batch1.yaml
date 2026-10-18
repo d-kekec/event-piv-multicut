@@ -6,7 +6,8 @@
 #
 # dt_aus: das GT-Raster von batch1. c1: auf batch1 waechst der
 # Vorwaertsversatz mit der Geschwindigkeit. beta: STELLAs Form
-# beta*sigma_quer bildet das nicht ab, daher aus.
+# beta*sigma_quer bildet das nicht ab, daher aus. spline_eps: aus, auf
+# batch1 nicht gemessen.
 dt_aus: 16667.0
 init_us: 100000.0
 min_dauer_us: 100000.0
@@ -16,3 +17,4 @@ beta: 0.0
 r_mess: 8.0
 q_c: 20.0
 a_unbekannt: 100.0
+spline_eps: 0.0
