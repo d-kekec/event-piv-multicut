@@ -329,6 +329,10 @@ Das Allgemeine, dazu eine Übersicht Stufe → Skript → sbatch-Datei, steht in
 `scripts/_cli.py`. Hydra legt je Aufruf die zusammengesetzte Konfiguration
 unter `$EVENTPIV_OUT/hydra/` ab.
 
+Wie die Gruppen zusammenhängen, welche Felder es gibt und welche
+Gruppendateien eine Stufe annimmt, beschreibt Teil A von
+[CLI_und_Logging.md](CLI_und_Logging.md).
+
 ### Training und Lauf am Arbeitspunkt
 
 Ohne Gruppen gelten die Vorgaben aus `kern/runconfig.py`, der Arbeitspunkt
@@ -387,6 +391,9 @@ Die meisten Stufen protokollieren nach Weights & Biases, Projekt
 setzen, das schaltet W&B ab, oder `WANDB_MODE=offline`, das schreibt nur
 lokal. Ohne W&B laufen ohnehin `build_event_labels.py`,
 `identify_overlap_runs.py` und die `animate_*`-Skripte.
+
+Was die Stufen protokollieren und wo die Zahlen ohne W&B stehen, beschreibt
+Teil B von [CLI_und_Logging.md](CLI_und_Logging.md).
 
 ### Ergebnisse
 
