@@ -29,5 +29,5 @@ export PYTHONUNBUFFERED=1
 source "$HOME/eventpiv-env/bin/activate"
 cd "$HOME/event-piv-multicut"
 
-echo "Node $(hostname)  Job ${SLURM_JOB_ID}  Datensatz ${EVENTPIV_NAME:?eventpiv_use vor dem Absenden}"
+echo "Node $(hostname)  Job ${SLURM_JOB_ID}  Datensatz ${EVENTPIV_NAME:?EVENTPIV_NAME fehlt: stella oder batch1, passend zu EVENTPIV_DATA und EVENTPIV_OUT}"
 pytest -m "${MARKER:-anker or anker2}" -v -rs

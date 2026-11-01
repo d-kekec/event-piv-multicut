@@ -33,7 +33,7 @@ export WANDB_SILENT=true
 source "$HOME/eventpiv-env/bin/activate"
 cd "$HOME/event-piv-multicut"
 
-: "${SPLIT:?SPLIT nicht gesetzt -- vor dem sbatch exportieren}"
+: "${SPLIT:?SPLIT fehlt -- direkt vor sbatch setzen, etwa SPLIT=train}"
 echo "Daten: $EVENTPIV_DATA"
 
 # Zusaetzliche Hydra-Overrides, z.B. EXTRA="io.overwrite=true" beim

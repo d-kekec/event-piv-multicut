@@ -83,7 +83,8 @@ def dateien(split: str, quelle, suffix, runs):
     suffix = suffix or Solver().short()
     if not d.is_dir():
         raise SystemExit(f"{d} fehlt -- ohne --quelle zeigen die Vorgaben "
-                         "auf batch1; sonst erst scripts/build_tracklets.py.")
+                         "auf STELLA, fuer andere Daten --quelle angeben; "
+                         "sonst erst scripts/build_tracklets.py.")
     muster = re.compile(rf"^{re.escape(split)}_run(\d+)_"
                         rf"{re.escape(suffix)}\.npz$")
     treffer = [(int(m.group(1)), p) for p in sorted(d.glob("*.npz"))
@@ -301,7 +302,7 @@ def gt_messung(pfad, tid, meta, n_fenster: int, min_events: int):
     wa = _wurzel(pfad, "wp")
     if wa is None or wa != _wurzel(gt_pfad, "labels"):
         raise SystemExit(f"{gt_pfad} liegt nicht unter der Ausgabewurzel von "
-                         f"{pfad} -- passt eventpiv_use zu den Dateien?")
+                         f"{pfad} -- passt EVENTPIV_OUT zu den Dateien?")
     if not gt_pfad.exists():
         raise SystemExit(f"{gt_pfad} fehlt -- erst die Labels bauen.")
     fe = lade_fenster(Selection(split=split, run_nr=run_nr),
@@ -442,7 +443,7 @@ def main() -> None:
     ap.add_argument("--split", default="train")
     ap.add_argument("--quelle", default=None,
                     help="Verzeichnis der (A)-Dateien; ohne Angabe aus den "
-                         "Vorgaben von runconfig (batch1)")
+                         "Vorgaben von runconfig (STELLA)")
     ap.add_argument("--solver", default=None,
                     help="Solve-Teil des Dateinamens, Vorgabe "
                          "Solver().short()")
@@ -450,7 +451,7 @@ def main() -> None:
                     help="Auswahl; ohne Angabe alle gefundenen")
     ap.add_argument("--gt", action="store_true",
                     help="Labels dazu: Kreuztabelle und Zentroidabstand "
-                         "(liest den Eventstrom, Compute-Node)")
+                         "(liest den Eventstrom, viel Arbeitsspeicher)")
     ap.add_argument("--fenster", type=int, default=50,
                     help="Zentroidabstand bis dt < (fenster + 1) * alpha1")
     ap.add_argument("--filter", type=int, default=15,
