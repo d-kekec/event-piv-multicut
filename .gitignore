@@ -3,7 +3,8 @@
 *.pt
 *.dat
 *.gif
-logs/
+logs/*
+!logs/.gitkeep
 archives/
 outputs/
 multirun/
