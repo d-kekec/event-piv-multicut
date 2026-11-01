@@ -34,6 +34,8 @@ echo "Node $(hostname)  Job $SLURM_JOB_ID  Start: $(date)"
 # Ist EXTRA_SETS gesetzt, gilt EXTRA nicht.
 SETS="${EXTRA_SETS:-${EXTRA:-}}"
 IFS=';' read -ra _SETS <<< "$SETS"
+# Leere Eingabe: ein leerer Satz, sonst liefe die Schleife null Mal.
+if [ ${#_SETS[@]} -eq 0 ]; then _SETS=(""); fi
 for s in "${_SETS[@]}"; do
     echo "=== EXTRA='$s' ==="
     # shellcheck disable=SC2086
