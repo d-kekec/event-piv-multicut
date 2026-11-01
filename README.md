@@ -55,6 +55,25 @@ Die Begriffe — Tracklet, Trajektorie, Slug, Arbeitspunkt, die Stufen [1] bis
 
 ---
 
+## Anforderungen
+
+- **GPU:** eine NVIDIA-Karte mit Treiber für CUDA 13; für ihre Architektur
+  wird RAMA gebaut (siehe Installation). Auf der Karte rechnen [2], [4],
+  [5a], [6b] und [6c]; [1], [3], [6a] und [7] laufen nur auf der CPU.
+- **Grafikspeicher:** Das Training braucht eine Karte mit 24 GB: [6b]
+  belegt an den Vorgaben um 20 GB, [2] auf dichten Runs knapp 15 GB. Die
+  Inferenz lief auf Karten mit 24 und 32 GB; mit weniger ist sie nicht
+  geprüft.
+- **Arbeitsspeicher:** wächst mit der Eventzahl eines Runs. Auf den
+  dichtesten STELLA-Runs brauchen [1], [3], [6a] und [7] je 15 bis 30 GB,
+  [6c] mit Bewertung bis knapp 60 GB. Auf einem mittleren Run wie val-Run 10
+  bleiben [5a], [6a] und [7] unter 10 GB.
+- **Zum Ausprobieren** eignet sich deshalb ein mittlerer oder kleiner Run wie
+  val-Run 10; die größten Runs brauchen ein Vielfaches an Speicher und Zeit.
+- **Geprüft** mit Python 3.12, torch 2.13 und 2.14 (cu130) und RAMA v0.0.8.
+
+---
+
 ## Installation
 
 Reihenfolge: Repo, Python-Umgebung, PyTorch, RAMA, dann das Paket. `torch`
@@ -118,10 +137,17 @@ Voraussetzungen:
 git clone https://github.com/pawelswoboda/RAMA.git ~/RAMA
 cd ~/RAMA
 git checkout ee459d6
+pip install "setuptools<81"
 export CUDAFLAGS="-gencode arch=compute_89,code=sm_89 -gencode arch=compute_120,code=sm_120"
+printf '%s\n' "$CUDAFLAGS" | cat -A   # genau eine Zeile, die auf $ endet
 rm -rf build
-pip install .
+pip install --no-build-isolation .
 ```
+
+RAMAs `setup.py` importiert `pkg_resources`, das neuere setuptools-Versionen
+nicht mehr enthalten. Ohne `--no-build-isolation` baut pip mit dem neuesten
+setuptools und bricht ab; deshalb `setuptools<81` in der venv und der Build
+ohne Abschottung.
 
 Je Zielarchitektur ein `-gencode`; das Beispiel deckt sm_89 (etwa RTX 4090)
 und sm_120 (etwa RTX 5090) ab. Fallstricke:
@@ -129,8 +155,12 @@ und sm_120 (etwa RTX 5090) ab. Fallstricke:
 - `-DCMAKE_CUDA_ARCHITECTURES` auf der Kommandozeile verdeckt still die
   Angaben in RAMAs `CMakeLists.txt`, deshalb `CUDAFLAGS`.
 - `CUDAFLAGS` wird nur beim ersten Konfigurieren eines Build-Verzeichnisses
-  gelesen. Deshalb `rm -rf build` davor, in derselben Shell wie
-  `pip install`.
+  gelesen. Deshalb `rm -rf build` vor jedem Versuch, auch nach einem
+  gescheiterten, in derselben Shell wie `pip install`. Sonst nimmt CMake die
+  Flags aus seinem Zwischenspeicher.
+- Ein Zeilenumbruch in `CUDAFLAGS`, etwa beim Kopieren der langen Zeile,
+  schneidet die Flags ab; CMake warnt dann mit „contained a newline“, und
+  nvcc bricht ab. Die `printf`-Zeile oben zeigt ihn.
 - Eingebettet wird nur Maschinencode für die genannten Architekturen, kein
   PTX. Auf einer Karte anderer Architektur läuft `rama_py` nicht.
 
@@ -486,6 +516,13 @@ braucht und welche Variablen es kennt, steht in seinem Kopf, das Allgemeine
 im slurm-Abschnitt von `scripts/_cli.py`. Anzupassen sind die
 `#SBATCH`-Zeilen und die Pfade zu venv und Repo, und `logs/` muss im
 Absendeverzeichnis existieren.
+
+Jobs ohne `--gres` können auf einem Knoten mit wenig Arbeitsspeicher
+landen; für [1], [6a] und [7] auf dichten Runs einen Knoten mit genug
+Arbeitsspeicher wählen. Die Skripte fangen einen Fehlschlag ab und enden
+trotzdem mit Exit-Code 0: Mit `--dependency=afterok` verkettete Jobs
+laufen also weiter, auch wenn ein Schritt gescheitert ist. Die Logs zeigen
+das mit „FEHLGESCHLAGEN“.
 
 ---
 
