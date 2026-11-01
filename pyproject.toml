@@ -24,6 +24,9 @@ dependencies = [
     "hdf5plugin",
     "pyyaml",
     "pillow",
+    "hydra-core>=1.3",
+    "omegaconf>=2.3",
+    "wandb>=0.28",
 ]
 
 [project.optional-dependencies]
@@ -44,8 +47,8 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "anker: Regressionsanker Stufe 1 auf dem ECHTEN Datensatz. Braucht $EVENTPIV_DATA, gebaute Label-Dateien und ein trainiertes Netz -- laeuft deshalb nicht in der normalen Suite. Rund 10 s.",
-    "anker2: Regressionsanker Stufe 2, zusaetzlich mit Kandidatensatz und Stufe-2-Netz. Loest einen GANZEN Run und braucht rund drei Minuten -- deshalb ein eigener Marker.",
+    "anker: Regressionsanker Stufe 1 auf dem ECHTEN Datensatz. Braucht $EVENTPIV_DATA, gebaute Label-Dateien und ein trainiertes Netz -- laeuft deshalb nicht in der normalen Suite.",
+    "anker2: Regressionsanker Stufe 2, zusaetzlich mit Kandidatensatz und Stufe-2-Netz. Loest einen GANZEN Run -- deshalb ein eigener Marker.",
 ]
 # Beide standardmaessig abgewaehlt. `pytest -m anker` bzw. `-m anker2`
 # waehlt sie wieder an: die letzte -m-Angabe gewinnt.
