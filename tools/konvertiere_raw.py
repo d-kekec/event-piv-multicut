@@ -3,28 +3,32 @@
 """
 konvertiere_raw.py -- EVT3-.raw nach Prophesee-DAT.
 
-Kein Weg fuehrt hier an einer eigenen Bit-Packung vorbei: evt3 schreibt
-nur eigene Formate, expelliarmus liest EVT3 mit externem Trigger nicht.
-Die Packung ist deshalb DOPPELT im Projekt (auch in tests/mini_dataset.py)
-und wird hier gegen PSEELoader zurueckgeprueft -- ein vertauschtes Bit
-ergaebe sonst eine lesbare Datei mit falschen Koordinaten.
+Kein Weg fuehrt hier an einer eigenen Bit-Packung vorbei: evt3 liest EVT3
+samt externem Trigger, schreibt aber nur eigene Formate. Die Packung ist
+deshalb DOPPELT im Projekt (auch in tests/mini_dataset.py) und wird hier
+gegen PSEELoader zurueckgeprueft -- ein vertauschtes Bit ergaebe sonst
+eine lesbare Datei mit falschen Koordinaten.
 
-Geschrieben wird STUECKWEISE: 235 Mio Events als tobytes() kosteten 1,9 GB
-zusaetzlich zu den 3 GB des dekodierten Stroms.
+Geschrieben wird STUECKWEISE: tobytes() ueber den ganzen Strom legte neben
+den dekodierten Strom eine Kopie mit 8 Byte je Event.
 
-Die Run-Nummer kommt aus den Ziffern im Dateinamen -- karman_048ms.raw
-wird run48.dat. Bei diesen Aufnahmen ist die Zahl u_inf in cm/s, die
-physikalische Bedingung steht damit im Dateinamen statt in einer Tabelle
-daneben.
+Die Run-Nummer kommt aus der ersten Ziffernfolge im Dateinamen -- aus
+<name>_048ms.raw wird run48.dat.
 
 DAT-FORMAT (psee_io/dat_events_tools.py):
   Kopf      Zeilen "% ...", danach zwei Bytes ev_type=0 und ev_size=8
   Event     4 B Zeitstempel u4 + 4 B Nutzlast i4
   Nutzlast  Bit 0-13 x, Bit 14-27 y, Bit 28 Polaritaet
 
-Aufruf:
-  python tools/konvertiere_raw.py <quelle> <ziel> [rebase=0|1]
+Aufruf ohne Hydra und ohne EVENTPIV_*. <rohdaten> ist eine .raw-Datei oder
+ein Verzeichnis, dessen *.raw alle umgewandelt werden; <ziel> wird
+angelegt. rebase=1, die Vorgabe, zieht die Zeit des ersten ausgewaehlten
+Events ab und schreibt den Versatz in den Kopf. roi in px schneidet aus,
+ohne die Koordinaten zu verschieben. t0 und dt in ms ab dem ersten Event
+der Datei; dt wirkt nur zusammen mit t0.
+  python tools/konvertiere_raw.py <rohdaten> <ziel> [rebase=0|1]
          [roi=x0,y0,breite,hoehe] [t0=ms] [dt=ms]
+  python tools/konvertiere_raw.py <rohdaten> <ziel> t0=1000 dt=500
 """
 from __future__ import annotations
 
@@ -59,7 +63,7 @@ def schreibe_dat_blockweise(pfad, t, x, y, p, breite, hoehe, versatz_us):
     """Wie tests/mini_dataset.schreibe_dat, aber ohne die Vollkopie.
 
     Auch die Rundung liegt IM Block: xi und yi als int64 ueber den ganzen
-    Strom kosteten bei 235 Mio Events 3,8 GB zusaetzlich.
+    Strom legten 16 Byte je Event zusaetzlich an.
     """
     with open(pfad, "wb") as f:
         f.write(_kopf(breite, hoehe, versatz_us))
@@ -128,7 +132,7 @@ def konvertiere(quelle: Path, ziel: Path, rebase: bool, roi, t0_ms, dt_ms):
 
     versatz = int(t[0]) if rebase else 0
     t = t.copy() if m.all() else t     # nie in das evt3-Array schreiben
-    t -= versatz                       # in place: spart 1,9 GB Kopie
+    t -= versatz                       # in place: keine Kopie der Zeitstempel
     if t[-1] > np.iinfo(np.uint32).max:
         raise SystemExit(f"{quelle.name}: t={t[-1]} sprengt uint32")
 

@@ -28,13 +28,18 @@ Der Wechsel zaehlt zur Klasse mit den meisten Events, bei Gleichstand zur
 kleineren. Wie das Ergebnis zu lesen ist, steht in LESART; die Auswertung
 gibt es am Ende aus.
 
-Anker: die IDSW-Summe je Run muss der Zahl aus [6c] gleichen, die
-Minderheit in den Stufe-1-Knoten dem Feld stufe1/merge_n_minderheit
-derselben [6c]-JSON. Der zweite prueft, dass (A) richtig gelesen wird.
+Gegenprobe, je Run gedruckt: die IDSW-Summe muss der Zahl aus
+idsw_metrics gleichen, wie [6c] sie rechnet, die Minderheit in den
+Stufe-1-Knoten dem Feld stufe1/merge_n_minderheit derselben [6c]-JSON.
+Die zweite prueft, dass (A) richtig gelesen wird.
 
-Aufruf mit dem solves-Verzeichnis aus dem Fit-Log und dem Versatz von
-Stufe 2 (solver2.cost_offset), mehrere Werte nacheinander:
-    python tools/6c_idsw_auswerter.py <solves> 8 13 38 41 66 92 --versatz 0.5 1
+Aufruf ohne Hydra; EVENTPIV_DATA und EVENTPIV_OUT wie in scripts/_cli.py.
+<solves> ist das Verzeichnis der Partitionen aus [6c], dessen Dateien
+solve_stufe2 hinter "->" meldet. Gelesen werden nur train-Runs (SPLIT),
+dazu ihr (A) mit Stufe 1 an der Vorgabe, Labels und Boxen. --versatz
+nennt solver2.cost_offset der Partitionen, mehrere Werte nacheinander:
+    python tools/6c_idsw_auswerter.py <solves> 8 13 --versatz 1
+    python tools/6c_idsw_auswerter.py <solves> 8 13 --versatz 0.5 1
 """
 import argparse
 import json
@@ -53,7 +58,8 @@ from eventpiv.kern.status import STATUS_AMBIG, STATUS_NOISE
 SPLIT = "train"
 STAMM = "train_run{r}_{stamm}.npz"                # Partition aus [6c]
 V_GRENZEN = (0.0, 0.1, 0.2, 0.4, 0.8, np.inf)     # px/ms
-RATE_GRENZE = 30.0                                # je ms; Nachweisgrenze bei min_events 15
+# 15 Events je 0,5 ms. Fest: folgt weder alpha1 noch min_events.
+RATE_GRENZE = 30.0                                # Nachweisgrenze, Events/ms
 TOL = 2                                           # Rasterpunkte Spiel beim Bruch
 REIN_AB = Transformer().gt_min_anteil             # ab hier gilt ein Knoten als rein
 KLASSEN = ("rein", "gemischt", "fremd")           # Stufe-1-Tracklet, Gleichstand: kleinere
@@ -259,8 +265,8 @@ def auswerten(r, solves, stamm):
     mech = np.where(eigen, -1, kl_q[:len(wer)])       # -1: keine fremde Bahn
     grund_mech = kl_q[len(wer):]
 
-    # Zweiter Anker: Minderheit in den Stufe-1-Knoten wie in [6c] -- Knoten
-    # sind Tracklets ab min_events ON-Events, Rauschen eingerechnet.
+    # Zweite Gegenprobe: Minderheit in den Stufe-1-Knoten wie in [6c] --
+    # Knoten sind Tracklets ab min_events ON-Events, Rauschen eingerechnet.
     with open(teil.with_suffix(".json")) as f:
         j = json.load(f)
     n_on = np.bincount(tid[tid >= 0])

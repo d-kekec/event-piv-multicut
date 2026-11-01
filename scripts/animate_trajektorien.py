@@ -2,18 +2,36 @@
 # -*- coding: utf-8 -*-
 """CLI-Huelle fuer visualize_trajektorien.animate_trajektorien.
 
-Stellt Tracklets, Trajektorien und GT eines Runs nebeneinander. Gelesen
-werden die Artefakte von (A), [6c] und fuer das fit-Panel [7] -- also
-dieselben Gruppen und Overrides wie beim schreibenden Lauf. window
-schneidet nur die Anzeige zu.
+Darstellung [D]: stellt Tracklets, Trajektorien und GT eines Runs
+nebeneinander. Gelesen werden die Artefakte von (A), [6c] und fuer das
+fit-Panel [7] -- also dieselben Gruppen und Overrides wie beim
+schreibenden Lauf. window schneidet nur die Anzeige zu.
 
+Aufruf (allgemeine Bedienung: scripts/_cli.py). selection.run_nr ist
+Pflicht; ohne window.* der ganze Run, t0 und dt in µs. anim.panels waehlt
+aus roh, tracklets, trajektorien, fit, gt; fit liest die Bahnen von [7]
+und braucht dieselben fit.*-Werte wie dort. Rechnet nichts nach: kein
+Netz, keine GPU.
+  python scripts/animate_trajektorien.py selection.run_nr=8
   python scripts/animate_trajektorien.py selection.split=val \\
-      selection.run_nr=4
+      selection.run_nr=<run>
 
-  # Fuer den Bericht: ein Panel, kurzer Ausschnitt
+  # ein Panel, kurzer Ausschnitt
   python scripts/animate_trajektorien.py selection.split=val \\
-      selection.run_nr=4 anim.panels=trajektorien \\
+      selection.run_nr=<run> anim.panels=trajektorien \\
       window.t0=2000000 window.dt=1000000
+  # mehrere Panels als EIN Wert, mit fit-Panel
+  P="anim.panels='trajektorien,fit,gt'"
+  python scripts/animate_trajektorien.py selection.run_nr=8 "$P"
+  # batch1; mit fit-Panel zusaetzlich fitsatz=batch1
+  E="datensatz=batch1 kandidatensatz=batch1 transformersatz=batch1"
+  python scripts/animate_trajektorien.py selection.run_nr=32 $E
+  # ueber slurm/animate_trajektorien.sbatch (Bedarf in dessen Kopf): SPLIT
+  # und RUN Pflicht; PANELS ohne innere Anfuehrungszeichen, die setzt das
+  # Skript; ohne PANELS mit fit-Panel, also erst nach [7]; Overrides in EXTRA
+  SPLIT=train RUN=8 sbatch slurm/animate_trajektorien.sbatch
+  F="$E fitsatz=batch1"
+  SPLIT=train RUN=32 EXTRA="$F" sbatch slurm/animate_trajektorien.sbatch
 """
 import hydra
 from hydra.core.config_store import ConfigStore

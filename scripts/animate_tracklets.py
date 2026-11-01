@@ -2,19 +2,29 @@
 # -*- coding: utf-8 -*-
 """CLI-Huelle fuer visualize.animate_tracklets -- Hydra + Aufruf.
 
-Loest ein Zeitfenster und animiert Rohevents, RAMA-Cluster und Ground Truth
-nebeneinander. Zweck: Reinheit und Fragmentierung SEHEN statt nur als Zahl
-lesen. Framezahl = window.dt / anim.frame_ms -- ueber ~100 wird das GIF
-unhandlich.
+Darstellung [C]: schreitet einen Ausschnitt in Stufe-1-Fenstern ab wie
+[5a] und animiert Rohevents, Tracklets und Ground Truth nebeneinander.
+Zweck: SEHEN, dass an jeder Fenstergrenze neue Tracklets beginnen. Schema
+und Treiberdatei teilt es mit animate_clusters (AnimClustersCfg,
+configs/animate_clusters.yaml). Framezahl = window.dt /
+(anim.frame_ms * 1000).
 
-# Fragmentierung sehen: Trail an, funf Fenster, Zuschnitt
-  WANDB_MODE=disabled python scripts/animate_tracklets.py selection.split=train selection.run_nr=32 window.t0=7050000 window.dt=50000 anim.frame_ms=0.5 anim.crop=true
-
-# Verschmelzung sehen: Momentaufnahmen statt Trail, hoeherer Versatz
-  WANDB_MODE=disabled python scripts/animate_tracklets.py selection.split=train selection.run_nr=32 window.t0=7050000 window.dt=50000 anim.frame_ms=0.5 solver.cost_offset=0.5
-
-Beispielaufruf starke Überlappung: 
-  WANDB_MODE=disabled python scripts/animate_tracklets.py selection.split=train selection.run_nr=76 window.t0=2700000 window.dt=50000 anim.frame_ms=0.5 anim.crop=true
+Aufruf (allgemeine Bedienung: scripts/_cli.py). selection.run_nr ist
+Pflicht. window.t0 und window.dt, in µs, schneiden den Ausschnitt, ohne
+window.* das Vorgabefenster aus runconfig.Window; window.dt muss
+mindestens zwei Stufe-1-Fenster umfassen (2 * neighborhood.alpha).
+anim.panels waehlt aus roh, tracklets, gt. Braucht das Netz aus [3]; die
+Treiberdatei schaltet keine Gruppen zu, es gelten die Vorgaben aus
+kern/runconfig.py. Kein sbatch-Skript.
+  python scripts/animate_tracklets.py selection.run_nr=8
+  # Fragmentierung sehen: Trail an
+  W="window.t0=1000000 window.dt=50000 anim.frame_ms=0.5"
+  python scripts/animate_tracklets.py selection.run_nr=8 $W
+  # Verschmelzung sehen: Momentaufnahmen statt Trail, hoeherer Versatz
+  V="anim.trail=false solver.cost_offset=0.5"
+  python scripts/animate_tracklets.py selection.run_nr=8 $W $V
+  # ein Panel allein, breiter
+  python scripts/animate_tracklets.py selection.run_nr=8 anim.panels=tracklets
 """
 import hydra
 from hydra.core.config_store import ConfigStore

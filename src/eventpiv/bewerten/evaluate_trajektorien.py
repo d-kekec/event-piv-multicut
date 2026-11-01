@@ -17,18 +17,18 @@ Bahnlaengen ueber mehrere Groessenordnungen dominierten sonst wenige
 lange Bahnen. Bezug der Prozentzahl ist v_max. Das ist die Diagnose je
 Bahn, die [7] mitschreibt.
 
-stella_fehler und stella_kennzahlen rechnen wie STELLA §4.1: Zuordnung je
-Zeitpunkt ueber den Abstand zum naechsten Partikel, ohne Labels; Bahnen
-mit Ausreissern in der Geschwindigkeit verworfen; Median ueber ALLE
-zugeordneten Punkte, dazu P25 und P75; Bezug ist |U^| = 0,6 px/ms, eine
-feste Normierung. Nur diese Fassung ist mit den Zahlen des Papiers
-vergleichbar.
+stella_fehler und stella_kennzahlen rechnen wie STELLA (Sachs et al.,
+2026), Abschnitt 4.1: Zuordnung je Zeitpunkt ueber den Abstand zum
+naechsten Partikel, ohne Labels; Bahnen mit Ausreissern in der
+Geschwindigkeit verworfen; Median ueber ALLE zugeordneten Punkte, dazu
+P25 und P75; Bezug ist |U^| = 0,6 px/ms, eine feste Normierung. Nur
+diese Fassung ist mit den Zahlen des Papiers vergleichbar. Wo das Papier
+offen ist, legt stella_fehler es aus.
 
 DIE GT LIEFERT NUR ORTE. Die Geschwindigkeit muss abgeleitet werden, und
-eine zentrale Differenz ueber einen GT-Schritt traegt zu viel
-Rasterrauschen: die Boxmitte ist auf 0,1 px aufgeloest, ueber 16,7 ms sind
-das rund 0,0012 px/ms gegen ein Signal von 0,05. Gerechnet wird deshalb
-eine Ausgleichsgerade ueber 2*gt_fenster+1 Rasterpunkte.
+in eine Differenz ueber einen Rasterschritt geht das Rauschen der GT-Orte
+voll ein. Gerechnet wird deshalb eine Ausgleichsgerade ueber
+2*gt_fenster+1 Rasterpunkte; sie daempft es.
 
 gt_fenster ist ein KOMPROMISS. Zu klein: die Referenz rauscht und
 verdeckt, was gemessen werden soll. Zu gross: sie glaettet selbst und
@@ -132,10 +132,9 @@ def trajektorien_metriken(spalten, bb, zuordnung, v_norm,
     Verschmelzung kostet, zeigt die Zahl der Bahnen unter REIN_MIN.
 
     Die Fitausgabe liegt auf fit.dt_aus, die GT auf ihrem eigenen Raster.
-    Verglichen wird auf den GT-Zeiten; die Fitwerte werden dorthin
-    interpoliert. Das ist zulaessig, weil zwischen zwei GT-Punkten nichts
-    passiert, was aus Ort und Geschwindigkeit nicht rekonstruierbar waere
-    (gemessen 14.09.2026: unter 1e-7 px).
+    Verglichen wird auf den GT-Zeiten; die Fitwerte werden linear dorthin
+    interpoliert. Was das bei einem groeberen Ausgabegitter kostet, steht
+    bei Fit.dt_aus in kern.runconfig.
     """
     t, x, y, ux, uy, tid = spalten
     gt = gt_bahnen(bb, gt_fenster)
@@ -248,6 +247,9 @@ def stella_fehler(spalten, bb, *, r_zuordnung: float = R_ZUORDNUNG,
     ABDECKUNG: ein GT-Punkt gilt als abgedeckt, wenn ihm zu seiner Zeit
     mindestens ein Bahnpunkt zugeordnet ist. Auf einem festen Raster ist
     der Anteil der Punkte zugleich der Anteil der Dauer, t_covered.
+
+    POOLING: stella_kennzahlen nimmt den Median ueber alle Punkte aller
+    Runs. U_GT: Ausgleichsgerade ueber die GT-Orte, siehe Modul-Docstring.
 
     Rueckgabe: Fehler je zugeordnetem Punkt (d_xy in px, d_u in px/ms,
     d_laengs in px) und die Zaehler fuer stella_kennzahlen. d_u fehlt an

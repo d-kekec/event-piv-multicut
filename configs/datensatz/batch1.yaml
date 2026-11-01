@@ -1,7 +1,9 @@
 # @package _global_
 #
-# Alle Gruppen von batch1 ab dem Training: `datensatz=batch1`. Labels und
-# Paarbau nehmen die Einzelgruppen, wie bei stella.
+# batch1 ab dem Training [3]: setzt neighborhood, pairsampling und training
+# auf batch1. Labels [1] und Paarbau [2] nehmen die Einzelgruppen, ihre
+# Treiber kennen `datensatz` nicht. kandidatensatz, transformersatz und
+# fitsatz setzt es nicht; sie kommen ab [6a], [6b] und [7] einzeln dazu.
 defaults:
   - override /neighborhood: batch1
   - override /pairsampling: batch1

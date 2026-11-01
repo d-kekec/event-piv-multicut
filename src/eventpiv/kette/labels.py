@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-labels.py -- BAUSTEIN [1]: Event -> track_id + Qualitaetsstatus.
+labels.py -- Stufe [1]: Event -> track_id + Qualitaetsstatus.
 
 Weist jedem Event eine track_id zu (TRAININGS-WAHRHEIT, NIE NN-Input!) und
 markiert dabei drei Qualitaetsklassen:
 
-    status = 0  SAUBER      eindeutig einem Partikel zugeordnet   -> Training
-    status = 1  MEHRDEUTIG  fast gleich weit zu zwei Boxen        -> nicht ins
-                            Training, aber zugeordnet (Bewertung)
-    status = 2  RAUSCH      keiner Box nah genug                  -> raushalten
+    status = 0  SAUBER      eindeutig einem Partikel zugeordnet
+    status = 1  MEHRDEUTIG  fast gleich weit zu zwei Boxen
+    status = 2  RAUSCH      keiner Box nah genug
 
-Verfahren: Event -> zeitlich naechster 60-Hz-Rasterpunkt -> raeumlich
+Verfahren: Event -> zeitlich naechster GT-Rasterpunkt -> raeumlich
 naechstes Boxzentrum. Die zweite Bedingung (Abstand zum ZWEITnaechsten) ist
 noetig, weil ein Run als Ganzes sauber sein kann und trotzdem einzelne
 Grenz-Events enthaelt.
 
 track_id und status beantworten ZWEI Fragen: track_id sagt, WOHIN ein Event
-gehoert, status, wie VERLAESSLICH diese Zuordnung ist. Nur RAUSCH traegt -1
--- dort ist kein Zentrum nahe genug. Wer Trainingsdaten will, filtert auf
-status == STATUS_CLEAN; wer bewerten will, nimmt track_id.
+gehoert, status, wie VERLAESSLICH diese Zuordnung ist. SAUBER und
+MEHRDEUTIG tragen die track_id des naechsten Zentrums, nur RAUSCH traegt -1
+-- dort ist kein Zentrum nahe genug. Wie Paarbau und Bewertung die Status
+nutzen, steht in pairs.py (collect_pairs) und in bewerten.evaluate.
 
-Ausgabe haengt NICHT von alpha/r_max/win_dt ab -> einmal je Run und Split
-bauen.
+Ausgabe haengt NICHT von alpha, r_max oder dem Fenster ab -> einmal je Run
+und Split bauen.
 
 Aufteilung in dieser Datei:
   assign_track_ids()      reiner Rechenkern (Arrays rein, Arrays raus)
@@ -48,9 +48,9 @@ from eventpiv.kern.status import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
 # Version des LABEL-INHALTS, nicht der Labeling-Parameter. Wird erhoeht,
 # wenn sich die Bedeutung der Felder aendert, ohne dass sich `Labeling`
 # aendert -- sonst gaelten alte Dateien als gueltig und wuerden still
-# weiterverwendet (dieselbe Fehlerklasse wie FIELDS/raw6).
-#   1 -> track_id nur fuer SAUBERE Events
-#   2 -> track_id auch fuer MEHRDEUTIGE (-1 nur noch fuer RAUSCH)
+# weiterverwendet.
+#   1 -> track_id nur fuer SAUBERE Events, -1 fuer alle anderen
+#   2 -> track_id fuer SAUBERE und MEHRDEUTIGE Events, -1 nur fuer RAUSCH
 LABEL_FORMAT = 2
 
 # --- Defaults: EINE Quelle, runconfig.Labeling. Die Namen bleiben hier
@@ -68,11 +68,11 @@ def assign_track_ids(t, x, y, bbox,
     Reine Funktion: keine Pfade, keine Globals, kein I/O -> ohne Datensatz
     testbar.
 
-    Der KDTree enthaelt BOXZENTREN, rund 50 Punkte -- nie Events. Jedes
+    Der KDTree enthaelt BOXZENTREN, eins je Partikel -- nie Events. Jedes
     Event wird gegen die Partikel abgefragt, nie gegen andere Events;
     d1/d2 sind die Abstaende zum naechsten und zweitnaechsten PARTIKEL.
 
-      1) Jedes Event dem zeitlich naechsten 60-Hz-Rasterpunkt zuordnen.
+      1) Jedes Event dem zeitlich naechsten GT-Rasterpunkt zuordnen.
       2) Pro Rasterpunkt ein KDTree ueber die Zentren zu DIESEM Zeitpunkt,
          Abfrage nach den zwei naechsten.
       3) Status aus (d1, d2):
@@ -87,13 +87,10 @@ def assign_track_ids(t, x, y, bbox,
     links in das Zentrum umzurechnen. Danach ist ein Partikel ein Punkt,
     und r_assign ist ein Radius um diesen Punkt.
 
-    JE ZEILE, nicht aus einer Konstanten. Auf batch1 traegt jede Box
-    w = h = 11 und beides ist zahlengleich; auf STELLA liegen die Boxen
-    zwischen 2,5 und 5,2 px, und eine Konstante von 11 versetzte jedes
-    Zentrum um bis zu 4,2 px je Achse -- mehr als der Wolkenradius.
-    Gemessen (16.09.): der konstante Restanteil der Verschiebung Event
-    minus Zentrum betraegt mit der w-Spalte +0,04 px in x und -0,02 px
-    in y, der Rest ist Vorwaertsversatz.
+    JE ZEILE, nicht aus einer Konstanten. Auf batch1 sind alle Boxen gleich
+    gross (runconfig.BOX_W), und beides ist zahlengleich; auf STELLA sind
+    sie verschieden gross, und eine Konstante versetzte jedes Zentrum um die
+    halbe Differenz zur wahren Boxbreite je Achse.
 
     Rueckgabe: (track_id int32, status uint8), beide der Laenge len(t).
     """
@@ -107,7 +104,7 @@ def assign_track_ids(t, x, y, bbox,
     if n == 0:
         return track_id, status
 
-    # --- 60-Hz-Raster aus den bbox-Zeitstempeln ---
+    # --- GT-Raster aus den bbox-Zeitstempeln ---
     raster_t = np.unique(bbox["t"])
     # Jedem Event den INDEX des zeitlich naechsten Rasterpunkts zuordnen:
     # searchsorted gibt die Einfuegeposition, wir vergleichen linken/rechten Nachbarn.
@@ -165,13 +162,10 @@ def assign_track_ids(t, x, y, bbox,
         status[sl[is_noise]] = STATUS_NOISE
         status[sl[is_ambig]] = STATUS_AMBIG
         status[sl[is_clean]] = STATUS_CLEAN
-        # track_id auch fuer MEHRDEUTIGE. Das naechste Zentrum ist bereits
-        # gerechnet und wurde bisher verworfen.
-        # status entscheidet, was ins TRAINING geht -- daran aendert sich
-        # nichts. track_id sagt nur, WOHIN ein Event gehoert, und wird fuer
-        # die BEWERTUNG gebraucht: verschmolzene Bereiche bestehen
-        # ueberwiegend aus mehrdeutigen Events, und solange die -1 tragen,
-        # ist die Merge-Rate genau dort blind, wo sie hinschauen soll.
+        # track_id auch fuer MEHRDEUTIGE; das naechste Zentrum ist ohnehin
+        # gerechnet. Die BEWERTUNG braucht sie: verschmolzene Bereiche
+        # bestehen ueberwiegend aus mehrdeutigen Events, und truegen sie -1,
+        # waere die Merge-Rate genau dort blind, wo sie hinschauen soll.
         zuordenbar = is_clean | is_ambig
         track_id[sl[zuordenbar]] = tids[i1[zuordenbar]]
 
@@ -274,7 +268,7 @@ def build_labels_for_run(cfg: LabelCfg, run_nr, verbose=True):
             "in labels.py anpassen.")
 
     # SCHLANK speichern -- verlustfreie Integer-Casts (Rohdaten sind ganzzahlig):
-    #   t: µs, max ~8e6 << 2^32 -> uint32 | x,y: 0..1279 -> uint16 | p: uint8
+    #   t: µs < 2^32 -> uint32 | x,y: px < 2^16 -> uint16 | p: uint8
     np.savez(out_path,
              t=ev["t"].astype(np.uint32),
              x=ev["x"].astype(np.uint16),

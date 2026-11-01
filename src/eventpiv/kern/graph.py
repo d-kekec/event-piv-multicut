@@ -101,7 +101,7 @@ def neighborhood_pairs(t, x, y, alpha, r_max, *,
                     Was der KDTree-Trick von sich aus liefert. Der erlaubte
                     Radius SCHRUMPFT mit wachsendem Δt und ist bei Δt = α
                     null -- physikalisch die falsche Richtung.
-      "cylinder"    |Δt| ≤ α  UND  Δr ≤ r_max          (Arbeitspunkt)
+      "cylinder"    |Δt| ≤ α  UND  Δr ≤ r_max
       "hyperboloid" |Δt| ≤ α  UND  Δr ≤ √(r_max² + (v_max·Δt)²)
                     Die Taille ist die Wolkenausdehnung, die Aufweitung die
                     Partikeldrift. Bei kleinem alpha praktisch der Zylinder.
@@ -210,16 +210,14 @@ def jaccard_paare(i, j, n, device: str = "cpu", puffer_mb: int = 512,
     i, j : Indexpaare aus neighborhood_pairs, VOR jedem Filter -- solve
         kennt keinen Status und sieht alle Events als Knoten.
     n    : Knotenzahl des Fensters.
-    device : Torch-Geraet. Gemessen auf run61/3820ms (3,35 Mio. Kanten,
-        23.031 Knoten, 4070 Ti): 22,3 s ueber scipy.sparse, 2,6 s als
-        bool-Maske, 0,58 s als Matrixprodukt in float16 -- letzteres
-        rundet aber ab Knotengrad 2048, siehe unten.
+    device : Torch-Geraet. Auf der GPU ist das Matrixprodukt um
+        Groessenordnungen schneller als scipy.sparse oder eine bool-Maske.
     puffer_mb : Groesse eines Zeilenblocks von S. Bestimmt `block`, wenn
         dieses 0 ist.
     block : Zeilen je Matrixprodukt. 0 heisst: aus puffer_mb ableiten.
 
     Symmetrisch unter i<->j und skalenfrei: der Nenner kuerzt die lokale
-    Dichte weg, an der raw6 gescheitert ist.
+    Dichte weg, an der absolute Nachbarzahlen als Merkmal scheitern.
 
     c(i,j) ist das Skalarprodukt zweier Zeilen der Nachbarschaftsmatrix,
     also ein Matrixprodukt. Gerechnet wird blockweise ueber QUELLKNOTEN:
@@ -228,13 +226,12 @@ def jaccard_paare(i, j, n, device: str = "cpu", puffer_mb: int = 512,
     muessen die Kanten nach i gruppiert sein.
 
     float32, nicht float16: das Matrixprodukt gibt bei float16-Eingaben ein
-    float16-ERGEBNIS zurueck, und das zaehlt nur bis 2048 ganzzahlig. Der
-    hoechste gemessene Knotengrad liegt bei 3659 (run61, 10-ms-Fenster) --
-    float16 zaehlte dort still falsch. float32 zaehlt bis 2^24, also
-    jenseits jedes moeglichen Grades. Die Faktoren sind 0 und 1 und damit
-    auch unter TF32 exakt.
+    float16-ERGEBNIS zurueck, und das zaehlt nur bis 2048 ganzzahlig. In
+    dichten Fenstern liegen Knotengrade darueber, und float16 zaehlte dort
+    still falsch. float32 zaehlt bis 2^24, also jenseits jedes moeglichen
+    Grades. Die Faktoren sind 0 und 1 und damit auch unter TF32 exakt.
 
-    Speicher: A belegt n^2 * 4 Byte, bei n = 23.031 rund 2,1 GB.
+    Speicher: A belegt n^2 * 4 Byte, quadratisch in der Knotenzahl.
 
     import torch im Rumpf: kern/ bleibt beim Importieren torch-frei.
 

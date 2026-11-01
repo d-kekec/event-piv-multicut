@@ -11,28 +11,26 @@ KEINE Bewertung. Wie gut Stufe 1 trennt, sagt der Treiber ueber
 lauf/nah_merge_event_frac -- getrennt je PARTIKEL und je Fenster, nicht als
 Aggregat ueber einen ganzen Run.
 
-MASS (je 60-Hz-Rasterzeitpunkt, dann ueber den Run aggregiert):
+MASS (je GT-Rasterzeitpunkt, dann ueber den Run aggregiert):
   min_dist  kleinster je erreichter Zentrumsabstand
   frac11    Anteil Zeitpunkte mit minimalem Abstand < box_w
   mean11    mittlere Zahl PAARE unter box_w je Zeitpunkt
 
 mean11 zaehlt PAARE, nicht Boxen -- drei sich beruehrende Boxen ergeben 3.
-Die Schwelle 1.4 ist empirisch kalibriert, nicht hergeleitet.
 
 box_w ist hier ausschliesslich eine SCHWELLE, keine Umrechnung: die
-Boxmitte kommt aus den Spalten w und h. Der Name stammt aus der Zeit, in
-der beides derselbe Wert war.
+Boxmitte kommt aus den Spalten w und h.
 
-KATEGORIEN:
-  MAX_OVERLAP  frac11 == 1.0                         durchgehende Ueberlappung
-  MIN_OVERLAP  min_dist >= box_w UND mean11 < 0.05   praktisch sauber
-  CROSSING     frac11 == 1.0 UND mean11 >= 1.4       echte Kreuzungen
+KATEGORIEN (Schwellen aus kern.runconfig.Overlap):
+  MAX_OVERLAP  frac11 >= 0.999                               Dauerueberlappung
+  MIN_OVERLAP  min_dist >= box_w UND mean11 < mean_clean_max  praktisch sauber
+  CROSSING     frac11 >= 0.999 UND mean11 >= cross_thresh     echte Kreuzungen
 
-GRENZE, gemessen: alle drei Masse sind Aggregate ueber den GANZEN Run und
-sagen nicht, WANN eine Ueberlappung passiert. Die Einteilung traegt
-entsprechend grob -- run11 steht als Overlap-Run in der Liste und hat 531
-von 798 Tracklet-Fenstern ohne eine einzige NEIN-Kante. Wer die Zeitachse
-braucht, nimmt fenster_n_nein aus dem Tracklet-Artefakt.
+GRENZE: alle drei Masse sind Aggregate ueber den GANZEN Run und sagen
+nicht, WANN eine Ueberlappung passiert. Die Einteilung traegt
+entsprechend grob -- ein Overlap-Run kann ueberwiegend aus Fenstern ohne
+eine einzige NEIN-Kante bestehen. Wer die Zeitachse braucht, nimmt
+fenster_n_nein aus dem Tracklet-Artefakt.
 """
 from __future__ import annotations
 

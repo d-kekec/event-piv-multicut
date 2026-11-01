@@ -36,7 +36,7 @@ def test_leere_knotenmenge():
 
 
 def test_basislinie_gibt_jedem_tracklet_einen_eigenen_cluster():
-    """Die Stufe-1-Partition faellt aus derselben Funktion, mit arange als
+    """Die Stufe-1-Basislinie faellt aus derselben Funktion, mit arange als
     Knotenlabels -- eingeschraenkt auf dieselbe Knotenmenge."""
     knoten_tid = np.array([4, 9, 12], np.int64)
     tid_ev = np.array([4, 9, 9, 12, 7], np.int64)

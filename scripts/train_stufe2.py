@@ -1,12 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""CLI-Huelle fuer eventpiv.kette.train2 -- Hydra, W&B, Aufruf.
+"""CLI-Huelle fuer eventpiv.kette.train2 -- Hydra, W&B, Aufruf. Stufe [6b].
 
 Die Framework-Grenze wie bei train_edge_nn.py: hier sind Hydra und W&B
 bekannt, in src/eventpiv/ keines von beiden.
 
-Beispielaufruf:
-    python scripts/train_stufe2.py transformer.epochs=5
+Aufruf (allgemeine Bedienung: scripts/_cli.py). Kein selection: gelesen
+werden die Artefakte [6a] aller Runs aus kandidaten.runs im Split
+kandidaten.split, gebaut mit denselben Gruppen. Ein vorhandenes Netz
+bricht ab, io.overwrite=true trainiert neu. io.train_fest nennt Runs, die
+nicht in den Holdout duerfen. Auf batch1 ohne transformersatz=batch1
+trainiert es still ein Netz mit den Vorgaben.
+  python scripts/train_stufe2.py
+  # Probelauf mit wenigen Epochen, eigener Slug
+  python scripts/train_stufe2.py transformer.epochs=5
+  # batch1
+  E="datensatz=batch1 kandidatensatz=batch1 transformersatz=batch1"
+  python scripts/train_stufe2.py $E
+  # ueber slurm/stufe2.sbatch (Bedarf in dessen Kopf): nichts Pflicht;
+  # OFFSET setzt solver.cost_offset, also die Quelle aus Stufe 1, KD_RUNS
+  # kandidaten.runs, NOT_HOLDOUT io.train_fest; Overrides in EXTRA,
+  # EXTRA_SETS fuehrt mehrere Saetze nacheinander aus, durch ';' getrennt
+  sbatch slurm/stufe2.sbatch
+  EXTRA="$E" sbatch slurm/stufe2.sbatch
 """
 from dataclasses import asdict
 

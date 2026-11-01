@@ -7,15 +7,33 @@
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
 
-# Ein Prozess JE RUN, nicht einer fuer alle: der Spitzenspeicher liegt bei
-# 1,8 GB je Run, und ein langlebiger Prozess gibt ihn dem Betriebssystem
-# nicht zuverlaessig zurueck. Kein Array-Job -- 100 Tasks waeren
-# Verdraengung gegenueber anderen Nutzern, und sequentiell ist es schnell
-# genug.
+# [5a] Tracklets: ruft scripts/build_tracklets.py auf, je Run und Satz ein
+# Lauf.
+#   RUNS        Pflicht, Runs durch Leerzeichen getrennt.
+#   SPLIT       Pflicht, der Split.
+#   EXTRA       frei, Overrides, durch Leerzeichen getrennt.
+#   EXTRA_SETS  frei, mehrere Saetze, durch ; getrennt, je Satz ein Lauf.
+# EVENTPIV_DATA und EVENTPIV_OUT muessen gesetzt sein.
+# Allgemeines zu sbatch steht im slurm-Abschnitt von scripts/_cli.py.
+# Bedarf: GPU. --time an die Zahl der Runs anpassen.
+# Beispiel:
+#   RUNS="8 13" SPLIT=train sbatch --gres=gpu:rtx4090:1 slurm/tracklets.sbatch
+#   RUNS="32" SPLIT=train EXTRA="datensatz=batch1" \
+#     sbatch --gres=gpu:rtx4090:1 slurm/tracklets.sbatch
+# Fehler:
+#   CUDA-OOM: die Karte war fremd belegt; die Belegung beim Start steht im Log.
+#   window.* ohne io.out_path ueberschreibt das Artefakt des ganzen Runs.
+#   Netz fehlt: die Gruppen muessen die des Trainings [3] sein.
+#
+# Ein Prozess JE RUN, nicht einer fuer alle: ein Absturz auf der Karte,
+# etwa in RAMA, nimmt nur diesen Run mit, und ein langlebiger Prozess gaebe
+# den Spitzenspeicher eines Runs, Groessenordnung GB, nicht zuverlaessig
+# zurueck. Kein Array-Job: er belegte je Run eine eigene Karte.
 
 set -euo pipefail
 export PYTHONUNBUFFERED=1
 export WANDB_SILENT=true
+# An die eigene Umgebung anpassen: venv und Pfad zum Repo.
 source "$HOME/eventpiv-env/bin/activate"
 cd "$HOME/event-piv-multicut"
 
@@ -23,8 +41,7 @@ RUNS="${RUNS:?RUNS fehlt, etwa RUNS=66}"
 SPLIT="${SPLIT:?SPLIT fehlt, etwa SPLIT=val}"
 echo "Daten: $EVENTPIV_DATA"
 
-# Mehrere Parametersaetze in EINER Allokation. Semikolon trennt die
-# Saetze: EXTRA_SETS="solver.cost_offset=-1;solver.cost_offset=-0.5"
+# Etwa EXTRA_SETS="solver.cost_offset=-1;solver.cost_offset=-0.5".
 EXTRA_SETS="${EXTRA_SETS:-${EXTRA:-}}"
 IFS=';' read -ra SAETZE <<< "$EXTRA_SETS"
 # read liefert bei leerer Eingabe ein LEERES Array, nicht eines mit einem

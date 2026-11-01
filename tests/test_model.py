@@ -3,9 +3,9 @@
 """Invariantentests fuer model.build_features.
 
 Der wichtigste Test ist test_numpy_und_torch_identisch: er belegt, dass
-Training (NumPy) und Einsatz (Torch/GPU) DIESELBEN Features sehen. Frueher
-waren das zwei getrennte Implementierungen -- genau die Art Duplikat, die
-still auseinanderlaeuft.
+Training (NumPy) und Einsatz (Torch/GPU) DIESELBEN Features sehen. Eine
+Implementierung fuer beide: zwei getrennte waeren genau die Art Duplikat,
+die still auseinanderlaeuft.
 """
 import numpy as np
 import pytest
@@ -44,8 +44,8 @@ def test_numpy_und_torch_identisch(deltas, mode):
     (float32-eps = 1.19e-7), weil Torch fuer dx*dx+dy*dy FMA nutzt (eine
     Rundung) und NumPy getrennte Mul/Add (zwei Rundungen). Beide Ergebnisse
     sind korrekt gerundet.
-    Auswirkung auf die Kantenkosten: ~1e-6 im Logit -- irrelevant, ausser
-    exakt an der Nullstelle, wo die Kante ohnehin maximal unsicher ist.
+    Auf die Kantenkosten wirkt das nur exakt an der Nullstelle, wo die
+    Kante ohnehin maximal unsicher ist.
     """
     dt, dx, dy, jac = deltas
     f_np = build_features(dt, dx, dy, mode=mode, xp=np, jac=jac)

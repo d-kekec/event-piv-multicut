@@ -1,10 +1,5 @@
-# Labeling fuer den STELLA-Datensatz. Zuschalten mit `labeling=stella`.
-#
-# r_assign trennt die Signal- von der Rauschpopulation und wurde ueber das
-# Nullmodell aus tools/schaetzer bestimmt, gepoolt ueber den train-Split.
-#
-# r_ambig bleibt bei der Vorgabe: die Reichweite der Mehrdeutigkeit,
-# 2*r_assign + r_ambig, faellt mit r_assign von selbst mit, und ihr
-# Verhaeltnis zum Beruehrungsabstand der Wolken ist hier enger als auf dem
-# bisherigen Datensatz, nicht weiter.
+# STELLA. Wiederholt die Vorgaben aus kern/runconfig.py, damit STELLA wie
+# batch1 ausdruecklich waehlbar ist und test_anker beide Datensaetze gleich
+# liest. Nicht genannte Felder kommen aus kern/runconfig.py. Zuschalten mit
+# `labeling=stella`; nur [1] kennt diese Gruppe, datensatz setzt sie nicht.
 r_assign: 5.5

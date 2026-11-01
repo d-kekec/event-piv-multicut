@@ -98,8 +98,8 @@ def test_zeitversatz_steht_in_den_tokens():
 
 
 def test_ursprung_liegt_auf_dem_frueheren_knoten():
-    """Nicht auf dem Bildursprung: absolute Koordinaten sind der Fehler,
-    an dem raw6 in Stufe 1 scheiterte."""
+    """Nicht auf dem Bildursprung: es zaehlt die Lage der Knoten
+    zueinander, nicht ihr Ort im Bild (Modellannahme in kette.transformer)."""
     ev, maske, t_min, x_c, y_c = _knotentensor()
     tok, _ = baue_tokens(ev, maske, torch.tensor([0]), torch.tensor([1]),
                          t_min, x_c, y_c, alpha=ALPHA, r_max=R_MAX)

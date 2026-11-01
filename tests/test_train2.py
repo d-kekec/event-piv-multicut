@@ -190,7 +190,7 @@ def test_lade_kandidaten_wie_die_rechnung_auf_allen_paaren(tmp_path,
     
 def test_vorhandener_checkpoint_bricht_ab(tmp_path, monkeypatch):
     """Der Schutz muss VOR lade_kandidaten greifen. Danach waere er
-    wertlos: die Stunde Rechenzeit ist dann schon ausgegeben."""
+    wertlos: die Rechenzeit fuer das Laden ist dann schon ausgegeben."""
     from eventpiv.kern import config
     from eventpiv.kette import train2
 
@@ -255,9 +255,9 @@ def test_ziehe_epoche_wechselt_ueber_epochen():
 
 
 def test_weich_ist_kein_gueltiger_modus():
-    """weich wurde nie vollstaendig umgesetzt (der Anteil des
-    Minderheitspartikels steht nicht im Artefakt) und ist entfernt. Ein
-    alter Aufruf muss zur Konfigurationszeit abbrechen."""
+    """label_modus="weich" gibt es nicht: der Anteil des
+    Minderheitspartikels steht nicht im Artefakt. Ein Aufruf damit muss
+    zur Konfigurationszeit abbrechen."""
     from eventpiv.kern.runconfig import Transformer
     with pytest.raises(ValueError, match="label_modus"):
         Transformer(label_modus="weich")

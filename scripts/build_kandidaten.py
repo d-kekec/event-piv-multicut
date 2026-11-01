@@ -2,15 +2,33 @@
 # -*- coding: utf-8 -*-
 """CLI-Huelle fuer eventpiv.kette.kandidaten -- Hydra, W&B, Aufruf.
 
-Liest das Tracklet-Artefakt EINES Runs und den zugehoerigen Eventstrom,
-schreibt Artefakt [6a]. Rechnet den Solve NICHT neu.
+Stufe [6a]: liest das Artefakt (A) EINES Runs und den zugehoerigen
+Eventstrom, schreibt Artefakt [6a]. Rechnet den Solve NICHT neu.
 
 Ein W&B-Lauf je Run, OHNE History: die Knotentabelle hat keine Zeitachse,
 nur eine Zusammenfassung.
 Anders als bei build_tracklets, wo ein Fenster ein Schritt ist.
 
-Beispielaufruf:
-    python scripts/build_kandidaten.py selection.split=train selection.runs=[32]
+Aufruf (allgemeine Bedienung: scripts/_cli.py). Ohne selection.runs und
+selection.run_nr alle Runs des Splits; vorhandene Artefakte bleiben
+stehen, io.overwrite=true baut sie neu. (A) muss mit denselben Gruppen und
+demselben solver entstanden sein. selection waehlt, was gebaut wird;
+kandidaten.split und kandidaten.runs benennen den Trainingsdatensatz von
+[6b] und gehen in den Slug ein. [6b] liest genau diese Runs, sie muessen
+hier gebaut sein. Auf batch1 ohne kandidatensatz=batch1 bricht es ab:
+kandidaten.v_max muss neighborhood.v_max gleichen.
+  python scripts/build_kandidaten.py
+  python scripts/build_kandidaten.py 'selection.runs=[8]'
+  python scripts/build_kandidaten.py selection.split=val
+  # batch1
+  python scripts/build_kandidaten.py datensatz=batch1 kandidatensatz=batch1
+  # ueber slurm/kandidaten.sbatch (Bedarf in dessen Kopf): RUNS und SPLIT
+  # Pflicht, ein Prozess fuer alle Runs; KD_RUNS ersetzt kandidaten.runs,
+  # Overrides in EXTRA, EXTRA_SETS fuehrt mehrere Saetze nacheinander aus,
+  # durch ';' getrennt
+  RUNS="8 13" SPLIT=train sbatch slurm/kandidaten.sbatch
+  E="datensatz=batch1 kandidatensatz=batch1"
+  RUNS="32" SPLIT=train EXTRA="$E" sbatch slurm/kandidaten.sbatch
 """
 from dataclasses import asdict, replace
 
@@ -34,12 +52,12 @@ def kandidaten_tabelle(lauf):
     """Die Bilanz der Knotenmenge als W&B-Tabelle.
 
     Aus den Zahlen gebaut, nicht aus den Rohdaten: die Frage ist, WAS der
-    Filter entfernt hat und wie viele Kandidaten uebrig bleiben -- vier
-    Zeilen, keine Millionen Zeilen.
+    Filter entfernt hat und wie viele Kandidaten uebrig bleiben -- eine
+    Zeile je Groesse, nicht eine je Knoten.
 
     Ueber run.log geloggt, nicht ueber run.summary: nur der Log-Eintrag
     traegt den Deskriptor, aus dem die Oberflaeche ein Panel baut.
-    GEMESSEN an wandb 0.28.1, dieselbe Begruendung wie in _cli.
+    Gilt fuer wandb 0.28.1; Begruendung wie in _cli.konfusionstabelle.
     """
     t = wandb.Table(columns=["Groesse", "Wert", "Anteil"])
     t.add_data("Tracklets roh", lauf["n_tracklets_roh"], 1.0)

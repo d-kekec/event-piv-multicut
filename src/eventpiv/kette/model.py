@@ -6,20 +6,19 @@ model.py -- Mini-MLP fuer die Kantenkosten + die FEATURE-DEFINITION.
 Winziges MLP n_in->hidden->1, Tanh, Ausgabe ist ein LOGIT ohne Sigmoid.
 Zusammen mit BCEWithLogits lernt der Logit die Log-Odds log(p/(1-p)); die
 Nullstelle liegt damit automatisch bei p = 0.5 -- genau die Kalibrierung,
-die RAMA braucht. Deshalb geht der Logit DIREKT als Kantenkosten weiter,
-ohne Nachskalierung. Daran haengt auch, warum die Schwelle 0 und keine
-andere der Arbeitspunkt ist (metrics.py).
+die RAMA braucht. Deshalb kommt der Logit ohne Nachskalierung. Daran
+haengt auch, warum die Schwelle 0 und keine andere der Betriebspunkt ist
+(metrics.py). Den Versatz solver.cost_offset addiert erst solve_window.
 
-WARUM DIE FEATURES HIER LIEGEN: die Vorschrift existierte zweimal -- als
-NumPy-Code im Training, als Torch-Code auf der GPU. Zwei Implementierungen
-derselben Formel, verbunden nur durch Sorgfalt. build_features() ist
-backend-agnostisch (xp=np oder xp=torch), also gibt es jetzt genau eine.
-Dasselbe Argument wie bei graph.neighborhood_pairs.
+WARUM DIE FEATURES HIER LIEGEN: dieselbe Vorschrift brauchen das Training
+(NumPy) und der Einsatz auf der GPU (Torch). build_features() ist
+backend-agnostisch (xp=np oder xp=torch), also gibt es sie genau einmal;
+zwei Implementierungen waeren nur durch Sorgfalt verbunden. Dasselbe
+Argument wie bei graph.neighborhood_pairs.
 
-FEATURE-MODI:
-  "drjac" (dt, dr, jac)       Arbeitspunkt. jac = graph.jaccard_paare, je
-                              Fenster gerechnet und mit den Kanten
-                              mitgefuehrt
+FEATURE-MODI (Wahl begruendet bei kern.runconfig.Training):
+  "drjac" (dt, dr, jac)       jac = graph.jaccard_paare, je Fenster
+                              gerechnet und mit den Kanten mitgefuehrt
   "dr"    (dt, dr)            ohne die dritte Spalte
 
 SYMMETRIE c_ij == c_ji ist eine Eigenschaft der MERKMALE, kein Laufzeit-

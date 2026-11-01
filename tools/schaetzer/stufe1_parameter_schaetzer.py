@@ -7,8 +7,8 @@ alpha1 -- Geometrie ueber Drift/r_max, Speicher ueber die Eventrate.
 
 NICHT geschaetzt: r_ambig (eine weitere Messung noetig) und alles, was
 nicht aus den Daten allein folgt -- cost_offset, feature_mode, die
-Trainingsparameter. Die Boxgroesse ist kein Parameter mehr, sie steht je
-Zeile in den Daten.
+Trainingsparameter. Die Boxgroesse ist kein Parameter, sie steht je Zeile
+in den Daten.
 
 Misst den Abstand jedes Events zum naechsten Partikelzentrum und stellt ihm
 ein NULLMODELL gegenueber: Zufallspunkte im selben Bild gegen dieselben
@@ -20,10 +20,16 @@ Damit kommt der Schaetzer ohne Annahme ueber Partikeldichte, Bildgroesse
 oder Wolkengroesse aus und gilt ueber Datensaetze hinweg.
 
 Die Boxmitten werden zwischen den GT-Rasterpunkten linear interpoliert.
-Bei 1-ms-Raster und ~1,5 px/ms kostet blosses Aufrunden bis zu 0,75 px --
-mehr als die halbe Wolke.
+Runden auf den naechsten Rasterpunkt verschoebe das Zentrum um bis zu
+eine halbe Rasterweite mal |v|.
 
-Aufruf:  python tools/schaetzer/stufe1_parameter_schaetzer.py <split> <run_nr> [t0_ms] [dt_ms]
+Aufruf ohne Hydra; EVENTPIV_DATA und EVENTPIV_OUT wie in scripts/_cli.py.
+Ohne Runs alle des Splits. Das Wort wolke misst statt der Parameter die
+Wolkenform: Konventionsprobe, Versatz gegen Geschwindigkeit, nach
+Polaritaet und nach Boxbreite.
+  python tools/schaetzer/stufe1_parameter_schaetzer.py <split> [<run> ...]
+  python tools/schaetzer/stufe1_parameter_schaetzer.py train 8 13
+  python tools/schaetzer/stufe1_parameter_schaetzer.py train 8 13 wolke
 """
 from __future__ import annotations
 
@@ -183,11 +189,10 @@ def messe_v_max(split: str, run_nr: int) -> np.ndarray:
 def regel_v_max(v: np.ndarray) -> tuple[float, dict]:
     """v_max = p99.9 der Bahngeschwindigkeiten.
 
-    REGEL: v_max ist ein Quantil, kein Maximum -- so schon in
-    Datensatz.md definiert. Das haelt vereinzelte Spruenge der GT
-    draussen, ohne sie einzeln aussortieren zu muessen: auf STELLA liegen
-    0,0002 % der Schritte zehn- bis dreissigfach ueber dem Rumpf, und
-    p99.9 bleibt davon unberuehrt.
+    REGEL: v_max ist ein Quantil, kein Maximum. Das haelt vereinzelte
+    Spruenge der GT draussen, ohne sie einzeln aussortieren zu muessen:
+    auf STELLA liegen einzelne Schritte weit ueber dem Rumpf, zu wenige,
+    um p99.9 zu bewegen.
 
     UEBER MEHRERE RUNS gilt das MAXIMUM der Run-Quantile. v_max ist ein
     Wert fuer alle Runs -- er steckt im Hash der Neighborhood-Gruppe --,
@@ -227,9 +232,8 @@ def regel_r_assign(n_ev: np.ndarray, n_ref: np.ndarray) -> tuple[float, dict]:
     r_assign ist der erste Radius jenseits des Signalgipfels, ab dem der
     Ueberschuss ueber LAUF_BINS Bins hinweg KLEIN bleibt. Klein heisst
     unter der Rauscherwartung ODER unter einem Promille des Gipfels: im
-    Fernbereich traegt ein Bin ein bis zwei Events bei einer Erwartung um
-    0,5, und eine Poisson-Schwankung darf die Grenze nicht nach aussen
-    reissen.
+    Fernbereich traegt ein Bin nur wenige Events, und eine
+    Poisson-Schwankung darf die Grenze nicht nach aussen reissen.
     """
     mitte = KANTEN[:-1]
     kum_ref = np.cumsum(n_ref)
@@ -267,10 +271,10 @@ def regel_r_max(kanten: np.ndarray, ueberschuss: np.ndarray, grenze: float,
                 v_max_px_ms: float, alpha_ms: float) -> tuple[float, float]:
     """r_max = R_Ausdehnung + Drift je Fenster.
 
-    REGEL aus Kantenkosten_NN.md §2: R_Ausdehnung ist das p99.9 der
-    Signalstreuung, die Drift v_max*alpha kommt dazu. Gerechnet wird auf
-    dem RAUSCHBEREINIGTEN Ueberschuss innerhalb r_assign -- ein Quantil
-    ueber alle Events traegt sonst den Rauschschwanz mit.
+    REGEL: R_Ausdehnung ist das p99.9 der Signalstreuung, die Drift
+    v_max*alpha kommt dazu. Gerechnet wird auf dem RAUSCHBEREINIGTEN
+    Ueberschuss innerhalb r_assign -- ein Quantil ueber alle Events traegt
+    sonst den Rauschschwanz mit.
 
     r_max deckt bewusst nicht jedes Paar eines Partikels ab: Multicut ist
     transitiv, es genuegt, den Bogen zusammenhaengend zu halten.
@@ -294,8 +298,8 @@ def regel_geometrie(r_ausdehnung: float, v_max_px_ms: float,
     Drift kommt aus der Form -- r_max = R. Beides zu addieren zaehlt die
     Drift doppelt.
 
-    Die umschliessende Kugel (Code_Guide §3.1) misst, was der KDTree
-    materialisiert: sqrt(2)*r_max beim Zylinder,
+    Die umschliessende Kugel (graph.neighborhood_pairs) misst, was der
+    KDTree materialisiert: sqrt(2)*r_max beim Zylinder,
     sqrt(2*r_max^2 + (v_max*alpha)^2) beim Hyperboloid. Das Suchvolumen
     geht mit der dritten Potenz.
     """
@@ -326,10 +330,10 @@ def _zeige(name: str, v: np.ndarray, einheit: str = "px") -> None:
 def schaetze_run(split: str, run_nr: int) -> dict:
     """Alle Stufe-1-Parameter EINES Runs, aus N_FENSTER Stichprobenfenstern.
 
-    Die Fenster liegen gleichmaessig ueber den Run verteilt -- ein
-    einzelnes traegt laut Journal 06.08. bis zu 32 % Rauschen, wo andere
-    0,02 % zeigen. Die Abstaende aller Fenster gehen GEMEINSAM in die
-    Regeln, nicht als Mittel von Einzelwerten.
+    Die Fenster liegen gleichmaessig ueber den Run verteilt -- der
+    Rauschanteil kann zwischen den Fenstern eines Runs stark schwanken.
+    Die Abstaende aller Fenster gehen GEMEINSAM in die Regeln, nicht als
+    Mittel von Einzelwerten.
     """
     b = data.load_bbox(split, run_nr)
     raster = np.unique(b["t"])
@@ -435,12 +439,12 @@ def messe_wolke(split: str, run_nr: int) -> dict:
 def regel_versatz(dl, dq, v_lok, n_gruppen: int = 5) -> list[dict]:
     """Vorwaertsversatz und Querstreuung, nach Geschwindigkeit geschichtet.
 
-    REGEL-KANDIDAT, noch keine Regel. STELLA korrigiert um beta*sigma_quer
-    entgegen der Bewegungsrichtung, OHNE Geschwindigkeitsterm; unser
-    bisheriges c0 + c1*|u| hat keinen Groessenterm. Diese Tabelle
-    entscheidet zwischen beiden: bleibt beta = Versatz/sigma_quer ueber die
-    Quintile konstant, traegt STELLAs Form und beta ist direkt ablesbar.
-    Waechst es, fehlt ihr der Geschwindigkeitsterm.
+    Zur Wahl der Form der Positionskorrektur in [7] (kern.runconfig.Fit):
+    STELLA (Sachs et al., 2026), Gl. 1, korrigiert um beta*sigma_quer gegen
+    die Bewegungsrichtung, ohne Geschwindigkeitsterm, c0 + c1*|u| ohne
+    Groessenterm. Bleibt beta = Versatz/sigma_quer ueber die Quintile
+    konstant, traegt STELLAs Form und beta ist ablesbar; waechst es, fehlt
+    ihr der Geschwindigkeitsterm.
     """
     grenzen = np.percentile(v_lok, np.linspace(0, 100, n_gruppen + 1))
     zeilen = []

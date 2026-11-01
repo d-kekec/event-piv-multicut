@@ -14,7 +14,7 @@ WARUM DIE SCHWELLE 0 UND KEINE ANDERE
 Das Netz gibt einen LOGIT aus, und dieser Logit geht in solve.py UNVERAENDERT
 als Kantenkosten an RAMA. RAMA liest das Vorzeichen: positiv = anziehend,
 negativ = abstossend. 
-Die Schwelle 0 ist deshalb nicht ein Arbeitspunkt unter vielen, sondern GENAU
+Die Schwelle 0 ist deshalb nicht ein Betriebspunkt unter vielen, sondern GENAU
 der, den der Solver sieht. Wegen p = sigmoid(logit) ist "logit >= 0"
 gleichbedeutend mit "p >= 0.5"; wir schwellen direkt am Logit, weil das den
 Bezug zu RAMA sichtbar macht und eine Transformation spart.
@@ -27,16 +27,14 @@ Damit hat jede Zelle der Matrix eine Bedeutung in der Pipeline:
     FN  gleiches Partikel, Kosten negativ  -> Druck Richtung FRAGMENTIERUNG
 
 FP und FN sind also die Paar-Ebenen-Vorboten der beiden Cluster-Kennzahlen.
-Gemessen: imbalance="weight" (TPR 0.57 / TNR 0.89) erzeugt viele FN und
-fragmentiert stark; "sample" (0.75 / 0.65) ist ausgewogen.
 
 ABGRENZUNG zu frac_neg (Solve): pred_neg_frac unten ist der Anteil negativ
 bewerteter Paare auf dem HOLDOUT, frac_neg derselbe Anteil auf den echten
 Kanten eines Solve-Fensters. Verwandt, aber nicht dasselbe -- der
-Paar-Datensatz ist keine Stichprobe der Einsatzverteilung, weil die beiden
-Klassen aus verschiedenen Runs stammen und gedeckelt werden. Ein Vergleich
-ist eine Plausibilitaetspruefung; eine grosse Abweichung ist ein Befund,
-kein Fehler.
+Paar-Datensatz ist keine Stichprobe der Einsatzverteilung, weil JA je
+Fenster gezogen und gegen NEIN gedeckelt wird und Kanten mit Rauschevents
+fehlen. Ein Vergleich ist eine Plausibilitaetspruefung; eine grosse
+Abweichung ist ein Befund, kein Fehler.
 
 NaN STATT AUSNAHME
 ------------------
@@ -83,7 +81,7 @@ def flatten(d: dict, sep: str = "/", prefix: str = "") -> dict:
     selbst, aber mit einem PUNKT (holdout.cm.tp), waehrend die
     Panel-Gruppierung sich nach dem SCHRAEGSTRICH richtet. Ohne die
     Umformung gaebe es keine Gruppen, sondern eine flache Wand aus Kacheln.
-    GEMESSEN an wandb 0.28.1.
+    Gilt fuer wandb 0.28.1.
 
     Steht hier und nicht im Skript, damit sie testbar ist.
     """
@@ -98,7 +96,7 @@ def flatten(d: dict, sep: str = "/", prefix: str = "") -> dict:
 
 
 def confusion(y_true, y_score, threshold: float = 0.0) -> dict[str, int]:
-    """Konfusionsmatrix am OPERATIONSPUNKT des Solvers (Schwelle 0).
+    """Konfusionsmatrix am BETRIEBSPUNKT des Solvers (Schwelle 0).
 
     y_score sind LOGITS (nicht sigmoid-transformiert). ">=" statt ">":
     ein Logit von exakt 0 gilt als JA.
@@ -123,10 +121,10 @@ def rates(cm: dict[str, int]) -> dict[str, float]:
     """Abgeleitete Kennzahlen aus einer Konfusionsmatrix.
 
     tpr und tnr heissen bewusst so und nicht recall/specificity: unter
-    diesen Namen laufen sie durch Doku und W&B-Felder.
+    diesen Namen laufen sie durch die W&B-Felder.
 
     balanced_accuracy = (tpr+tnr)/2 bleibt bei Imbalance aussagekraeftig --
-    accuracy allein erreicht bei 6.3:1 schon durch "immer JA" den Wert 0.86.
+    accuracy allein erreicht bei k:1 schon durch "immer JA" den Wert k/(k+1).
 
     pred_neg_frac ist der Anteil negativ bewerteter Paare; Abgrenzung zu
     frac_neg siehe Modul-Docstring.
@@ -151,18 +149,18 @@ def roc_auc(y_true, y_score) -> float:
 
     Die Funktion vergibt jedem Wert einen EIGENEN Rang, auch bei gleichem
     Score; die Definition verlangt dort den MITTLEREN Rang. Das ist keine
-    Randfrage: (dt, dr) ist quantisiert, und am Arbeitspunkt teilen sich
-    98,8 % der Paare ihren Logit mit anderen.
+    Randfrage: (dt, dr) ist quantisiert, fast jeder Logit teilt seinen Wert
+    mit anderen.
 
-    Trotzdem stimmen naive und mittlere Raenge auf sechs Nachkommastellen
-    ueberein (gemessen an 11,6 Mio. Paaren: 0.870959, Delta unter 5e-7) --
-    weil np.argsort per Default INSTABIL sortiert und die Gleichstaende sich
+    Trotzdem stimmen naive und mittlere Raenge praktisch ueberein, weil
+    np.argsort per Default INSTABIL sortiert und die Gleichstaende sich
     wegmitteln. Die Funktion ist also richtig, aber sie haengt an einem
-    Implementierungsdetail von NumPy, nicht an der Definition.
+    Implementierungsdetail von NumPy, nicht an der Definition; bei einem
+    Wechsel von NumPy neu pruefen.
 
     Deshalb die Invariante: die naheliegende "Verbesserung" kind="stable"
-    senkt die AUC um ~0.015, weil die JA-Seite in der Verkettung vorne steht
-    und systematisch die niedrigeren Raenge bekaeme. Determinismus ist nur
+    senkt die AUC, weil die JA-Seite in der Verkettung vorne steht und
+    systematisch die niedrigeren Raenge bekaeme. Determinismus ist nur
     ZUSAMMEN mit mittleren Raengen zu haben, nie einzeln.
     """
     y_true = _as_labels(y_true)
@@ -189,7 +187,7 @@ def class_balance(label) -> dict[str, float]:
     Erst die Zahlen NEBENEINANDER zeigen, was Split und Balancing
     tatsaechlich getan haben -- eine allein sagt nichts.
 
-    ratio_ja_nein ist JA/NEIN, also die "6.3" in "6.3 : 1".
+    ratio_ja_nein ist JA/NEIN, also das k in "k : 1".
     """
     lab = _as_labels(label)
     n_ja = int(np.count_nonzero(lab == 1))

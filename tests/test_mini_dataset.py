@@ -48,8 +48,8 @@ def test_rundreise_durch_das_dat_format(mini_datensatz):
 def test_fenster_ist_ausschnitt_des_ganzen_stroms(mini_datensatz):
     """load_events mit t0/dt gegen den vollen Strom.
 
-    Deckt den Pfad seek_time + load_delta_t ab -- genau die Zeile, die ein
-    Doku-Commit am 04.08. entfernt hat, ohne dass pytest es merkte.
+    Deckt den Pfad seek_time + load_delta_t ab, den ein Test auf fertigen
+    Arrays umginge.
     """
     voll = load_events("train", 1)
     fenster = load_events("train", 1, t0=200_000, dt=20_000)
@@ -67,9 +67,9 @@ def test_zeit_ist_sortiert(mini_datensatz):
 def test_polaritaetsversatz_ist_die_bewegungsrichtung(mini_datensatz):
     """|D| zwischen OFF- und ON-Zentroid betraegt rund 6 px.
 
-    Die Groesse, aus der Stufe 2 Richtung und Betrag der Geschwindigkeit
-    zieht. Ohne sie traefe ON-only in Phase 2 auf eine Struktur, die der
-    echte Datensatz nicht hat.
+    Prueft die Sichelgeometrie, die die Fixture von batch1 uebernimmt: ON
+    liegt in Bewegungsrichtung vor dem Zentrum, OFF dahinter. Ohne sie
+    traefe polarity=on auf eine Struktur, die batch1 nicht hat.
     """
     ev, tid, st = _gelabelt(mini_datensatz, 3)     # sauberer Run
     m = (st == STATUS_CLEAN) & (tid == 1)
@@ -89,7 +89,7 @@ def test_kreuzung_erzeugt_alle_drei_statusklassen(mini_datensatz, run_nr):
 @pytest.mark.parametrize("run_nr", [3, 4])
 def test_sauberer_run_hat_keine_mehrdeutigen_events(mini_datensatz, run_nr):
     """r_ambig kann nur feuern, wenn zwei Boxzentren naeher als
-    2*r_assign + r_ambig = 18 px liegen. Hier sind es ueber 250 px."""
+    2*r_assign + r_ambig liegen. Hier sind es ueber 250 px."""
     _, _, st = _gelabelt(mini_datensatz, run_nr)
     assert not (st == STATUS_AMBIG).any()
 

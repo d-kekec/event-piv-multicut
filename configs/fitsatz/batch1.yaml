@@ -1,13 +1,8 @@
 # @package fit
 #
-# Fit-Arbeitspunkt fuer batch1, ab [7]. Zuschalten mit
-# `datensatz=batch1 kandidatensatz=batch1 transformersatz=batch1
-# fitsatz=batch1`.
-#
-# dt_aus: das GT-Raster von batch1. c1: auf batch1 waechst der
-# Vorwaertsversatz mit der Geschwindigkeit. beta: STELLAs Form
-# beta*sigma_quer bildet das nicht ab, daher aus. spline_eps: aus, auf
-# batch1 nicht gemessen.
+# batch1. Nicht genannte Felder kommen aus kern/runconfig.py. Zuschalten ab
+# [7] mit `datensatz=batch1 kandidatensatz=batch1 transformersatz=batch1
+# fitsatz=batch1`. Die erste Zeile lenkt den Inhalt ins Feld `fit`.
 dt_aus: 16667.0
 init_us: 100000.0
 min_dauer_us: 100000.0

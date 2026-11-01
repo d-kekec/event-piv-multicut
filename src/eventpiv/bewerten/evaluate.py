@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-evaluate.py -- Cluster-Qualitaet gegen die GT-track_id.
+evaluate.py -- Cluster-Qualitaet gegen die GT-track_id, dazu die
+Tracking-Masse (HOTA-Familie, IDF1, IDSW) fuer [6c].
 
 Zwei Kennzahlen, die IMMER ZUSAMMEN gelesen werden muessen:
 
@@ -11,8 +12,7 @@ Zwei Kennzahlen, die IMMER ZUSAMMEN gelesen werden muessen:
       1.0 = ideal, das Partikel ist genau ein Cluster.
 
 Warum zusammen: Reinheit allein ist trivial zu maximieren -- lauter
-Singletons sind perfekt rein. Genau das lieferte das dr_weight-Netz:
-Reinheit 0.999 bei Fragmentierung 5.38.
+Singletons sind perfekt rein.
 
 ZWEI MASKEN, und der Unterschied ist der Kern der Bewertung.
 
@@ -37,8 +37,9 @@ from scipy.optimize import linear_sum_assignment
 from eventpiv.kern.graph import edge_deltas
 from eventpiv.kern.status import STATUS_CLEAN, STATUS_NOISE
 
-# px. Darunter beruehren sich die Eventwolken zweier Partikel (Streuung bis
-# ~6 px je Wolke, dazu r_max). Erst hier KANN der Solver verschmelzen.
+# px: Abstand zweier Boxmitten, unter dem sich die Eventwolken beider
+# Partikel beruehren koennen -- erst darunter KANN der Solver verschmelzen.
+# Fest, am Datensatz kalibriert, nicht an die Partikelgroesse gekoppelt.
 NAH_PX = 19.0
 
 def _kreuztabelle(labels, track_id, maske):
@@ -296,10 +297,9 @@ def tracking_metrics(labels, track_id, status) -> dict:
     Assoziation "in den richtigen". Das Ueberlappungsproblem sitzt
     vollstaendig auf der zweiten Seite.
 
-    DAS HEISST NICHT, DASS det_a NAHE 1 LIEGT. Gemessen 16.08. auf
-    val/run1: DetA 0,9859 gegen AssA 0,9821 -- beide gleichauf, HOTA ist
-    hier NICHT naeherungsweise sqrt(AssA). min_events filtert Tracklets
-    weg, und alle ihre Events fallen als event_fn an.
+    DAS HEISST NICHT, DASS det_a NAHE 1 LIEGT. Gefilterte Tracklets
+    (min_events) und kantenlose Knoten fallen mit allen Events als event_fn
+    an; HOTA ist deshalb nicht von selbst naeherungsweise sqrt(AssA).
 
     det_a, det_re, det_pr und die event_-Felder sind zwischen stufe1 und
     stufe2 IDENTISCH, solange kein Knoten ohne Kante bleibt: beide
@@ -324,9 +324,9 @@ def tracking_metrics(labels, track_id, status) -> dict:
     ass_re faellt, wenn ein Partikel in mehrere Cluster zerfaellt.
     ass_pr faellt, wenn ein Cluster sich ueber mehrere Partikel
     erstreckt. Das sind die etablierten Gegenstuecke zu unserer
-    Fragmentierung und Verschmelzung -- rangkorreliert, aber NICHT
-    dieselben Zahlen (gemessen: purity_event_mean gegen ass_pr
-    Spearman 1,00 bei Pearson 0,998; frag_mean gegen ass_re nur 0,86).
+    Fragmentierung und Verschmelzung -- verwandt, aber NICHT dieselben
+    Zahlen: frag_mean zaehlt Cluster je Partikel, ass_re gewichtet nach
+    Events, und cluster_metrics sieht nur saubere Events.
     Beide Saetze bleiben deshalb nebeneinander stehen.
 
     Rueckgabe: flaches dict. Leeres dict, wenn nichts bewertbar ist --
@@ -388,8 +388,8 @@ def _je_partikel(kt, anz, kl, kg, g_voll, p_voll) -> dict:
         # Verteilung der Events eines Partikels auf seine Cluster. Bei k
         # gleich grossen Stuecken genau k; ein grosses Stueck plus Kruemel
         # bleibt knapp ueber 1. Schwellenfrei und monoton in der
-        # Zersplitterung -- eine 10-%-Schwelle zaehlte dreizehn Stuecke
-        # zu 8 % als NULL und waere damit gegenlaeufig zum Zweck.
+        # Zersplitterung -- eine feste Schwelle, etwa 10 %, zaehlte dreizehn
+        # Stuecke zu je 8 % nicht und liefe damit dem Zweck zuwider.
         "n_cluster_eff": n_ptkl ** 2 / np.bincount(
             kg, weights=(anz.astype(np.float64)) ** 2, minlength=n_g),
     }
@@ -513,14 +513,12 @@ def fa_hota_metrics(labels, track_id, status, t, delta=None) -> dict:
     derselben Zelle und dazwischen liegt nichts -- das Fragment laeuft
     weiter. Sind sie verschieden, ist der spaetere ein FNA oder FPA, also
     ein Bruch. Damit ist die Bedingung global rechenbar; eine Schleife
-    ueber Zellen waere auf der stufe1-Basislinie mit rund 130.000 Zellen
+    ueber Zellen waere auf der stufe1-Basislinie (ein Cluster je Tracklet)
     nicht durchfuehrbar.
 
     delta RASTERT DIE ZEIT, und ohne Rasterung ist das Mass unbrauchbar:
     ein Fragment bricht bei jedem Ereignis, das nur zu einem der beiden
     Partner gehoert, also auch bei einem einzelnen unzugeordneten Event.
-    Gemessen 18.08.: auf Eventebene folgt hota_frag_a exakt der Ordnung
-    von event_fn/event_tp und dreht die Rangfolge gegenueber hota um.
     Gerastert ist eine Detektion eine ZEITEINHEIT, und ein Bruch verlangt
     eine ganze Einheit ohne Zuordnung.
 
@@ -612,13 +610,13 @@ def idf1_metrics(labels, track_id, status) -> dict:
     von Kostenmatrizen mit Dummy-Knoten.
 
     ALLE GT WERDEN ZWANGSWEISE GEMATCHT. Zulaessig, weil ein Match wegen
-    -2c nie mehr kostet als eine Nichtzuordnung; gemessen an 400
-    Zufallsfaellen gegen vollstaendige Aufzaehlung, Abweichung null.
+    -2c nie mehr kostet als eine Nichtzuordnung;
+    test_idf1_gegen_vollstaendige_aufzaehlung prueft das.
 
-    LAUFZEIT: die Ueberlappungsmatrix ist (GT x Cluster). Auf der
-    stufe1-Basislinie sind das rund 85 x 130.000, also 90 MB in float64
-    und 0,4 s -- gemessen 16.08. float32 waere zu knapp: Zellzahlen
-    reichen bis in die Hunderttausende, float32 ist nur bis 2^24 exakt.
+    SPEICHER: die Ueberlappungsmatrix ist dicht (GT x Cluster) und waechst
+    auf der stufe1-Basislinie mit GT-Partikeln mal Tracklets. float32 waere
+    zu knapp: es traegt ganze Zahlen nur bis 2^24 exakt, und idtp summiert
+    Zellzahlen bis zur Eventzahl des Runs.
 
     Rueckgabe: flaches dict. Leeres dict, wenn nichts bewertbar ist.
     """
@@ -678,8 +676,7 @@ def _einheiten(labels, track_id, t, ist_gt, delta):
         # Einheit ist die Mehrheit. BEI GLEICHSTAND GEWINNT DIE KLEINSTE
         # CLUSTER-ID -- willkuerlich, aber festgelegt. Ohne die zweite
         # Sortierstufe entscheidet die Reihenfolge in `k`, und die ist
-        # keine Definition; sie wich von der naiven Referenz in 1694 von
-        # 300 Zufallsfaellen ab (gemessen 16.08.).
+        # keine Definition.
         o = np.lexsort((-(k % len(l_u)), c))
         lab_e[(k // len(l_u))[o]] = l_u[(k % len(l_u))[o]]
     return g_u[schl_u // n_b], lab_e, schl_u % n_b
@@ -723,10 +720,9 @@ def idsw_metrics(labels, track_id, status, t, delta=None) -> dict:
     liegen zwei Tracklets desselben Partikels innerhalb eines Fensters
     zeitlich VERSCHRAENKT, springt die ID am Eventstrom mehrfach hin und
     her, obwohl die Trajektorie nur einmal geteilt ist. Dazu kommen
-    Zeitgleichstaende -- rund vier Events je µs, und ihre Reihenfolge
-    ist willkuerlich. delta fasst beides zusammen. OB das ins Gewicht
-    faellt, ist eine Messung und keine Annahme; deshalb ist die
-    Voreinstellung None, die nichts hinzuerfindet.
+    Zeitgleichstaende, deren Reihenfolge willkuerlich ist. delta fasst
+    beides zusammen. OB das ins Gewicht faellt, ist eine Messung und keine
+    Annahme; deshalb ist die Voreinstellung None, die nichts hinzuerfindet.
 
     delta beschleunigt NICHT. Die Rasterung braucht denselben Durchgang
     und zusaetzlich die Mehrheitsbestimmung.
@@ -781,12 +777,11 @@ def idsw_metrics(labels, track_id, status, t, delta=None) -> dict:
 def align_gt_window(gt_t, event_t):
     """Findet den Index-Ausschnitt der Label-Datei, der zum Eventfenster passt.
 
-    Warum nicht per Zeitmaske: viele Events teilen sich einen Zeitstempel
-    (rund vier je µs), und dann liefert (t >= t0) & (t <= t1) am Fensterrand
-    mehr Eintraege als das geladene Fenster hat. Da die Label-Datei denselben
-    Eventstrom in derselben Reihenfolge enthaelt, ist der Ausschnitt
-    ZUSAMMENHAENGEND: Startindex suchen, n Eintraege nehmen, Zeitstempel
-    gegenpruefen.
+    Warum nicht per Zeitmaske: viele Events teilen sich einen Zeitstempel,
+    und dann liefert (t >= t0) & (t <= t1) am Fensterrand mehr Eintraege als
+    das geladene Fenster hat. Da die Label-Datei denselben Eventstrom in
+    derselben Reihenfolge enthaelt, ist der Ausschnitt ZUSAMMENHAENGEND:
+    Startindex suchen, n Eintraege nehmen, Zeitstempel gegenpruefen.
 
     Ein GEFILTERTER Eventstrom (ON-only) faellt hier auf -- als Teilfolge
     laufen die Positionen sofort auseinander. Die Meldung zeigt dann
@@ -821,9 +816,9 @@ def edge_gt_stats(i, j, t, x, y, track_id, status, pos=None) -> dict:
     ob eine Abweichung von der Holdout-Rate an der Verteilung liegt oder an
     den Merkmalen.
 
-    NUR Kanten mit ZWEI sauberen Endpunkten sind bewertbar, dieselbe
-    Bedingung wie beim Sammeln. edge_bewertbar_frac sagt, auf welchem
-    Anteil der Kanten die Aussage ruht.
+    NUR Kanten mit ZWEI sauberen Endpunkten sind bewertbar, strenger als
+    beim Sammeln, das mehrdeutige Endpunkte zulaesst. edge_bewertbar_frac
+    sagt, auf welchem Anteil der Kanten die Aussage ruht.
 
     dt_mean und dr_mean laufen dagegen ueber ALLE Kanten -- das ist, was das
     Netz im Einsatz sieht.
@@ -870,10 +865,10 @@ def gt_raster_dt(bbox, toleranz=0.01) -> float:
     idsw_metrics.
 
     NICHT EXAKT AEQUIDISTANT, und eine Gleichheitspruefung waere deshalb
-    falsch: 60 Hz sind 16.666,67 µs, die Zeitstempel sind ganzzahlig, also
-    wechseln sich 16.666 und 16.667 ab. Genommen wird der Median; die
-    Toleranz faengt diese Quantisierung ab (relative Abweichung 6e-5) und
-    schlaegt bei einem echten Lueckenraster an.
+    falsch: 60 Hz (batch1) sind 16.666,67 µs, die Zeitstempel sind
+    ganzzahlig, also wechseln sich 16.666 und 16.667 ab. Genommen wird der
+    Median; die Toleranz faengt diese Quantisierung ab (relative Abweichung
+    6e-5) und schlaegt bei einem echten Lueckenraster an.
 
     toleranz : erlaubte relative Abweichung eines Einzelabstands vom Median.
 
@@ -899,10 +894,9 @@ def gt_raster_dt(bbox, toleranz=0.01) -> float:
 def min_abstand_je_partikel(bbox):
     """Kleinster Abstand JE PARTIKEL zu irgendeinem anderen, je Rasterpunkt.
 
-    Nicht das globale Minimum ueber alle Paare: bei rund 50 Partikeln liegt
-    IRGENDEINES praktisch immer naeher als NAH_PX -- gemessen fielen auf
-    run76 alle 799 Fenster auf dieselbe Seite. Die Frage ist ohnehin eine je
-    Partikel.
+    Nicht das globale Minimum ueber alle Paare: bei vielen Partikeln im Bild
+    liegt IRGENDEINES praktisch immer naeher als NAH_PX, und jedes Fenster
+    fiele auf dieselbe Seite. Die Frage ist ohnehin eine je Partikel.
 
     Die Boxmitte kommt aus w und h JE ZEILE, wie in
     labels.assign_track_ids: auf polydispersen Datensaetzen unterscheiden
@@ -938,8 +932,8 @@ def min_abstand_je_partikel(bbox):
 def abstand_im_fenster(raster_t, ids, d, t_lo, t_hi):
     """Kleinster Nachbarabstand je Partikel im Zeitraum [t_lo, t_hi).
 
-    UMSCHLIESSEND, nicht filternd: das Raster hat 16,67 ms Abstand, ein
-    Tracklet-Fenster 10 ms -- rund vier von zehn Fenstern enthalten keinen
+    UMSCHLIESSEND, nicht filternd: ist das GT-Raster groeber als ein
+    Tracklet-Fenster, wie auf batch1, enthalten manche Fenster keinen
     Rasterpunkt. Eine Filterung meldete dort "keine Begegnung", wo nur nicht
     gemessen wurde.
 

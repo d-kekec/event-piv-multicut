@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 r"""
-transformer.py -- BAUSTEIN [6b]: der Paar-Encoder und die TOKEN-DEFINITION.
+transformer.py -- Stufe [6b]: der Paar-Encoder und die TOKEN-DEFINITION.
 
   baue_tokens        aus zwei Knoten die normierten Tokens EINES Paares
   PaarTransformer    2n+1 Tokens -> ein Logit
@@ -20,7 +20,7 @@ KEIN POSITIONAL ENCODING. In der Sprachverarbeitung traegt ein Token nur
 die Wortidentitaet, und die Reihenfolge muss addiert werden. Hier traegt
 jedes Token seine Koordinaten SELBST -- (t, x, y) IST die Position. Ein
 Tracklet ist eine Punktwolke, keine Sequenz: die Reihenfolge, in der die
-32 Events gezogen wurden, darf das Ergebnis nicht aendern. Attention ist
+n_events Events gezogen wurden, darf das Ergebnis nicht aendern. Attention ist
 permutationsinvariant, und das ist hier genau die richtige Eigenschaft.
 Ein Sequenzindex waere schaedlich, weil er die Ausgabe an die Ziehung
 haengte. Das ist als Test festgehalten, nicht nur als Absicht.
@@ -28,9 +28,10 @@ haengte. Das ist als Test festgehalten, nicht nur als Absicht.
 NORMIERUNG JE PAAR, Ursprung auf dem FRUEHEREN Knoten:
   t  relativ zu dessen t_min, geteilt durch kandidaten.alpha
   xy relativ zu dessen Zentroid, geteilt durch kandidaten.r_max
-Absolute Koordinaten sind der Fehler, an dem raw6 in Stufe 1 scheiterte.
-Die beiden Nenner unterscheiden sich um vier Groessenordnungen -- ohne
-sie dominierte die Zeitachse jede Distanz im Embedding.
+Relativ, weil die Lage der Tracklets zueinander entscheidet, nicht Ort im
+Bild oder Zeit im Run -- das muss das Netz so nicht aus den Daten lernen.
+Zeit in µs und Ort in px liegen um Groessenordnungen auseinander -- ohne
+die Nenner dominierte die Zeitachse jede Distanz im Embedding.
 
 DIE ORIENTIERUNG IST TRAGEND, NICHT BELIEBIG. Das Netz ist NICHT
 symmetrisch unter dem Tausch der beiden Knoten: Segment-Etikett und
@@ -92,9 +93,9 @@ def baue_tokens(ev, maske, i, j, t_min, x_c, y_c, *, alpha, r_max):
 class PaarTransformer(nn.Module):
     """2n+1 Tokens -> ein LOGIT (kein Sigmoid).
 
-    Wie EdgeMLP gibt das Netz Log-Odds aus, die UNVERAENDERT als
-    Kantenkosten an RAMA gehen. Damit gilt die Begruendung der Schwelle 0
-    aus metrics.py eine Ebene hoeher unveraendert.
+    Wie EdgeMLP gibt das Netz Log-Odds aus, ohne Nachskalierung. Damit gilt
+    die Begruendung der Schwelle 0 aus metrics.py eine Ebene hoeher
+    unveraendert. Den Versatz solver2.cost_offset addiert erst solve2_run.
 
     norm_first=True (Pre-LN): Post-LN braucht ein Aufwaermen der Lernrate,
     sonst divergiert der Verlust in den ersten Schritten. Pre-LN kommt
@@ -102,12 +103,12 @@ class PaarTransformer(nn.Module):
     gewaehlt haette.
 
     DIE PADDING-MASKE IST PFLICHT, nicht Kosmetik: ohne sie zoegen
-    Fuell-Token echte Aufmerksamkeit, und ein Knoten mit 15 Events
-    bekaeme systematisch andere Ausgaben als einer mit 32. Das CLS-Token
-    ist NIE maskiert -- eine vollstaendig maskierte Zeile ergaebe einen
-    Softmax ueber lauter -inf und damit NaN. Bei min_events >= 2 kann das
-    ohnehin nicht auftreten, aber die Bedingung steht hier und nicht im
-    Kopf des Lesers.
+    Fuell-Token echte Aufmerksamkeit, und ein kurzer Knoten bekaeme
+    systematisch andere Ausgaben als ein voller. Das CLS-Token ist NIE
+    maskiert -- eine vollstaendig maskierte Zeile ergaebe einen Softmax
+    ueber lauter -inf und damit NaN. Bei min_events >= 1, das Kandidaten
+    erzwingt, kann das ohnehin nicht auftreten, aber die Bedingung steht
+    hier und nicht im Kopf des Lesers.
     """
 
     def __init__(self, d_model=64, n_layers=2, n_heads=4, d_ff=256,

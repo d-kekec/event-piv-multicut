@@ -1,7 +1,8 @@
 """bewerten -- messen, was die Kette produziert hat.
 
   metrics   Paar-Ebene [3]: Konfusionsmatrix, Raten, AUC
-  evaluate  Cluster-Ebene [4]: Reinheit, Fragmentierung, Merge, Kanten
+  evaluate  Cluster-Ebene [4]: Reinheit, Fragmentierung, Merge, Kanten;
+            Tracking-Masse [6c]: HOTA-Familie, IDF1, IDSW
   evaluate_trajektorien  Bahn-Ebene [7]: MedAE in Ort und Geschwindigkeit
   overlap   Runs nach Begegnungsdichte klassifizieren
 

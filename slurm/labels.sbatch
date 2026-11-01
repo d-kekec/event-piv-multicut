@@ -7,10 +7,29 @@
 #SBATCH --output=logs/%x-%A_%a.out
 #SBATCH --error=logs/%x-%A_%a.err
 
+# [1] Labels: ruft scripts/build_event_labels.py auf, je Array-Task ein
+# Python-Lauf ueber PRO_TASK Runs.
+#   SPLIT     Pflicht, der Split.
+#   RUNS      frei, Runs durch Leerzeichen getrennt; ohne alle Runs des Splits.
+#   PRO_TASK  frei, Runs je Array-Task, Vorgabe 1.
+#   EXTRA     frei, Overrides, durch Leerzeichen getrennt.
+# EVENTPIV_DATA und EVENTPIV_OUT muessen gesetzt sein.
+# Allgemeines zu sbatch steht im slurm-Abschnitt von scripts/_cli.py.
+# Bedarf: nur CPU; auf dichten Daten um zwanzig GB Arbeitsspeicher je Task.
+# --array=0 bis ceil(Runs/PRO_TASK)-1 ist Pflicht; --time gilt je Task.
+# Beispiel:
+#   SPLIT=train RUNS="2 6 8" PRO_TASK=3 sbatch --array=0 slurm/labels.sbatch
+#   SPLIT=train RUNS="32" EXTRA="labeling=batch1" sbatch --array=0 \
+#     slurm/labels.sbatch
+# Fehler:
+#   batch1 ohne EXTRA="labeling=batch1": Labels mit STELLA-Parametern, still.
+#   Ohne --array: set -u bricht an SLURM_ARRAY_TASK_ID ab.
+#   LabelingMismatch: Labels passen nicht; neu mit EXTRA="io.overwrite=true".
 
 set -euo pipefail
 export PYTHONUNBUFFERED=1
 export WANDB_SILENT=true
+# An die eigene Umgebung anpassen: venv und Pfad zum Repo.
 source "$HOME/eventpiv-env/bin/activate"
 cd "$HOME/event-piv-multicut"
 

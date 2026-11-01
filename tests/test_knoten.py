@@ -13,7 +13,7 @@ from eventpiv.kette.knoten import knoten_bauen, stichprobe
 
 
 def _strom():
-    """Vier Tracklets mit 1, 3, 5 und 8 Events, dazu zwei kantenlose.
+    """Vier Tracklets mit 1, 4, 5 und 8 Events, dazu zwei kantenlose.
 
     t aufsteigend, wie im echten Strom -- knoten_bauen setzt das fuer die
     Zeitordnung innerhalb eines Knotens voraus.
@@ -121,8 +121,8 @@ def test_stichprobe_zieht_ohne_zuruecklegen(n_events):
     ev, maske = stichprobe(kn, t, x, y, n_events=n_events, seed=0)
 
     assert ev.shape == (len(kn), n_events, 3)
-    # float64 ist hier kein Zufall: absolute Zeitstempel bis 8e6 liegen
-    # bei Faktor 2 unter der float32-Grenze von 2^24 = 16.777.216.
+    # float64 ist hier kein Zufall: absolute Zeitstempel in µs kommen der
+    # float32-Grenze von 2^24 = 16.777.216 nahe (knoten.stichprobe).
     assert ev.dtype == np.float64
     np.testing.assert_array_equal(
         maske.sum(1), np.minimum(kn.tabelle["n_on"], n_events))

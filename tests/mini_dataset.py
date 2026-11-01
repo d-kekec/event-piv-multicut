@@ -4,8 +4,8 @@
 
 Zweck: der Integrationstest ueber [1] bis [4] braucht einen echten
 Schreib- UND Lesepfad. Ein Fixture, das nur Arrays liefert, umgeht
-data.load_events -- und genau dort hat ein Doku-Commit am 04.08. eine
-return-Zeile entfernt, ohne dass pytest es bemerkte.
+data.load_events -- ein Fehler dort, etwa eine fehlende return-Zeile,
+bliebe unbemerkt.
 
 Warum der Schreibweg HIER liegt: psee_io.dat_events_tools.write_header ist
 defekt (referenziert EV_STRINGS statt EV_STRING, oeffnet im Textmodus bei
@@ -16,26 +16,26 @@ DAT-FORMAT, gelesen aus psee_io/dat_events_tools.py:
   Event     4 B Zeitstempel u4 + 4 B Nutzlast i4
   Nutzlast  Bit 0-13 x, Bit 14-27 y, Bit 28 Polaritaet
 
-DIE SZENE bildet nach, was am Datensatz gemessen ist (Datensatz.md §3):
-zwei Sicheln je Partikel (ON in Bewegungsrichtung davor, OFF gleich weit
-dahinter, |D| = 6 px), Geschwindigkeit im gemessenen Bereich, rund 5 %
-gleichverteiltes Rauschen. Die Sichel ist als Gaussverteilung GENAEHERT --
-geprueft werden Trennbarkeit und Polaritaetsversatz, nicht die Bogenform.
+DIE SZENE ist batch1 nachgebildet: zwei Sicheln je Partikel (ON in
+Bewegungsrichtung davor, OFF gleich weit dahinter, |D| = 6 px), gleich
+grosse Boxen auf 60-Hz-Raster, Geschwindigkeit im Bereich von batch1,
+gleichverteiltes Rauschen mit RAUSCH_ANTEIL. Die Sichel ist als
+Gaussverteilung GENAEHERT -- geprueft werden Trennbarkeit und
+Polaritaetsversatz, nicht die Bogenform.
 
-VIER RUNS, nicht einer: train.split_runs_stratified braucht mindestens zwei
-Runs je Klasse, sonst verliert der Holdout eine Klasse und AUC/TPR werden
-NaN. run1/run2 kreuzen (NEIN-Quelle), run3/run4 sind sauber (JA-Quelle).
+VIER RUNS, nicht einer: train.split_runs zieht ganze Runs in den Holdout
+und verlangt dort beide Klassen, sonst werden AUC und TPR NaN. NEIN liefern
+nur Runs mit Begegnungen, also braucht es zwei davon: run1/run2 kreuzen,
+run3/run4 sind sauber und liefern nur JA.
 
 DIE KREUZUNG ist echt: die Relativgeschwindigkeit betraegt 1,0e-4 px/µs in
 y, aus 50 px Abstand bei t=0 wird 0 bei t=500 ms und wieder 50 px bei
-t=1 s. Die Szene durchlaeuft damit BEIDE Regime. Der echte Datensatz tut
-das in keinem untersuchten Run -- run3 kreuzt nie (19,2 px Mindestabstand),
-run32 ist dauerhaft verschmolzen.
+t=1 s. Die Szene durchlaeuft damit in einem Run BEIDE Regime, getrennt und
+verschmolzen.
 
-Die Laufdauer ist mit 1 s bewusst kuerzer als die 8 s des echten
-Datensatzes. Folge: die Vorgabewerte von PairSampling.win_offsets
-(1,5 / 3,5 / 5,5 s) liegen ausserhalb, und wer hier Paare sammelt, muss sie
-setzen. Das entfaellt, sobald Stufe 1 den ganzen Run abschreitet.
+Die Laufdauer ist mit T_ENDE bewusst kurz. [2] sammelt in Fenstern der
+Laenge alpha1 jedes fenster_schritt-te Fenster; wer hier Paare sammelt,
+setzt den Schritt klein, sonst bleiben zu wenige Fenster.
 """
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ from typing import NamedTuple
 
 import numpy as np
 
-# Dateiformat des echten Datensatzes (Datensatz.md §2).
+# Dateiformat der _bbox.npy, dieselben acht Felder wie in den Datensaetzen.
 BBOX_DTYPE = np.dtype([("t", "<i8"), ("x", "<f4"), ("y", "<f4"),
                        ("w", "<f4"), ("h", "<f4"), ("class_id", "<u4"),
                        ("track_id", "<u4"), ("class_confidence", "<f4")])
@@ -53,16 +53,17 @@ BBOX_DTYPE = np.dtype([("t", "<i8"), ("x", "<f4"), ("y", "<f4"),
 # Maschine gerade macht".
 _EV_DTYPE = np.dtype([("t", "<u4"), ("_", "<i4")])
 
-BOX_W = 11.0                    # px, Konstante des Datensatzes
-RASTER_DT = 1e6 / 60.0          # µs, das 60-Hz-Boxraster
+BOX_W = 11.0                    # px, auf batch1 fuer alle Boxen gleich
+RASTER_DT = 1e6 / 60.0          # µs, das 60-Hz-Boxraster von batch1
 
 # Sichelgeometrie. VERSATZ_ON=3 ergibt |D| = 6 px zwischen den beiden
-# Zentroiden -- gemessen 6,07 px auf run3.
+# Zentroiden, nachgebildet nach batch1.
 VERSATZ_ON = 3.0
 SIG_LAENGS = 1.2                # laengs der Bewegung duenn
 SIG_QUER   = 2.0                # quer dazu ausgedehnt
-R_CLIP     = 7.0                # px, unter r_assign = 8: Signalevents
-                                # duerfen nicht zufaellig zu RAUSCH werden
+R_CLIP     = 7.0                # px, unter r_assign = 8 aus test_integration:
+                                # Signalevents duerfen dort nicht zu RAUSCH
+                                # werden; die Vorgabe liegt unter R_CLIP.
 
 BREITE, HOEHE = 1280, 720
 T_ENDE = 1_000_000              # µs
@@ -73,11 +74,11 @@ RAUSCH_ANTEIL = 0.05
 class Bahn(NamedTuple):
     """Geradlinige Partikelbahn. vx/vy in px/µs.
 
-    |v| = 7,8e-5 px/µs = 0,078 px/ms liegt im gemessenen Bereich
-    (0,025 bis 0,102 px/ms). Schneller waere schaedlich: ab etwa
-    0,1 px/ms uebersteigt der Rasterfehler der 60-Hz-Naeherung (bis
-    8,33 ms) die Schwelle r_ambig = 2 px, und die Fixture erzeugte
-    Mehrdeutigkeit aus der Naeherung statt aus der Kreuzung.
+    |v| = 7,8e-5 px/µs = 0,078 px/ms liegt im Bereich von batch1.
+    Schneller waere schaedlich: der Rasterfehler der 60-Hz-Naeherung
+    waechst mit |v| mal halber Rasterweite und kaeme an r_ambig heran, und
+    die Fixture erzeugte Mehrdeutigkeit aus der Naeherung statt aus der
+    Kreuzung.
     """
     track_id: int
     x0: float
@@ -87,7 +88,7 @@ class Bahn(NamedTuple):
 
 
 def _raster(t_ende: int) -> np.ndarray:
-    """60-Hz-Zeitraster. Die Abstaende wechseln 16667/16666 wie im echten."""
+    """60-Hz-Zeitraster. Die Abstaende wechseln 16667/16666 wie batch1."""
     n = int(t_ende // RASTER_DT) + 1
     return np.rint(np.arange(n) * RASTER_DT).astype(np.int64)
 
@@ -127,7 +128,7 @@ def _events_bahn(rng, bahn: Bahn, t_ende: int, n: int):
 
 
 def _rauschen(rng, t_ende: int, n: int):
-    """Gleichverteilt ueber die Sensorflaeche -- wie auf run3 gemessen."""
+    """Gleichverteilt ueber die Sensorflaeche -- wie auf batch1."""
     t = np.sort(rng.integers(0, t_ende, n))
     return (t, rng.uniform(0, BREITE, n), rng.uniform(0, HOEHE, n),
             rng.integers(0, 2, n))
@@ -186,7 +187,8 @@ def bahnen_kreuzung(x_m, y_m, vx=6e-5, vy=5e-5, ids=(1, 2, 3)):
 
 def bahnen_sauber(dx=0.0, ids=(1, 2, 3)):
     """Drei Partikel, ueber den ganzen Lauf mehr als 250 px auseinander --
-    weit jenseits des Beruehrungsabstands der Wolken von ~19 px."""
+    weit jenseits von bewerten.evaluate.NAH_PX, unter dem Wolken sich
+    beruehren koennen."""
     return [Bahn(ids[0], 200.0 + dx, 150.0, 6e-5,  5e-5),
             Bahn(ids[1], 620.0 + dx, 150.0, 5e-5,  6e-5),
             Bahn(ids[2], 400.0 + dx, 520.0, 4e-5, -2e-5)]
@@ -205,8 +207,8 @@ SZENEN = {
 def baue_mini_datensatz(data_root, split: str = "train") -> dict:
     """Legt <data_root>/<split>/run{1..4}.dat und _bbox.npy an.
 
-    Rueckgabe: {"kreuzung": [...], "sauber": [...]} -- die Run-Listen, die
-    PairSampling als overlap_runs bzw. clean_runs braucht.
+    Rueckgabe: {"kreuzung": [...], "sauber": [...]} -- die Run-Nummern je
+    Szene, etwa fuer pairs.runs.
     """
     d = Path(data_root) / split
     d.mkdir(parents=True, exist_ok=True)

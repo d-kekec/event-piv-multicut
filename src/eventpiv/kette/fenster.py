@@ -6,9 +6,9 @@ fenster.py -- ein Zeitfenster laden und die Ground Truth darauf ausrichten.
   Fenster       Events und, falls vorhanden, die dazu AUSGERICHTETE GT
   lade_fenster  aus (Auswahl, Ausschnitt) ein Fenster bauen
 
-Vom Rechnen getrennt, weil das hier I/O ueber NFS ist: solve_window und
-solve_run bekommen ein fertiges Fenster und sind dadurch frei von Pfaden,
-also auf von Hand gebauten Arrays pruefbar -- ohne Datensatz.
+Vom Rechnen getrennt, weil das hier I/O ist: solve_window und solve_run
+bekommen ein fertiges Fenster und sind dadurch frei von Pfaden, also auf
+von Hand gebauten Arrays pruefbar -- ohne Datensatz.
 
 Die Ausrichtung ist die fehleranfaelligste Stelle der Stufe. Reihenfolge
 deshalb fest: erst auf dem UNGEFILTERTEN Strom ausrichten, dann dieselbe
@@ -61,12 +61,11 @@ class Fenster:
 def lade_fenster(sel, win, *, polarity, gt_path=None) -> Fenster:
     """Laedt ein Zeitfenster eines Runs und richtet die GT darauf aus.
 
-    Vom Loesen getrennt: Laden ist I/O ueber NFS, Loesen ist Rechnen.
-    solve_window ist dadurch frei von Pfaden und auf vorgerechneten Arrays
-    pruefbar.
+    Vom Loesen getrennt: Laden ist I/O, Loesen ist Rechnen. solve_window ist
+    dadurch frei von Pfaden und auf vorgerechneten Arrays pruefbar.
 
-    Die vollen GT-Arrays (rund 190 MB je Run) leben nur innerhalb des
-    with-Blocks; was das Fenster behaelt, ist fenstergross.
+    Die vollen GT-Arrays des Runs leben nur innerhalb des with-Blocks; was
+    das Fenster behaelt, ist fenstergross.
 
     polarity ist Pflicht und ohne Vorgabewert: ein vergessener Filter waere
     im Einsatz eine andere Knotenmenge als im Training, und das faellt an

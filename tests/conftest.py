@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 """Gemeinsame Testbausteine.
 
-BBOX_DTYPE und make_bbox standen wortgleich in test_labels.py und
-test_overlap.py. Zwei Wahrheiten ueber dasselbe Dateiformat -- genau die
-Doppelung, gegen die im Produktivcode ueberall argumentiert wird.
+make_bbox liegt hier und nimmt BBOX_DTYPE aus mini_dataset, damit
+test_labels.py und test_overlap.py dasselbe Dateiformat bauen: eine
+Wahrheit ueber das Format, nicht zwei.
 """
 from types import SimpleNamespace
 

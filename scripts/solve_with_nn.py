@@ -1,9 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""CLI-Huelle fuer eventpiv.kette.solve -- Hydra, W&B, Aufruf.
+"""CLI-Huelle fuer eventpiv.kette.solve -- Hydra, W&B, Aufruf. Stufe [4].
 
 Hydra und W&B leben in scripts/. Ab to_cfg() sieht kein Modul mehr einen
-DictConfig (BA_Konfiguration.md §5).
+DictConfig.
+
+Aufruf (allgemeine Bedienung: scripts/_cli.py). selection.run_nr ist
+Pflicht. Ohne window.* loest [4] das Vorgabefenster aus runconfig.Window
+als EINEN Graphen, an den Vorgaben viele Stufe-1-Fenster zugleich; [5a]
+loest dagegen jedes Fenster der Laenge alpha1 fuer sich. window.t0 und
+window.dt nicht auf null setzen: dafuer ist das Skript nicht ausgelegt,
+und der ganze Run wuerde ein einziger Graph. Die Gruppen muessen die des
+Trainings [3] sein. Kein sbatch-Skript.
+  python scripts/solve_with_nn.py selection.run_nr=8
+  python scripts/solve_with_nn.py selection.split=val selection.run_nr=<run>
+  # ein Fenster in der Laenge, die [5a] loest: window.dt=500 ist
+  # neighborhood.alpha an den Vorgaben; t0 und dt in µs
+  W="window.t0=1000000 window.dt=500"
+  python scripts/solve_with_nn.py selection.run_nr=8 $W
+  # batch1
+  python scripts/solve_with_nn.py datensatz=batch1 selection.run_nr=32
+  # fremdes Netz: dann auch io.json_out
+  F="io.model_path=<netz.pt> io.json_out=<ergebnis.json>"
+  python scripts/solve_with_nn.py selection.run_nr=8 $F
 """
 
 from dataclasses import asdict
@@ -43,9 +62,9 @@ def main(dcfg: DictConfig) -> None:
 
     # name = der Dateiname des Ergebnisses, also genau das, was diesen Solve
     # von anderen desselben Netzes unterscheidet (Split, Run, Fenster, Modus).
-    # Netz und Paar-Datensatz stehen als tags daneben: group ist der
-    # Arbeitspunkt, und unter einem Arbeitspunkt liegen mehrere Netze --
-    # ueber tags laesst sich darauf filtern, ohne group umzudeuten.
+    # Netz und Paar-Datensatz stehen als tags daneben: group ist die
+    # Nachbarschaft (wp/), und darunter liegen mehrere Netze -- ueber tags
+    # laesst sich darauf filtern, ohne group umzudeuten.
     run = wandb.init(
         project=PROJECT,
         group=slug(cfg.neighborhood),

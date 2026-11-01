@@ -2,14 +2,26 @@
 # -*- coding: utf-8 -*-
 """CLI-Huelle fuer eventpiv.kette.tracklets.solve_run -- Hydra, W&B, Aufruf.
 
-Stufe 1 ueber ganze Runs. Ein W&B-Lauf JE RUN, ein Fenster ist ein
-History-Schritt -- bei rund 800 Fenstern je Run waeren fensterweise Laeufe
-unbrauchbar.
+Stufe [5a]: Stufe 1 ueber ganze Runs. Ein W&B-Lauf JE RUN, ein Fenster
+ist ein History-Schritt -- bei den vielen Fenstern eines Runs waeren
+fensterweise Laeufe unbrauchbar.
 
 Das Netz wird EINMAL geladen und ueber alle Runs benutzt: es ist dasselbe.
 
-Beispielaufruf:
-    python scripts/build_tracklets.py selection.split=train selection.runs=[32]
+Aufruf (allgemeine Bedienung: scripts/_cli.py). Ohne selection.runs und
+selection.run_nr alle Runs des Splits; configs/tracklets.yaml setzt
+window auf den ganzen Run. Die Gruppen muessen die des Trainings [3] sein.
+window.* ohne io.out_path ueberschreibt das Artefakt des ganzen Runs: das
+Fenster steht nicht im Dateinamen.
+  python scripts/build_tracklets.py 'selection.runs=[8]'
+  python scripts/build_tracklets.py selection.split=val
+  # batch1
+  python scripts/build_tracklets.py datensatz=batch1 'selection.runs=[32]'
+  # ueber slurm/tracklets.sbatch (Bedarf in dessen Kopf): RUNS und SPLIT
+  # Pflicht, ein Prozess je Run; Overrides in EXTRA, EXTRA_SETS fuehrt
+  # mehrere Saetze nacheinander aus, durch ';' getrennt
+  RUNS="8 13" SPLIT=train sbatch slurm/tracklets.sbatch
+  RUNS="32" SPLIT=train EXTRA="datensatz=batch1" sbatch slurm/tracklets.sbatch
 """
 from dataclasses import asdict, replace
 
@@ -38,8 +50,8 @@ def kanten_tabelle(lauf):
     die GT. Nicht der Schnitt des Solvers: Multicut darf von der
     Kantenpraeferenz abweichen, wenn die Bilanz es verlangt.
 
-    Randsummen stehen mit drin, weil sie im Gespraech sonst im Kopf
-    gerechnet werden muessen -- und weil die Spaltensumme rechts die
+    Randsummen stehen mit drin, weil sie beim Lesen sonst im Kopf
+    gerechnet werden muessen -- und weil die Summenzeile unten die
     Klassenverteilung im Einsatz ist.
 
     None, wenn der Run keine GT hat.

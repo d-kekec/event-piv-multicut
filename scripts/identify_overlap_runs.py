@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""CLI-Huelle fuer eventpiv.bewerten.overlap -- Hydra + Aufruf."""
+"""CLI-Huelle fuer eventpiv.bewerten.overlap -- Hydra + Aufruf.
+
+Aufruf (allgemeine Bedienung: scripts/_cli.py). Ohne selection.runs alle
+Runs des Splits; gelesen werden nur die bbox-Dateien. Die Schwellen
+stehen in kern.runconfig.Overlap, Gruppendateien dafuer gibt es nicht.
+Kein sbatch-Skript.
+  python scripts/identify_overlap_runs.py
+  python scripts/identify_overlap_runs.py selection.split=val
+  python scripts/identify_overlap_runs.py io.json_out=<datei.json>
+"""
 import json
 from pathlib import Path
 

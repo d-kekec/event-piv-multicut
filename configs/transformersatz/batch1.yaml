@@ -1,6 +1,6 @@
 # @package transformer
 #
-# Stufe-2-Netz fuer batch1, ab [6b]. Zuschalten mit
-# `transformersatz=batch1`. Die uebrigen Felder sind auf beiden
-# Datensaetzen gleich.
+# batch1. Nicht genannte Felder kommen aus kern/runconfig.py. Zuschalten ab
+# [6b] mit `datensatz=batch1 kandidatensatz=batch1 transformersatz=batch1`.
+# Die erste Zeile lenkt den Inhalt ins Feld `transformer`.
 epochs: 50

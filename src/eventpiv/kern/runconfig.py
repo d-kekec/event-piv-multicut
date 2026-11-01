@@ -6,21 +6,25 @@ runconfig.py -- Laufparameter als Gruppen-Dataclasses.
 PARAMETER, nicht Pfade. config.py bleibt die einzige Stelle mit Pfadwissen:
 hier steht, WAS gerechnet wird, dort, WOHIN es geschrieben wird.
 
-Der Gruppenschnitt folgt dem UEBEREINSTIMMUNGS-Kriterium: eine Gruppe ist,
-was zwischen zwei Stufen gleich sein MUSS. Zwischen den Stufen muss das nur
-`Neighborhood`. Innerhalb einer Stufe bindet eine Groesse ueber die
-Gruppengrenze: `kandidaten.v_max` ist dieselbe wie `neighborhood.v_max`.
-Geprueft wird das in KandidatenCfg, wo der Kandidatensatz entsteht.
+Die Gruppen der Kette folgen dem UEBEREINSTIMMUNGS-Kriterium: eine Gruppe
+ist, was zwischen zwei Stufen gleich sein MUSS (Neighborhood, PairSampling,
+Training, Solver, Kandidaten, Transformer, Solver2, Fit). Zwischen den
+Stufen geprueft wird nur `Neighborhood` (solve.check_consistency,
+train.check_dataset_neighborhood); die uebrigen sichert der Pfad. Weitere
+Gruppen nach ihrer Rolle: Selection und Window je Aufruf, Compute und IO
+fuer Ressourcen und Ein-/Ausgabe, Overlap und Anim* fuer Werkzeuge, Labeling
+fuer [1]. Innerhalb einer Stufe bindet eine Groesse ueber die Gruppengrenze:
+`kandidaten.v_max` ist dieselbe wie `neighborhood.v_max`. Geprueft wird
+das in KandidatenCfg, wo der Kandidatensatz entsteht.
 
-DIE VORGABEN SIND DER ARBEITSPUNKT VON STELLA. batch1 und der zweite
-STELLA-Arbeitspunkt liegen als Gruppen unter configs/ (`datensatz=batch1`
-usw.). Eine Vorgabe zu aendern verschiebt den Arbeitspunkt;
-test_vorgaben_sind_ein_arbeitspunkt vergleicht dafuer alle Slugs mit
-festen Werten.
+DIE VORGABEN SIND DER ARBEITSPUNKT VON STELLA und hier begruendet; batch1
+und der zweite STELLA-Arbeitspunkt liegen als Gruppen unter configs/
+(`datensatz=batch1` usw.). Eine Vorgabe zu aendern verschiebt den
+Arbeitspunkt; test_vorgaben_sind_ein_arbeitspunkt vergleicht dafuer alle
+Slugs mit festen Werten.
 
 KEIN frozen=True -- OmegaConf macht den Container dann read-only und jeder
-Hydra-Override scheitert. GEMESSEN, bei einem OmegaConf-Wechsel neu
-pruefen.
+Hydra-Override scheitert. Bei einem Wechsel von OmegaConf neu pruefen.
 """
 from __future__ import annotations
 
@@ -75,7 +79,7 @@ class _Typed:
 NEIGHBORHOOD_GEOMS = ("ellipsoid", "cylinder", "hyperboloid")
 POLARITIES = ("on", "both")
 FEATURE_MODES = ("dr", "drjac")
-IMBALANCE_MODES = ("sample",) # Hier waren einst auch andere, nur sample hat überlebt.
+IMBALANCE_MODES = ("sample",) # Klassenverhaeltnis ueber Ziehen, nicht Gewichte
 SOLVER_BACKENDS = ("rama", "cc")
 SOLVER_MODES = ("P", "PD", "PD+", "D")
 POOLINGS = ("cls", "mean")
@@ -83,7 +87,7 @@ LABEL_MODI = ("streng", "mehrheit")
 
 @dataclass
 class Neighborhood(_Typed):
-    """DER VERTRAG -- und zugleich die Identitaet des Arbeitspunkts.
+    """DER VERTRAG zwischen [2] und [4], oberste Ebene von config.wp_dir.
 
     v_max wirkt nur bei geom="hyperboloid", gehoert aber hierher: er
     entscheidet dort mit, welche Kanten existieren. Ueberkonservativ ist
@@ -93,13 +97,19 @@ class Neighborhood(_Typed):
     "both" alle. Es gehoert aus demselben Grund hierher wie v_max, nur
     zwingender -- der Filter wirkt in Stufe [2] und in Stufe [4], und
     stimmen sie nicht ueberein, sieht das Netz im Einsatz eine andere
-    Kantenpopulation als im Training. Bei r_max = 3 sind 13,8 % der Kanten
-    gemischtpolar; ohne dieses Feld wuerde ein mit beiden Polaritaeten
-    gebauter Datensatz still fuer einen ON-only-Einsatz weiterverwendet.
+    Kantenpopulation als im Training. Ohne dieses Feld wuerde ein mit
+    beiden Polaritaeten gebauter Paar-Datensatz still fuer einen
+    ON-only-Einsatz weiterverwendet.
     """
-    # Arbeitspunkt von Stufe 1. alpha ist zugleich die Laenge eines
-    # Tracklet-Fensters -- ein Regler fuer Kantenreichweite UND
-    # Tracklet-Laenge, siehe Code_Guide §1.
+    # alpha in µs, r_max in px, v_max in px/µs. alpha ist zugleich die
+    # Laenge eines Tracklet-Fensters: kuerzer schnitte Kanten weg, die die
+    # Geometrie erlaubt, laenger liesse zwei Partikel oefter in EINEM
+    # Tracklet verschmelzen -- in Stufe 1 der einzige unumkehrbare Fehler.
+    # alpha ist nicht gemessen, sondern gewaehlt innerhalb der Schranken aus
+    # der Tabelle "Kandidaten fuer alpha1" von
+    # tools/schaetzer/stufe1_parameter_schaetzer.py: Speicher des Jaccard je
+    # Fenster, Drift gegen Wolkenausdehnung. Dasselbe Werkzeug bestimmt v_max
+    # (dort in px/ms) und r_max je geom und alpha neu.
     alpha: int = 500
     r_max: float = 5.1
     geom: str = "hyperboloid"
@@ -130,14 +140,16 @@ class PairSampling(_Typed):
     """Identitaet des Paar-Datensatzes. `split` ist hier die QUELLE der Paare
     -- nicht zu verwechseln mit Selection.split (was geloest wird).
 
-    `runs` sind AUSSCHLIESSLICH Overlap-Runs. Saubere Runs liefern
-    physikalisch null NEIN, und die Overlap-Runs tragen selbst reichlich JA.
-    Beide Klassen stammen damit aus DENSELBEN Fenstern -- nur so sieht das
-    Netz eine Eingangsverteilung und nicht zwei.
+    `runs`: die Quell-Runs, aufsteigend (die Reihenfolge geht in den Hash
+    ein), ueber die Eventrate geschichtet -- die Rate bestimmt die lokale
+    Nachbarschaftsdichte und damit den Merkmalsraum des Netzes. Beide
+    Klassen stammen aus DENSELBEN Fenstern: nur so sieht das Netz eine
+    Eingangsverteilung und nicht zwei.
 
-    `ja_frac` ist keine Feinabstimmung, sondern die Speicherbedingung: ein
-    Run liefert bei voller Abdeckung ueber eine Milliarde JA-Paare. NEIN
-    wird vollstaendig behalten (bis `max_no`), es ist die knappe Klasse.
+    `ja_frac` ist keine Feinabstimmung, sondern die Speicherbedingung: bei
+    voller Abdeckung wuechsen die JA-Paare eines Runs weit ueber den
+    Arbeitsspeicher. NEIN wird vollstaendig behalten (bis `max_no`), es ist
+    die knappe Klasse.
 
     Das Klassenverhaeltnis setzt `ja_vorrat`, nicht ein JA-Deckel. Eine
     obere Schranke fuer JA folgt daraus von selbst: n_nein <= max_no, also
@@ -154,12 +166,12 @@ class PairSampling(_Typed):
                                  72, 80, 82, 85, 92, 93, 96, 98])
     ja_frac: float = 2e-2
     max_no: int = 1_000_000
-    # Jedes n-te Fenster abschreiten. Ein Fenster bleibt vollstaendig, es
-    # sind nur weniger davon. So gewaehlt, dass fast jeder Run den
-    # max_no-Deckel erreicht.
+    # Jedes n-te Fenster abschreiten; ein Fenster bleibt vollstaendig. Am
+    # Datensatz kalibriert, damit fast jeder Run den max_no-Deckel erreicht
+    # und alle Runs gleich viel beitragen.
     fenster_schritt: int = 20
     # Groesser als training.sample_ratio: [2] legt Vorrat an, [3] setzt den
-    # Arbeitspunkt.
+    # Betriebspunkt.
     ja_vorrat: float = 2.0
     seed: int = 0
 
@@ -176,7 +188,7 @@ class PairSampling(_Typed):
 
     def short(self) -> str:
         # "rn" statt "r" fuer die ANZAHL Runs: "r" bezeichnet im Projekt
-        # sonst einen Radius (r_max) oder einen einzelnen Run (run32).
+        # sonst einen Radius (r_max) oder einen einzelnen Run (run<N>).
         # "split_" ausgeschrieben, damit "train" nicht wie ein Name aussieht.
         # Der Hash bleibt unberuehrt -- short() ist eine Methode und steht
         # nicht in asdict(), also nicht in canonical().
@@ -186,16 +198,18 @@ class PairSampling(_Typed):
 class Training(_Typed):
     """Identitaet des Kantenkosten-Netzes.
 
-    `hidden` saettigt bei 32 -- eine breitere Schicht aendert die AUC nicht
-    mehr messbar. `lr` wirkt staerker als die Breite: ein zu grosser
-    Schritt laesst die Parameter um das Optimum zappeln, was sich als
-    zackige Kurve zeigt, nicht als schlechteres Ergebnis.
+    `feature_mode`: Merkmale je Kante. "dr" genuegt, weil die NEIN-Paare
+    ueberwiegend nebeneinander statt uebereinander liegen, und spart die
+    quadratische Last des Jaccard; batch1 braucht "drjac", weil die Kosten
+    mit "dr" allein dort nie negativ werden.
 
-    `sample_ratio` verschiebt ausschliesslich den Achsenabschnitt des
-    Logits um log(s), nicht die Rangfolge -- gemessen 0,7656 gegen 0,7652
-    AUC bei 1:1 und 3:1 auf demselben Datensatz. 1:1 legt die Nullstelle
-    in die Verteilung, damit TPR, TNR und pred_neg_frac waehrend des
-    Trainings ablesbar bleiben; bei 3:1 stand TNR bei 0,206.
+    `hidden`: Breite der versteckten Schicht, am Datensatz kalibriert.
+    `lr`: Schrittweite; zu gross laesst sie die Parameter um das Optimum
+    zappeln -- eine zackige Kurve, kein schlechteres Ergebnis.
+
+    `sample_ratio`, JA:NEIN im Training, verschiebt nur den Achsenabschnitt
+    des Logits um log(s), nicht die Rangfolge. 1:1 legt die Nullstelle in
+    die Verteilung, damit TPR, TNR und pred_neg_frac ablesbar bleiben.
     """
     feature_mode: str = "dr"
     imbalance: str = "sample"
@@ -240,29 +254,12 @@ class Solver(_Typed):
     mode wirkt nur bei backend="rama"; ueberkonservativ im Namen zu
     bleiben ist billiger als eine bedingte Regel.
 
-    cost_offset ist der BETRIEBSPUNKT, kein Kalibrierwert. Er wird auf jede
-    Kante addiert und verschiebt damit die Schwelle zwischen Schneiden und
-    Verbinden, ohne die Rangfolge der Kanten zu aendern.
-
-    VORGABE 0,0: die Nullstelle des Logits IST der Schnittpunkt, die
-    Entscheidung entsteht also vollstaendig im Netz. Auf batch1 war das
-    mit feature_mode="dr" unmoeglich -- P(JA | dt, dr) lag in keiner
-    Gitterzelle unter 0,5, die Kosten wurden nie negativ, und geschnitten
-    wurde ausschliesslich ueber diesen Versatz; dort braucht es "drjac".
-    Auf STELLA schneidet schon "dr" ohne Versatz.
-
-    Es gibt kein Optimum, nur eine Tauschkurve. Ueber ganze Runs steigt
-    nah_merge_event_frac monoton mit dem Versatz und faellt die
-    Fragmentierung (run32: -0,2 / 0,0 / 0,2 / 0,4 -> 0,77 / 1,16 / 1,73 /
-    2,33 % bei frag_mean 7,88 / 6,34 / 5,17 / 4,17). 0,0 ist eine Wahl auf
-    dieser Kurve: Verschmelzen ist in Stufe 1 der einzige unumkehrbare
-    Fehler, weiter links steigt aber die Tracklet-Zahl je Fenster stark,
-    ohne dass nah_merge noch nennenswert faellt.
-
-    Denselben Effekt hat das Klassenverhaeltnis im Training -- Untersampeln
-    verschiebt jeden gelernten Logit um log(s). Der Unterschied ist der
-    Preis: das Verhaeltnis kostet ein Neutraining, dieser Wert einen
-    Override.
+    cost_offset: Versatz auf jede Kante, der BETRIEBSPUNKT, kein
+    Kalibrierwert -- er verschiebt die Schwelle zwischen Schneiden und
+    Verbinden, ohne die Rangfolge der Kanten zu aendern. Er tauscht
+    Verschmelzung gegen Fragmentierung, ein Optimum gibt es nicht; bei 0
+    entscheidet allein das Netz. Dieselbe Wirkung hat sample_ratio, kostet
+    aber ein Neutraining statt eines Overrides.
     """
     mode: str = "P"
     use_knn: bool = False
@@ -297,26 +294,27 @@ class Kandidaten(_Typed):
     """Identitaet des Stufe-2-Datensatzes: welche Knoten, welche Kanten.
 
     Von `Transformer` getrennt nach dem UEBEREINSTIMMUNGS-Kriterium, aus
-    demselben Grund wie PairSampling von Training: der Datensatz kostet
-    Minuten je Run, das Netz ist ein Sweep. In EINER Gruppe erzwaenge jedes
-    neue d_model einen Neubau der Kandidaten.
+    demselben Grund wie PairSampling von Training: der Datensatz ist je Run
+    teuer, das Netz wird im Sweep oft neu trainiert. In EINER Gruppe
+    erzwaenge jedes neue d_model einen Neubau der Kandidaten.
 
     alpha/r_max/geom/v_max sind bewusst NICHT `Neighborhood`. Sie messen
     hier den Abstand zweier TRACKLET-ZENTROIDE, nicht zweier Events, und
     `polarity` hat auf Zentroiden keinen Sinn. Eine verschachtelte Gruppe,
     deren Haelfte nicht gilt, waere eine spaetere Falle.
 
-    alpha ist die Reichweite zwischen den t_min zweier Knoten. Mehr
-    Reichweite ueberbrueckt laengere Luecken einer Bahn und bringt zugleich
-    mehr fremde Knoten in den Suchkoerper: sie tauscht Brueche gegen
-    Verschmelzung (Journal 23.-29.09.).
-
-    r_max ist die Taille: der Abstand der Zentroide zweier Knoten derselben
-    Bahn bei kleinem dt. Die Drift traegt die Aufweitung v_max * dt.
-
-    min_events = 1: jedes Tracklet wird ein Knoten, auch ein Einzelevent.
-    n_events ist die Zahl der Event-Tokens je Knoten; kleinere Knoten werden
-    maskiert aufgefuellt.
+    runs: dieselben wie im Paarbau, aufsteigend (Reihenfolge im Hash);
+    Kontrollruns laufen ueber selection.runs unter demselben Slug.
+    alpha, µs: Reichweite zwischen den t_min zweier Knoten; mehr Reichweite
+    tauscht Brueche gegen Verschmelzung.
+    r_max, px: Taille, der Zentroidabstand zweier Knoten derselben Bahn bei
+    kleinem dt; die Drift traegt die Aufweitung v_max * dt.
+    v_max, px/µs: dieselbe Groesse wie neighborhood.v_max (_pruefe_v_max).
+    min_events: kleinste Knotengroesse in Events; jede Schwelle ueber 1
+    verwirft mit den Bruchstuecken auch Bruecken ueber Stellen, an denen ein
+    Partikel nur wenige Events liefert.
+    n_events: Event-Tokens je Knoten; kleinere Knoten werden maskiert
+    aufgefuellt.
     """
     split: str = "train"
     runs: list[int] = field(default_factory=lambda: [
@@ -331,9 +329,8 @@ class Kandidaten(_Typed):
     seed: int = 0
 
     def short(self) -> str:
-        # "_r" stand hier ZWEIMAL mit verschiedener Bedeutung -- einmal fuer
-        # die Anzahl Runs, einmal fuer den Radius. Jetzt "rn" fuer die
-        # Anzahl, "rmax" fuer den Radius.
+        # "rn" fuer die Anzahl Runs, "rmax" fuer den Radius -- ein blosses
+        # "r" waere doppeldeutig.
         return (f"split_{self.split}_rn{len(self.runs)}_a{self.alpha}"
                 f"_rmax{_num(self.r_max)}_n{self.n_events}")
 
@@ -369,8 +366,8 @@ class Transformer(_Typed):
 
     pooling waehlt, was in den Kopf geht: "cls" liest das CLS-Token,
     "mean" mittelt ueber die ECHTEN Tokens. Als Feld und nicht als
-    Konstante, weil der Unterschied bei 65 Tokens vermutlich klein ist --
-    NICHT gemessen, und eine billige Ablation.
+    Konstante, weil der Unterschied vermutlich klein ist -- nicht geprueft,
+    und eine billige Ablation.
 
     label_modus entscheidet, welche Paare Gradienten bekommen -- eine
     TRAININGS-, keine Datensatzentscheidung, deshalb hier und nicht in
@@ -380,18 +377,11 @@ class Transformer(_Typed):
                 interessanteste Fall wird damit nie geuebt.
       mehrheit  auch verschmolzene, hart nach Mehrheit, ab gt_min_anteil.
 
-    mehrheit ist Vorgabe. Bei alpha = 50 ms sind streng und mehrheit auf
-    fuenf Nachkommastellen gleich (edge_tnr 0,90206 gegen 0,90200 auf
-    val/run4); mehrheit nimmt die verschmolzenen Tracklets ins Training,
-    ohne zu kosten. train_max deckelt die Trainingsmenge je Epoche
-    klassenneutral -- ohne Deckel traegt der 250-ms-Satz 400 Mio.
-    Trainingspaare gegen 15 Mio. bei 50 ms.
-
     Kein feature_mode: die Baseline bekommt rohe, je Paar normierte
     (t, x, y).
 
-    lr = 1e-3 statt der 3e-2 von Stufe 1: dort haengen 161 Parameter,
-    hier Zehntausende. Nicht durchsucht.
+    lr kleiner als in Stufe 1: das Netz hat um Groessenordnungen mehr
+    Parameter als das MLP von Stufe 1.
     """
     d_model: int = 64
     n_layers: int = 2
@@ -444,7 +434,7 @@ class Transformer(_Typed):
 class Solver2(_Typed):
     """Der Solver von Stufe 2. Eigene Gruppe, nicht Solver wiederverwendet.
 
-    `solver` identifiziert den Arbeitspunkt von STUFE 1 und steht im
+    `solver` identifiziert den Betriebspunkt von STUFE 1 und steht im
     Dateinamen der Tracklets und Kandidaten -- cost_offset waehlt dort
     die QUELLE. Dieselbe Gruppe fuer die Rueckseite von Stufe 2 zu nehmen
     vermengte zwei Dinge, die getrennt gewaehlt werden muessen.
@@ -455,12 +445,9 @@ class Solver2(_Typed):
     den Solver rechtfertigt.
 
     cost_offset wirkt hier wie in Stufe 1 -- er wird auf jede Kante addiert.
-    POSITIV, anders als in Stufe 1: Stufe 2 sitzt auf der fragmentierenden
-    Seite. Bei 250 ms und Offset 0 stehen 141 Cluster fuer 85 Partikel
-    (val/run4); +1 senkt IDSW von 23 auf 3 bei praktisch unveraendertem
-    merge_event_frac. Ueber +1,5 faellt HOTA, ab +2 bricht purity ein.
-    Auf zwei sauberen Kontrollruns richtet +1 keinen Schaden an
-    (IDSW 0, merge 0, purity 1,0). (Journal 28.08.2026)
+    POSITIV, anders als in Stufe 1: ohne Versatz zerfallen mehr Cluster,
+    als es Partikel gibt -- Stufe 2 sitzt auf der fragmentierenden Seite.
+    Am Datensatz kalibriert.
     """
     backend: str = "rama"
     mode: str = "P"
@@ -485,58 +472,53 @@ class Solver2(_Typed):
 
 @dataclass
 class Fit(_Typed):
-    """Baustein [7]: der Kalman-Fit und die Positionskorrektur.
+    """Stufe [7]: der Kalman-Fit und die Positionskorrektur.
 
-    NUR q_c/r_mess WIRKT auf das Ergebnis -- beide mit demselben Faktor
-    skaliert ergeben denselben Filter. Gemessen an 24 Kombinationen ueber
-    vier Dekaden, die alle auf eine Kurve fallen. r_mess steht trotzdem
-    auf dem gemessenen Wert, damit die Kovarianz des Filters etwas ueber
-    die Wirklichkeit aussagt.
+    r_mess, px^2: Varianz eines EINZELEVENTS um die Bahn, die Quervarianz
+    der Eventwolke; ein Skalar mittelt die Anisotropie weg.
+    q_c, px^2/s^5: Intensitaet des Prozessrauschens, die Q-Matrix des
+    Modells mit weissem Ruck, gewichtet mit der verstrichenen ZEIT und
+    nicht mit der Zahl der Messungen.
+    Auf das Ergebnis wirkt bis auf den Start nur q_c/r_mess: mit demselben
+    Faktor skaliert wachsen Q, R und die Startvarianzen von Ort und
+    Geschwindigkeit gemeinsam, nur die der Beschleunigung (a_unbekannt)
+    nicht. r_mess bleibt trotzdem physikalisch, damit die Kovarianz des
+    Filters etwas ueber die Wirklichkeit aussagt.
 
-    r_mess ist die Streuung eines EINZELEVENTS um die Bahn, gemessen als
-    Quervarianz der Eventwolke. Ein Skalar mittelt die Anisotropie weg.
+    c0 (px), c1 (px je px/ms) und beta heben den Vorwaertsversatz der
+    Eventwolke auf, Betrag c0 + c1*|u| + beta*sigma_quer, sigma_quer je
+    Bahn aus ihren Events (kette.trajektorien.quer_streuung). Haengt der
+    Versatz an der Partikelgroesse statt an der Geschwindigkeit, traegt die
+    Form aus STELLA (Sachs et al., 2026), Gl. 1: beta*sigma_quer, c1 = 0,
+    dazu ein kleiner fester Rest c0. Auf batch1 waechst der Versatz mit der
+    Geschwindigkeit bei konstanter Querstreuung, fitsatz=batch1 schaltet
+    beta deshalb ab. Alle drei null schalten die Korrektur ab.
 
-    q_c ist die Intensitaet des Prozessrauschens in px^2/s^5 -- die
-    Q-Matrix des Modells mit weissem Ruck, gewichtet mit der verstrichenen
-    ZEIT und nicht mit der Zahl der Messungen. Position und
-    Geschwindigkeit haben verschiedene Optima; massgeblich ist das der
-    Geschwindigkeit, weil das Ziel der Arbeit Geschwindigkeitsfelder sind.
-
-    c0, c1 und beta heben den Vorwaertsversatz der Eventwolke auf, Betrag
-    c0 + c1*|u| + beta*sigma_quer, sigma_quer je Bahn aus ihren Events
-    (kette.trajektorien.quer_streuung). Auf STELLA haengt er an der
-    Partikelgroesse und nicht an der Geschwindigkeit: STELLAs eigene Form
-    beta*sigma_quer, c1 = 0, dazu ein kleiner fester Rest c0, der nicht an
-    der Groesse haengt. Auf batch1 waechst er mit der Geschwindigkeit bei
-    konstanter Querstreuung (fitsatz=batch1, beta = 0). Alle drei null
-    schalten die Korrektur ab.
-
-    spline_eps legt nach der Korrektur je Bahn einen kubischen
-    Glaettungsspline ueber den Ort, Ziel-RMSE in px -- STELLAs Hybrid
-    (X_KS, u_KS). Ort aus dem Spline, u als seine Ableitung. Damit passt u
-    zum korrigierten Ort; die Korrektur allein verschiebt nur den Ort
+    spline_eps, px: Ziel-RMSE eines kubischen Glaettungssplines, der nach
+    der Korrektur je Bahn ueber den Ort gelegt wird -- der Hybrid
+    (X_KS, u_KS) aus STELLA. Ort aus dem Spline, u als seine Ableitung; so
+    passt u zum korrigierten Ort, den die Korrektur allein nur verschiebt
     (kette.trajektorien.spline_bahn). 0 schaltet den Spline ab.
 
-    dt_aus ist fuer den FILTER frei -- zwischen den Messungen wird
-    propagiert, nicht interpoliert. Fuer die BEWERTUNG nicht:
-    trajektorien_metriken interpoliert die Ausgabe linear auf die
-    GT-Zeiten, ein groeberes Gitter als das GT-Raster kostet dort
-    Ortsfehler aus der Kruemmung. Im Arbeitspunkt eines Datensatzes steht
-    deshalb sein GT-Raster.
+    dt_aus, µs: Ausgabegitter. Fuer den FILTER frei -- zwischen den
+    Messungen wird propagiert, nicht interpoliert. Fuer die BEWERTUNG nicht:
+    trajektorien_metriken interpoliert linear auf die GT-Zeiten, ein
+    groeberes Gitter als das GT-Raster kostet dort Ortsfehler aus der
+    Kruemmung; im Arbeitspunkt eines Datensatzes steht deshalb sein Raster.
 
-    min_dauer_us haelt Bahnen heraus, die kaum laenger sind als init_us:
-    der Filter braucht das Fenster allein zum Einschwingen.
+    init_us, µs: Fenster der Startgerade, kurz gegen die Zeit, in der sich
+    die Geschwindigkeit merklich aendert -- die Gerade misst die MITTLERE
+    Geschwindigkeit ihres Fensters.
+    min_dauer_us, µs: kuerzere Bahnen fallen heraus; der Filter braucht
+    init_us allein zum Einschwingen.
 
-    Die Vorgaben sind der Arbeitspunkt von STELLA, batch1 setzt
-    fitsatz=batch1. Mit dem Glaetter ist q_c/r_mess ueber weite Bereiche
-    nahezu gleichgueltig; je Datensatz genuegt ein grober Sweep ueber
-    Dekaden.
+    a_unbekannt, px/s^2: Streuung der Beschleunigung beim Start; die
+    Startgerade schaetzt sie nicht, sondern setzt sie null. UNTERSCHAETZEN
+    IST DER TEURE FEHLER: ein zu sicherer Start wird nur langsam
+    korrigiert, ein zu unsicherer kostet nur die ersten Schritte.
 
-    a_unbekannt ist die Streuung der Beschleunigung beim Start, px/s^2.
-    Die Startgerade schaetzt Ort und Geschwindigkeit, die Beschleunigung
-    setzt sie null. UNTERSCHAETZEN IST DER TEURE FEHLER: ein zu sicherer
-    Start wird nur langsam korrigiert, ein zu unsicherer kostet nur die
-    ersten Schritte. Haengt am Datensatz, deshalb ein Feld.
+    Die Vorgaben sind der Arbeitspunkt von STELLA, am Datensatz kalibriert;
+    batch1 setzt fitsatz=batch1.
     """
     r_mess: float = 3.0
     q_c: float = 1e7
@@ -586,7 +568,10 @@ class Fit(_Typed):
 class Labeling(_Typed):
     """Stufe [1]. Bewusst OHNE Zeitfenster: Labels gelten IMMER fuer den
     ganzen Run. Ein Teilfenster bricht spaeter in evaluate.align_gt_window
-    ("Wurde die Label-Datei ueber den GANZEN Run erzeugt?")."""
+    ("Wurde die Label-Datei ueber den GANZEN Run erzeugt?").
+    r_assign, px: Radius um das naechste Zentrum, am Datensatz kalibriert;
+    neu bestimmbar mit tools/schaetzer/stufe1_parameter_schaetzer.py.
+    r_ambig, px: Mindestvorsprung des naechsten Zentrums vor dem zweiten."""
     r_assign: float = 5.5
     r_ambig: float = 2.0
 
@@ -608,13 +593,15 @@ class Window(_Typed):
     wird.
 
     None heisst "ab Anfang" bzw. "ganzer Run" -- load_events kennt das
-    ohnehin. Sinnvoll bei animate_run und beim Abschreiten eines Runs; ein
-    ganzer Run in EINER Solve-Instanz waere ein VRAM-Selbstmord.
+    ohnehin. Sinnvoll bei animate_run und beim Abschreiten eines Runs
+    ([5a]). Fuer [4] nicht auf None setzen: scripts/solve_with_nn.py ist
+    dafuer nicht ausgelegt, und ohne Ausschnitt wuerde der ganze Run EIN
+    Graph, dessen Groesse mit der Eventzahl des Runs waechst.
     """
     
-    # Vorgabe ist der alte Ankerpunkt und heute vor allem fuer Tests
-    # brauchbar: jeder rechnende Aufrufer setzt seinen Ausschnitt selbst,
-    # der Treiber auf None/None (ganzer Run).
+    # t0 und dt in µs. Die Vorgabe ist ein kurzes Fenster fuer Einzelsolves
+    # und Tests: jeder rechnende Aufrufer setzt seinen Ausschnitt selbst,
+    # der Treiber [5a] auf None/None (ganzer Run).
     t0: int | None = 1_700_000
     dt: int | None = 20_000
 
@@ -673,12 +660,11 @@ class IO(_Typed):
 class Overlap(_Typed):
     """Werkzeug: Runs nach Partikel-Ueberlappung klassifizieren.
 
-    box_w ist hier die Schwelle fuer "nah" und keine Umrechnung -- die
-    Boxmitte kommt aus den Spalten. Der Name ist historisch; solange er
-    steht, ist er nicht mit einer Boxgroesse zu verwechseln.
-    cross_thresh und mean_clean_max sind EMPIRISCH
-    an den Ergebnissen kalibriert, nicht hergeleitet -- wer sie aendert,
-    aendert die Run-Listen.
+    box_w ist hier die Schwelle fuer "nah", in px, und keine Umrechnung --
+    die Boxmitte kommt aus den Spalten. Der Name ist nicht mit einer
+    Boxgroesse zu verwechseln.
+    cross_thresh und mean_clean_max sind EMPIRISCH am Datensatz kalibriert,
+    nicht hergeleitet -- wer sie aendert, aendert die Run-Listen.
     """
     box_w: float = BOX_W
     cross_thresh: float = 1.4
@@ -690,8 +676,7 @@ class AnimRun(_Typed):
     """Darstellung [A]: ganzer Run, Farbe = Polaritaet.
 
     Konfiguration, die keine Zahl beruehrt: keine Konsistenz, keine
-    Identitaet. Framezahl = dt / frame_ms -- ueber ~100 wird das GIF
-    unhandlich.
+    Identitaet. Framezahl = Dauer in µs / (frame_ms * 1000 * speedup).
     """
     frame_ms: float = 20.0
     speedup: float = 1.0        # > 1 ueberspringt Frames
@@ -701,7 +686,7 @@ class AnimRun(_Typed):
 
 @dataclass
 class AnimClusters(_Typed):
-    """Darstellung [B]: Roh | Cluster | GT nebeneinander.
+    """Darstellung [B] und [C]: Roh | Cluster | GT nebeneinander.
 
     color_by entscheidet, WAS man sieht (visualize.py):
       "cluster" eigene Farbe je Cluster  -> FRAGMENTIERUNG sichtbar
@@ -738,10 +723,9 @@ class AnimTraj(_Typed):
     bleibt. Hier soll sie verschwinden. 0 zeigt Momentaufnahmen.
 
     min_size wirkt auf BEIDE Panels, deren Cluster sich um Groessen-
-    ordnungen unterscheiden: ein Tracklet hat rund 150 Events, eine
-    Trajektorie ueber hunderttausend. Ein Wert, der rechts die Bruchstuecke
-    ausgraut, graut links fast alles aus. Vorgabe deshalb am
-    Kandidatenfilter orientiert.
+    ordnungen unterscheiden: eine Trajektorie traegt die Events vieler
+    Tracklets. Ein Wert, der rechts die Bruchstuecke ausgraut, graut links
+    fast alles aus; der Wert ist ein Kompromiss zwischen beiden Panels.
     """
     frame_ms: float = 20.0
     trail_ms: float = 20.0
@@ -759,7 +743,7 @@ class AnimTraj(_Typed):
 
 
 # ============================================================
-# Stufen-Konfigurationen (Zusammensetzung = Abhaengigkeitskette §5)
+# Stufen-Konfigurationen: ihre Zusammensetzung IST die Abhaengigkeitskette
 # ============================================================
 
 
@@ -849,7 +833,7 @@ class Stufe2Cfg:
 class Solve2Cfg:
     """[6c] Ein Stufe-2-Solve, ein Run.
 
-    Traegt die ganze Kette: Arbeitspunkt, Netz von Stufe 1, dessen
+    Traegt die ganze Kette: Nachbarschaft, Netz von Stufe 1, dessen
     Solver-Betriebspunkt, den Kandidatensatz und das Stufe-2-Netz. Erst
     `solver2` gehoert zu diesem Schritt.
 
@@ -871,7 +855,7 @@ class Solve2Cfg:
 
 @dataclass
 class FitCfg:
-    """Baustein [7]: liest die Partition von [6c], schreibt die Bahnen.
+    """Stufe [7]: liest die Partition von [6c], schreibt die Bahnen.
 
     Traegt die ganze Kette, weil der Dateiname beide Solver und den Fit
     nennt. Kein `window`: gefittet wird der ganze Run.

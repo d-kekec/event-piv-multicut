@@ -17,8 +17,8 @@ from eventpiv.kern.status import STATUS_AMBIG, STATUS_CLEAN, STATUS_NOISE
 def cluster_metrics_naiv(labels, track_id, status, t=None):
     """Referenz: direkte Schleifen, keine Tricks.
 
-    Deckt bewusst ALLE Felder ab, nicht nur die urspruenglichen: sonst
-    laufen neue Kennzahlen ungeprueft mit, und genau dort sitzen die Fehler
+    Deckt bewusst ALLE Felder ab: sonst laufen neue Kennzahlen
+    ungeprueft mit, und genau dort sitzen die Fehler
     (purity_event_mean nimmt hier den anderen Rechenweg -- Summe ueber
     Reinheit x Groesse statt Summe der Mehrheitsanteile).
     """
@@ -157,7 +157,8 @@ def test_align_findet_das_fenster():
 
 
 def test_align_mit_doppelten_zeitstempeln():
-    """Genau der Fall, an dem die alte Zeitmasken-Loesung scheiterte."""
+    """Gleiche Zeitstempel an der Fenstergrenze: eine Zeitmaske naehme alle
+    drei 20er, geladen sind nur zwei."""
     gt_t = np.array([10, 20, 20, 20, 30, 40])
     ev_t = np.array([20, 20])            # nur ZWEI der drei 20er geladen
     sl = align_gt_window(gt_t, ev_t)
@@ -268,8 +269,8 @@ def test_align_grenzfall_lauter_gleicher_zeitstempel():
     Teilfolge in den Zeitstempeln zwangslaeufig ueberein -- der Abgleich
     liefert dann Position 0..n-1 statt der tatsaechlichen Indizes. Real
     tritt das nicht auf: der Ausschnitt muesste ueber seine volle Laenge
-    zeitstempelkonstant sein, bei ~4 Events je µs also hoechstens eine
-    Handvoll Events lang.
+    zeitstempelkonstant sein, bei den Eventraten der Datensaetze also
+    hoechstens eine Handvoll Events lang.
     """
     gt_t = np.full(8, 10)
     sl = align_gt_window(gt_t, gt_t[::2])
@@ -486,9 +487,9 @@ def test_merge_metrics_mit_teilmenge():
 def test_kreuztabelle_zellen_von_hand():
     """Die ungefaltete Kreuztabelle, von Hand ausgezaehlt.
 
-    _kreuztabelle war bisher nur ueber cluster_metrics und merge_metrics
-    mitgeprueft. Die zell_-Felder gehen in keine der beiden ein, waeren
-    dort also unbeobachtet.
+    Ueber cluster_metrics und merge_metrics allein waere _kreuztabelle nur
+    mittelbar geprueft: die zell_-Felder gehen in keine der beiden ein,
+    blieben dort also unbeobachtet.
 
       Cluster 0: 3x GT 5, 1x GT 7
       Cluster 2: 2x GT 7
@@ -514,12 +515,12 @@ def test_kreuztabelle_zellen_ohne_bewertbare_events():
 
 
 def hota_naiv(labels, track_id, status):
-    """Referenz nach den DEFINITIONEN des Papers, ueber Detektionspaare.
+    """Referenz nach den DEFINITIONEN des HOTA-Papiers, ueber Detektionspaare.
 
-    Gleichungen 10 bis 12: fuer jedes TP c werden TPA(c), FNA(c) und
-    FPA(c) explizit ausgezaehlt. Die produktive Fassung rechnet
-    stattdessen auf Zellzahlen der Kreuztabelle -- das ist die
-    Abkuerzung, die das Paper selbst nennt, und genau die gehoert
+    Luiten et al., IJCV 2021, Gleichungen 10 bis 12: fuer jedes TP c werden
+    TPA(c), FNA(c) und FPA(c) explizit ausgezaehlt. Die produktive Fassung
+    rechnet stattdessen auf Zellzahlen der Kreuztabelle -- das ist die
+    Abkuerzung, die das Papier selbst nennt, und genau die gehoert
     gegen die Definition geprueft.
 
     Die fuenf Kennzahlen aus der Verteilung entstehen hier durch
@@ -616,7 +617,7 @@ def test_hota_perfekte_partition():
 
 
 def test_hota_reduziert_sich_bei_einem_partikel_auf_jaccard():
-    """Gleichung 31 des Papers: bei genau EINEM Partikel fallen
+    """Gleichung 31 des HOTA-Papiers: bei genau EINEM Partikel fallen
     Detektions- und Assoziationsscore zusammen, die Wurzel hebt die
     Doppelzaehlung auf, und HOTA ist der reine Jaccard-Index.
 
@@ -650,9 +651,8 @@ def test_mehrdeutige_events_sind_keine_false_positives():
 
 
 def test_rauschen_im_cluster_ist_ein_false_positive():
-    """Die einzige FP-Quelle: ein Rauschevent in einer Trajektorie.
-    Nach Journal 15.08. sind Rausch-Tracklets in echte Trajektorien
-    eingewandert -- bisher erfasst das keine Kennzahl."""
+    """Die einzige FP-Quelle: ein Rauschevent in einer Trajektorie. Daran
+    wird sichtbar, wenn Rausch-Tracklets in echte Trajektorien einwandern."""
     from eventpiv.bewerten.evaluate import tracking_metrics
 
     m = tracking_metrics(np.zeros(3, np.int64), np.array([1, 1, -1]),
@@ -747,10 +747,10 @@ def test_je_partikel_leer():
 
 
 def test_viele_kleine_stuecke_werden_nicht_kleingerechnet():
-    """Der Fehler, den eine 10-%-Schwelle gemacht haette: dreizehn
-    Stuecke zu je 7,7 % lagen ALLE darunter und wurden als null
-    substanzielle Cluster gezaehlt -- je schlimmer der Fall, desto
-    kleiner die Zahl. n_cluster_eff ist monoton."""
+    """Eine 10-%-Schwelle zaehlte hier falsch: dreizehn Stuecke zu je
+    7,7 % liegen ALLE darunter und ergaeben null substanzielle Cluster --
+    je schlimmer der Fall, desto kleiner die Zahl. n_cluster_eff ist
+    monoton."""
     from eventpiv.bewerten.evaluate import tracking_metrics_je_partikel
 
     gt = np.ones(26, np.int64)
@@ -999,7 +999,7 @@ def _bbox_mit_zeiten(t):
 
 def test_gt_raster_dt_von_hand():
     """60 Hz auf ganzzahligen Zeitstempeln: die Abstaende wechseln
-    zwischen 16.666 und 16.667 µs. Eine Gleichheitspruefung scheiterte
+    zwischen 16.666 und 16.667 µs. Eine Gleichheitspruefung scheitert
     daran, der Median nicht."""
     from eventpiv.bewerten.evaluate import gt_raster_dt
 
@@ -1088,7 +1088,7 @@ def test_fa_hota_gegen_naive_referenz(seed):
 
 
 def test_fa_hota_gleich_hota_ohne_zerreissung():
-    """Kernaussage des Papiers: FA-HOTA faellt mit HOTA zusammen, wenn
+    """Kernaussage des HOTA-Papiers: FA-HOTA faellt mit HOTA zusammen, wenn
     keine Fragmentierung auftritt (F = A)."""
     from eventpiv.bewerten.evaluate import fa_hota_metrics, tracking_metrics
 
@@ -1100,7 +1100,7 @@ def test_fa_hota_gleich_hota_ohne_zerreissung():
 
 
 def test_fa_hota_unter_hota_bei_zerreissung():
-    """Fig. 5 des Papiers: gleiche Assoziation, verschiedene
+    """Fig. 5 des HOTA-Papiers: gleiche Assoziation, verschiedene
     Fragmentierung. Zwei Cluster im Wechsel gegen zwei Bloecke -- HOTA
     identisch, FA-HOTA nicht."""
     from eventpiv.bewerten.evaluate import fa_hota_metrics, tracking_metrics
@@ -1170,8 +1170,8 @@ def test_rasterung_rettet_fa_hota_vor_der_fn_dichte():
 
 
 def test_fa_hota_hoechstens_hota_auf_demselben_strom():
-    """Die Invariante des Papiers: F <= A, also fa_hota <= hota_einheiten,
-    mit Gleichheit genau dann, wenn nichts zerrissen ist."""
+    """Die Invariante des HOTA-Papiers: F <= A, also fa_hota <=
+    hota_einheiten, mit Gleichheit genau dann, wenn nichts zerrissen ist."""
     from eventpiv.bewerten.evaluate import fa_hota_metrics
 
     gt = np.ones(8, np.int64)

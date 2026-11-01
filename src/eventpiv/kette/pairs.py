@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-pairs.py -- BAUSTEIN [2]: Paar-Datensatz fuer das Kantenkosten-NN.
+pairs.py -- Stufe [2]: Paar-Datensatz fuer das Kantenkosten-NN.
 
 Erzeugt Trainingspaare aus gelabelten Runs. Jedes Paar:
   - stammt aus der (alpha, r_max)-Nachbarschaft OHNE k-NN, ueber
@@ -25,19 +25,18 @@ Laenge `neighborhood.alpha`, harter Schnitt. Ein Paar ueber eine
 Fenstergrenze kann in Stufe 1 nicht entstehen, also darf es hier nicht
 gelernt werden.
 
-BEIDE KLASSEN aus DENSELBEN Fenstern, ausschliesslich aus Overlap-Runs --
-saubere Runs liefern physikalisch null NEIN. Fenster ohne NEIN gehoeren
-dazu: ihre JA-Paare sind Teil der Einsatzverteilung.
+BEIDE KLASSEN aus DENSELBEN Fenstern -- auf batch1 deshalb nur aus
+Overlap-Runs, saubere liefern dort physikalisch null NEIN. Fenster ohne
+NEIN gehoeren dazu: ihre JA-Paare sind Teil der Einsatzverteilung.
 
-RAM: ein Run liefert bei voller Abdeckung ueber eine Milliarde JA-Paare.
-Geduennt wird deshalb IM Fenster (`ja_frac`), NEIN vollstaendig. Am Ende
-jedes Runs wird JA auf `ja_vorrat` mal NEIN getrimmt. Die ROHEN
-Klassenzahlen laufen mit, sonst waere die Einsatzverteilung danach nicht
-mehr rekonstruierbar.
+RAM (Begruendung in kern.runconfig.PairSampling): geduennt wird IM
+Fenster (`ja_frac`), NEIN vollstaendig. Am Ende jedes Runs wird JA auf
+`ja_vorrat` mal NEIN getrimmt. Die ROHEN Klassenzahlen laufen mit, sonst
+waere die Einsatzverteilung danach nicht mehr rekonstruierbar.
 """
 from __future__ import annotations
 
-import resource          # Unix-only; SLURM buchhaltet Speicher hier nicht
+import resource          # Unix-only; Spitzenspeicher selbst gemessen
 import time
 import json
 from pathlib import Path
@@ -70,14 +69,13 @@ def collect_pairs(t, x, y, track_id, status, *, alpha, r_max, geom, v_max,
         bauten verschiedene Graphen, und das faellt an keiner Kennzahl auf.
 
     ja_frac : Anteil der je Fenster gezogenen JA-Paare. NEIN bleibt
-        vollstaendig, es ist die knappe Klasse -- mit mehrdeutigen
-        Endpunkten gemessen 94:1 (run32) bis 307:1 (run61).
+        vollstaendig, es ist die knappe Klasse.
     fenster_schritt : jedes n-te Fenster. Betrifft nur, WIE VIELE Fenster
         abgeschritten werden, nicht ihren Inhalt.
     rng : vom Aufrufer, damit die ganze Sammlung an EINEM Seed haengt.
 
-    Rueckgabe: (data, zaehler). data hat dt, dx, dy, label (ohne 'run');
-    zaehler die ROHEN Klassenzahlen vor dem Ziehen.
+    Rueckgabe: (data, zaehler). data hat dt, dx, dy, jac, label (ohne
+    'run'); zaehler die ROHEN Klassenzahlen vor dem Ziehen.
     """
     t = np.asarray(t, dtype=np.float64)
     x = np.asarray(x, dtype=np.float64)
@@ -103,8 +101,7 @@ def collect_pairs(t, x, y, track_id, status, *, alpha, r_max, geom, v_max,
         return leer, zaehler
 
     # Anstossende Fenster ab dem ERSTEN Event. searchsorted statt Masken:
-    # bei 800 Fenstern und 17 Mio. Events der Unterschied zwischen
-    # Sekunden und Minuten.
+    # eine Maske je Fenster durchliefe jedes Mal den ganzen Run.
     grenzen = np.searchsorted(t, np.arange(t[0], t[-1], alpha))
     grenzen = np.append(grenzen, len(t))
 
@@ -151,8 +148,7 @@ def collect_pairs(t, x, y, track_id, status, *, alpha, r_max, geom, v_max,
             zaehler["n_fenster_ohne_nein"] += 1
 
         # NEIN vollstaendig, JA anteilig. Bernoulli statt fester Anzahl:
-        # die Fenster tragen sehr verschieden viele Paare (Median 2,7 Mio.,
-        # Maximum 11,4 Mio.).
+        # die Fenster tragen sehr verschieden viele Paare.
         idx_ja = np.flatnonzero(ja)
         gezogen = idx_ja[rng.random(len(idx_ja)) < ja_frac]
         sel = np.concatenate([np.flatnonzero(~ja), gezogen])
@@ -196,7 +192,8 @@ def cap_per_class(data: dict, max_ja, max_nein, rng) -> dict:
 def build_pairs_for_run(cfg: PairCfg, run_nr, rng):
     """Laedt die Label-Datei eines Runs und sammelt daraus Paare.
 
-    Ein Gang je Run, beide Klassen. Rueckgabe: (data, zaehler).
+    Ein Gang je Run, beide Klassen. Rueckgabe: (data, zaehler, lb), lb =
+    (labeling, label_format) aus dem meta-Block der Label-Datei.
     """
     nb, ps = cfg.neighborhood, cfg.pairs
     path = (Path(cfg.io.label_dir) / f"run{run_nr}_eventlabels.npz"
@@ -210,8 +207,8 @@ def build_pairs_for_run(cfg: PairCfg, run_nr, rng):
         # welche Parameter diese Labels erzeugt haben, weiss nur sie.
         meta = json.loads(str(d["meta"]))
         lb = (meta.get("labeling"), meta.get("label_format"))
-        # VOR dem float64-Cast in collect_pairs: bei polarity="on" halbiert
-        # das nebenbei den festen Speicheraufwand je Run.
+        # VOR dem float64-Cast in collect_pairs: bei polarity="on" spart
+        # das nebenbei den Speicher der OFF-Events.
         m = polarity_mask(d["p"], nb.polarity)
         daten, zaehler = collect_pairs(
             d["t"][m], d["x"][m], d["y"][m], d["track_id"][m], d["status"][m],
@@ -357,14 +354,13 @@ def build_pair_dataset(cfg: PairCfg, verbose=True, on_summary=None):
         "n_roh_ja_ambig": roh_ja_ambig,
         "n_roh_nein_ambig": roh_nein_ambig,
         "n_roh_rausch": roh_rausch,
-        # Die Kennzahl des Umbaus: welcher Anteil der NEIN-Paare ueberhaupt
-        # erst durch mehrdeutige Endpunkte entsteht. Gemessen 0,65 (run32)
-        # bis 0,83 (run61).
+        # Anteil der NEIN-Paare, die erst durch mehrdeutige Endpunkte
+        # entstehen: so viel haengt an der Entscheidung, sie zuzulassen.
         "ambig_anteil_nein": (roh_nein_ambig / roh_nein
                               if roh_nein else float("nan")),
         # DIAGNOSE, kein Sollwert: die Schwelle setzt bereits das
-        # Untersampeln, und ein Versatz hierauf machte fast jede Kante
-        # positiv.
+        # Untersampeln. Ueberwiegt JA in den rohen Klassen stark, macht ein
+        # Versatz um diesen Wert fast jede Kante positiv.
         "logit_prior_roh": (float(np.log(roh_ja / roh_nein))
                             if roh_ja and roh_nein else float("nan")),
         "n_fenster": n_fenster,

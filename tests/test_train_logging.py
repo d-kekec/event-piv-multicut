@@ -52,8 +52,8 @@ def test_epoch_liegt_flach():
     assert zeile["epoch"] == 7
 
 def test_beide_mengen_getrennt():
-    """Ohne die oberste Ebene waere "tp" mehrdeutig, seit es zwei Matrizen
-    gibt. Das ist der Grund fuer die Verschachtelung."""
+    """Ohne die oberste Ebene waere "tp" mehrdeutig, denn es gibt zwei
+    Matrizen. Das ist der Grund fuer die Verschachtelung."""
     zeile = flatten(_epochenzeile(1, 0.4, _beispiel(tp=1), _beispiel(tp=9), 0.4))
     assert zeile["train/cm/tp"] == 1
     assert zeile["holdout/cm/tp"] == 9

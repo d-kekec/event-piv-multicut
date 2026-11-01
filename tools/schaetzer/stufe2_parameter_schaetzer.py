@@ -3,7 +3,7 @@
 """
 stufe2_parameter_schaetzer.py -- Belege fuer die Gruppe kandidaten.
 
-Liest das Tracklet-Artefakt (A) aus Stufe 1 und liefert, woraus Stufe 2
+Liest das Artefakt (A) aus Stufe 1 und liefert, woraus Stufe 2
 ihre Parameter waehlt:
 
   min_events, n_events   Groessenverteilung der Tracklets, Filterkurve,
@@ -15,25 +15,27 @@ ihre Parameter waehlt:
                          die Drift als Steigung der Huelle
 
 WOHER DIE DATEIEN KOMMEN. Ohne --quelle aus den Vorgaben von runconfig,
-also dem Arbeitspunkt von batch1. Die Gruppen eines anderen Datensatzes
-(neighborhood=stella usw.) erreichen ein Werkzeug nicht -- tools/ kennt
+also dem Arbeitspunkt von STELLA. Die Gruppen eines anderen Datensatzes
+(neighborhood=batch1 usw.) erreichen ein Werkzeug nicht -- tools/ kennt
 kein Hydra; dort zeigen die Vorgaben ins Leere und die Suche bricht laut
 ab. Fuer jeden anderen Datensatz das Verzeichnis mit --quelle angeben.
 alpha1, Polaritaet, Split und Run stehen im meta der Dateien und werden
 dort gelesen, nicht eingetippt.
 
 OHNE --gt nur (A): n_on je Tracklet ist ein bincount ueber tracklet_id,
-genau die Groesse, auf die knoten_bauen filtert. Billig, laeuft auf rema.
+genau die Groesse, auf die knoten_bauen filtert. Billig: liest nur (A).
 
 MIT --gt zusaetzlich Eventstrom und Labels, ueber lade_fenster und
 knoten_bauen wie in [6a]: dieselben Zentroide, dieselbe Mehrheit, keine
-Nachbildung. Auf dichten Runs zu gross fuer rema -- ein Compute-Node-Job.
+Nachbildung. Braucht auf dichten Runs viel Arbeitsspeicher.
 
-Aufruf (Repo-Wurzel, venv aktiv, eventpiv_use passend zu den Dateien):
+Aufruf aus der Repo-Wurzel, ohne Hydra. EVENTPIV_DATA und EVENTPIV_OUT
+muessen zu den Dateien passen (scripts/_cli.py). <tracklets> ist das
+Verzeichnis der Dateien, die build_tracklets hinter "->" meldet.
     python tools/schaetzer/stufe2_parameter_schaetzer.py
-    python tools/schaetzer/stufe2_parameter_schaetzer.py --quelle $A --runs 8 18
-    python tools/schaetzer/stufe2_parameter_schaetzer.py --gt --quelle $A
-        --runs 18 30 66 80 --json ~/tmp/stufe2_schaetzer.json
+    S=tools/schaetzer/stufe2_parameter_schaetzer.py
+    python $S --quelle <tracklets> --runs 8 18
+    python $S --gt --quelle <tracklets> --runs 18 30 66 80 --json <ziel>.json
 """
 from __future__ import annotations
 
@@ -64,12 +66,12 @@ def dateien(split: str, quelle, suffix, runs):
 
     Gesucht statt geraten: welche Runs gebaut wurden, weiss das
     Verzeichnis, nicht die Konfiguration. glob("*.npz") greift nur eine
-    Ebene tief -- features/ und stufe2/ liegen darunter und stoeren nicht.
+    Ebene tief -- stufe2/ liegt darunter und stoert nicht.
 
-    Ohne quelle aus den Vorgaben von runconfig (batch1), sonst das
+    Ohne quelle aus den Vorgaben von runconfig (STELLA), sonst das
     angegebene Verzeichnis. suffix ist der Solve-Teil des Dateinamens,
-    Vorgabe Solver().short(), also "P"; die drjac-Tracklets tragen
-    "P_o0.5". Ein angefragter Run, der fehlt, bricht ab, statt still zu
+    Vorgabe Solver().short(); mit solver.cost_offset=0.5 kommt "_o0.5"
+    dazu. Ein angefragter Run, der fehlt, bricht ab, statt still zu
     fehlen.
     """
     if quelle:
@@ -137,11 +139,11 @@ def kurve(on_je_run: dict, on_ges, werte) -> str:
 def kleinbild(on_ges, bis: int = 50) -> str:
     """Die Verteilung genau dort, wo der Filter schneidet.
 
-    Der Befund vom 14.08.2026 war eine LUECKE zwischen etwa 5 und 20
-    Events -- zwei Gipfel, dazwischen fast nichts. Ein Mittelwert kann sie
-    nicht zeigen, ein Quantil auch nicht. Die letzte Zeile sammelt alles
-    ab `bis` und geht bewusst NICHT in die Skalierung ein, sonst
-    verschwaende der grosse Gipfel den ganzen Bereich davor.
+    Gesucht ist eine LUECKE zwischen zwei Gipfeln, in der fast nichts
+    liegt (kurve). Ein Mittelwert kann sie nicht zeigen, ein Quantil auch
+    nicht. Die letzte Zeile sammelt alles ab `bis` und geht bewusst NICHT
+    in die Skalierung ein, sonst verschwaende der grosse Gipfel den ganzen
+    Bereich davor.
     """
     h = np.bincount(np.minimum(on_ges, bis), minlength=bis + 1)
     hoch = max(int(h[1:bis].max()), 1)
@@ -154,10 +156,9 @@ def kleinbild(on_ges, bis: int = 50) -> str:
 def beschreibe(n_on) -> dict:
     """Lagemasse einer Eventzahl-Verteilung.
 
-    Mittel und Standardabweichung stehen dabei, weil der Betreuer sie
-    verlangt -- ueber die UNGETEILTE Verteilung sind sie irrefuehrend, weil
-    sie zweigipflig ist. Deshalb immer zusammen mit den Quantilen lesen und
-    getrennt nach den beiden Gipfeln.
+    Mittel und Standardabweichung stehen dabei, sind ueber die UNGETEILTE
+    Verteilung aber irrefuehrend, wenn sie zweigipflig ist. Deshalb immer
+    zusammen mit den Quantilen lesen und getrennt nach den beiden Gipfeln.
     """
     if len(n_on) == 0:
         return {"n": 0}
@@ -218,8 +219,8 @@ def auswerten(n_on, n_gt, grenze: int, schwellen) -> dict:
     for s in schwellen:
         out[f"ge{s}_frac"] = (float((behalten >= s).mean())
                               if len(behalten) else float("nan"))
-    # Der Schwanz, fuer den Betreuer und fuer die Wahl von n_events: ein
-    # Tracklet mit tausend Events wird von 32 Token zu 3 % abgebildet.
+    # Der Schwanz, fuer die Wahl von n_events: ein Tracklet mit tausend
+    # Events bilden n_events Tokens nur zu n_events/1000 ab.
     for s in (500, 1000, 2000):
         out[f"ueber{s}"] = int((n_on >= s).sum())
         out[f"ueber{s}_frac"] = float((n_on >= s).mean())
@@ -285,13 +286,13 @@ def gt_messung(pfad, tid, meta, n_fenster: int, min_events: int):
     stehen. Eine eigene Funktion, damit Strom und Knoten mit dem Ruecksprung
     freigegeben werden -- auf dichten Runs sind das viele GB.
 
-    Der Zentroidabstand rechnet nur ueber Knoten, die [6a] bilden wuerde,
-    also ab min_events. Kruemel darunter haben Zentroide aus ein bis vier
-    Events, oft auf denselben Pixeln; mitgezaehlt beschriebe die Taille
-    die Kruemel statt der Knoten.
+    Der Zentroidabstand rechnet nur ueber Knoten ab --filter Events, wie
+    [6a] sie mit min_events = --filter bilden wuerde. Kruemel darunter haben
+    Zentroide aus wenigen Events, oft auf denselben Pixeln; mitgezaehlt
+    beschriebe die Taille die Kruemel statt der Knoten.
 
     Die Label-Datei muss unter derselben Ausgabewurzel liegen wie (A).
-    Sonst passt eventpiv_use nicht zu den Dateien, und das fiele erst am
+    Sonst passt EVENTPIV_OUT nicht zu den Dateien, und das fiele erst am
     Laengenvertrag auf -- oder gar nicht, haetten zwei Runs gleich viele
     Events.
     """

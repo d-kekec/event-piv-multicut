@@ -1,9 +1,8 @@
 # @package transformer
 #
-# Das Feld heisst `transformer`, die Gruppe `transformersatz` -- nach dem
-# Muster von kandidatensatz und fitsatz.
-#
-# Stufe-2-Netz fuer STELLA, ab [6b]. Zuschalten mit
-# `transformersatz=stella`. Die uebrigen Felder sind auf beiden
-# Datensaetzen gleich.
+# STELLA. Wiederholt die Vorgaben aus kern/runconfig.py, damit STELLA wie
+# batch1 ausdruecklich waehlbar ist und test_anker beide Datensaetze gleich
+# liest. Nicht genannte Felder kommen aus kern/runconfig.py. Zuschalten ab
+# [6b] mit `datensatz=stella kandidatensatz=stella transformersatz=stella`.
+# Die erste Zeile lenkt den Inhalt ins Feld `transformer`.
 epochs: 100

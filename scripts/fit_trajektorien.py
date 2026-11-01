@@ -2,14 +2,33 @@
 # -*- coding: utf-8 -*-
 """CLI-Huelle fuer eventpiv.kette.trajektorien -- Hydra, W&B, Aufruf.
 
-Getrennt vom Solve: der Fit rechnet auf der CPU, der Solve auf der GPU,
-und ein neuer Fit-Arbeitspunkt soll den Solve nicht wiederholen muessen.
+Stufe [7], getrennt vom Solve: der Fit rechnet auf der CPU, der Solve auf
+der GPU, und ein Fit mit anderen Parametern soll den Solve nicht
+wiederholen muessen.
 
 Ein W&B-Lauf je Run, ohne History -- ein Fit ist ein Ereignis.
 
-Beispielaufruf:
-    python scripts/fit_trajektorien.py selection.split=train \\
-        selection.runs=[32,40]
+Aufruf (allgemeine Bedienung: scripts/_cli.py). Ohne selection.runs und
+selection.run_nr alle Runs des Splits; vorhandene Fits bleiben stehen,
+io.overwrite=true fittet neu. Gelesen wird die Partition aus [6c], mit
+denselben Gruppen entstanden; fehlt sie, meldet das Skript WARN und nimmt
+den naechsten Run. Ohne Label-Datei entstehen Bahnen, aber keine
+Guetezahlen. Die train-Runs der Beispiele (8, 13, auf batch1 32) liegen im
+Trainingssatz des Netzes von [6b]; fuer Kennzahlen val nehmen. Auf batch1
+ohne fitsatz=batch1 fittet es still mit den Vorgaben, sichtbar nur am
+Fit-Slug im Dateinamen.
+  python scripts/fit_trajektorien.py 'selection.runs=[8]'
+  python scripts/fit_trajektorien.py selection.split=val
+  # batch1
+  E="datensatz=batch1 kandidatensatz=batch1 transformersatz=batch1"
+  python scripts/fit_trajektorien.py selection.split=train \\
+      'selection.runs=[32]' $E fitsatz=batch1
+  # ueber slurm/fit.sbatch (Bedarf in dessen Kopf): RUNS und SPLIT Pflicht;
+  # QC ist eine Liste fuer fit.q_c, durch Leerzeichen getrennt, je Wert ein
+  # Lauf; Overrides in EXTRA, EXTRA_SETS fuehrt mehrere Saetze nacheinander
+  # aus, durch ';' getrennt
+  RUNS="8 13" SPLIT=train sbatch slurm/fit.sbatch
+  RUNS="32" SPLIT=train EXTRA="$E fitsatz=batch1" sbatch slurm/fit.sbatch
 """
 import resource
 import time

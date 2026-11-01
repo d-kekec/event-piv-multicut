@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-train.py -- BAUSTEIN [3]: Training und Bewertung des Kantenkosten-Netzes.
+train.py -- Stufe [3]: Training und Bewertung des Kantenkosten-Netzes.
 
 p = sigmoid(logit), BCE gegen das Paar-Label "gleiches Partikel?".
 
@@ -12,8 +12,8 @@ Nachbarschaften machen die Paar-Trennung trivial, die AUC steigt, waehrend
 die Cluster zerfallen. Die Hierarchie lautet Fragmentierung > Reinheit >>
 AUC.
 
-Holdout NACH RUNS, stratifiziert: beide Klassen muessen drin sein, sonst
-werden AUC und TPR NaN. Ein Schnitt INNERHALB eines Runs waere Leakage --
+Holdout NACH RUNS, zufaellig gezogen und auf beide Klassen geprueft (sonst
+NaN in AUC und TPR). Ein Schnitt INNERHALB eines Runs waere Leakage --
 Paare desselben Runs zeigen dieselben Partikel auf denselben Bahnen.
 """
 from __future__ import annotations
@@ -109,7 +109,7 @@ def _epochenzeile(ep: int, loss_running: float, trn: dict, hold: dict,
     """Baut die Logzeile einer Epoche. VERSCHACHTELT, nicht flach.
 
     Die oberste Ebene sagt, WELCHE MENGE gemessen wurde -- ohne sie waere
-    "tp" mehrdeutig, seit es eine Trainings- UND eine Holdout-Matrix gibt.
+    "tp" mehrdeutig, weil es eine Trainings- UND eine Holdout-Matrix gibt.
 
     ZWEI VERLUSTE auf der Trainingsseite, und der Unterschied ist kein Detail:
       train/loss_running  laufender Mittel ueber die Minibatches -- gerechnet
@@ -153,12 +153,10 @@ def split_runs(label, run_arr, val_frac, rng):
     stark korreliert (dieselben Partikel, dieselbe Wolke), ein zufaelliger
     Paar-Split maesse Auswendiglernen statt Verallgemeinerung.
 
-    Frueher war ein Run eine JA- ODER eine NEIN-Quelle, und die Auswahl
-    schichtete danach. Jetzt traegt JEDER Run beide Klassen -- beide stammen
-    aus denselben Fenstern -- und es gibt nichts mehr zu schichten. An die
-    Stelle der Schichtung tritt die Pruefung des Ergebnisses: ein Run kann
-    sehr wenige NEIN tragen, und dann ist die Frage nicht, WIE gewaehlt
-    wurde, sondern OB es gereicht hat.
+    Nicht geschichtet: JEDER Run traegt beide Klassen, beide stammen aus
+    denselben Fenstern. Geprueft wird stattdessen das Ergebnis: ein Run
+    kann sehr wenige NEIN tragen, und dann ist die Frage nicht, WIE
+    gewaehlt wurde, sondern OB es gereicht hat.
 
     min(len-1, ...): mindestens EIN Run bleibt im Training. Ohne diese
     Schranke landeten bei zwei Runs beide im Holdout, der Trainingssatz
@@ -197,16 +195,12 @@ def evaluate(model, X, y, loss_fn=None) -> dict:
 
     SCHWELLE AM LOGIT, nicht an p: mathematisch dasselbe (sigmoid ist streng
     monoton), aber in float32 rundet sigmoid(x) fuer winzige negative x auf
-    exakt 0.5 -- die alte Schwelle zaehlte solche Kanten als JA, waehrend
-    RAMA sie am Vorzeichen als abstossend liest. Gemessener Unterschied ueber
-    20 Laeufe: unter 1.3e-7. Korrektheit im Prinzip, keine Fehlerbehebung
-    mit messbarer Folge -- die Uebereinstimmung mit dem Solver ist dafuer
-    exakt.
+    exakt 0.5 -- eine Schwelle an p zaehlte solche Kanten als JA, waehrend
+    RAMA sie am Vorzeichen als abstossend liest. Am Logit stimmt die
+    Zuordnung exakt mit dem Solver ueberein.
 
-    X kommt STANDARDISIERT herein. mu/sig standen frueher in der Signatur,
-    weil ein unsymmetrischer Merkmalsmodus daraus die Rohgroessen
-    zurueckrechnete, um ueber den Spaltentausch zu mitteln. Den Modus gibt
-    es nicht mehr, und rueckwaerts rechnen muss diese Funktion nie.
+    X kommt STANDARDISIERT herein; zurueck auf die Rohgroessen rechnet
+    diese Funktion nie.
 
     loss_fn : optional. Mit derselben Verlustfunktion wie im Training
         aufgerufen, damit train/loss und holdout/loss vergleichbar sind.
@@ -243,13 +237,13 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
     on_start : optional Callable, bekommt EINMAL vor der ersten Epoche das
         Datenblock-dict (Klassenverhaeltnisse, Standardisierung, Holdout).
         Getrennt von on_epoch, weil diese Werte konstant sind: als Verlauf
-        geloggt waeren es 30 identische Punkte. In W&B gehoeren sie nach
-        config/summary, nicht in die Historie. Und sie stehen fest, BEVOR
-        die erste Epoche laeuft -- bricht der Job ab, sind sie schon da.
+        geloggt waere es ein identischer Punkt je Epoche. In W&B gehoeren
+        sie nach config/summary, nicht in die Historie. Und sie stehen fest,
+        BEVOR die erste Epoche laeuft -- bricht der Job ab, sind sie schon da.
 
     Rueckgabe: (pfad, kennzahlen-dict). Die vollstaendige Historie steht
-    daneben in model.metrics.json, nicht im Checkpoint: 30 Epochen x 16
-    Felder haben in einer Gewichtsdatei nichts verloren.
+    daneben in model.metrics.json, nicht im Checkpoint: eine Zeile je
+    Epoche hat in einer Gewichtsdatei nichts verloren.
     """
     t_start = time.perf_counter()
     nb, ps, tr = cfg.neighborhood, cfg.pairs, cfg.training
@@ -390,8 +384,8 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
             opt.step()
             tot += loss.item() * len(bi)
 
-        # Auswertung auf BEIDEN Mengen, je Epoche. Kostet etwa die doppelte
-        # Laufzeit -- der Preis dafuer, Ueberanpassung in JEDER Kennzahl zu
+        # Auswertung auf BEIDEN Mengen, je Epoche. Kostet einen weiteren
+        # Durchgang -- der Preis dafuer, Ueberanpassung in JEDER Kennzahl zu
         # sehen statt nur im Verlust, und dafuer, dass es die
         # Konfusionsmatrix fuer beide Mengen gibt.
         hold = evaluate(model, Xva, yva, loss_fn)
@@ -412,12 +406,11 @@ def train_edge_nn(cfg: TrainCfg, verbose=True, on_epoch=None, on_start=None):
     
     # diag misst den LAUF, nicht die Herkunft der Datei -- die steht in
     # config.build_meta. Zwei Zeitangaben: sec_epochs ist Rechnen, sec_total
-    # enthaelt zusaetzlich das Laden ueber NFS. Klaffen sie auseinander, ist
-    # nicht das Netz langsam, sondern die Platte.
+    # enthaelt zusaetzlich das Laden. Klaffen sie auseinander, ist nicht das
+    # Netz langsam, sondern die Platte.
     #
-    # ru_maxrss ist unter Linux KILObytes. Selbst messen ist Pflicht: SLURM
-    # buchhaltet Speicher auf diesem Cluster nicht, sacct liefert eine leere
-    # MaxRSS-Spalte.
+    # ru_maxrss ist unter Linux KILObytes. Selbst gemessen, damit die Zahl
+    # nicht an der Speicherbuchhaltung des Schedulers haengt.
     diag = {
         "device": str(Xtr.device),
         "torch": torch.__version__,

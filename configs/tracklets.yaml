@@ -6,10 +6,9 @@ defaults:
   - datensatz: null
   - _self_
 
-# Der Treiber schreitet den GANZEN Run ab. Ohne diese beiden Zeilen griffen
-# die Vorgaben von Window (t0 = 1,7 s, dt = 20 ms), und der Lauf umfasste
-# ZWEI Fenster statt achthundert -- ohne Fehlermeldung, mit plausibel
-# aussehenden Zahlen.
+# Der Treiber schreitet den GANZEN Run ab. Ohne diese Zeilen griffe das
+# Vorgabefenster aus runconfig.Window, und der Lauf loeste nur diesen
+# Ausschnitt -- ohne Fehlermeldung.
 window:
   t0: null
   dt: null

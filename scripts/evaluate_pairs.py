@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""CLI-Huelle fuer eventpiv.kette.train.evaluate_on_dataset -- Hydra, W&B, Aufruf.
+"""CLI-Huelle fuer eventpiv.kette.train.evaluate_pairs_on_dataset.
 
 Liest configs/train.yaml, weil das Schema TrainCfg ist: bewertet wird ein
 Netz, und dessen Identitaet besteht aus neighborhood + pairs + training.
 Ein FREMDER Datensatz kommt ueber io.data_path herein.
+
+Aufruf (allgemeine Bedienung: scripts/_cli.py). Die Gruppen waehlen das
+Netz; ohne io.data_path wird gegen den eigenen Paar-Datensatz bewertet.
+Kein sbatch-Skript.
+  python scripts/evaluate_pairs.py io.data_path=<pfad>/pairs.npz
+  # einen Paar-Datensatz aus val-Runs baut [2] mit eigener Quelle; den
+  # Pfad meldet build_pair_dataset am Ende
+  python scripts/build_pair_dataset.py pairs.split=val 'pairs.runs=[<runs>]'
+  # batch1
+  python scripts/evaluate_pairs.py datensatz=batch1 io.data_path=<pfad>
 """
 from dataclasses import asdict
 

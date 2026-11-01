@@ -1,39 +1,10 @@
 # @package fit
 #
-# Das Feld heisst `fit`, die Gruppe `fitsatz` -- ein Verzeichnis
-# `configs/fit/` stuende neben der Treiberdatei configs/fit.yaml.
-#
-# Fit-Arbeitspunkt fuer den STELLA-Datensatz, ab [7]. Zuschalten mit
-# `datensatz=stella kandidatensatz=stella fitsatz=stella`.
-#
-# dt_aus: das GT-Raster des Datensatzes. trajektorien_metriken
-# interpoliert die Ausgabe linear auf die GT-Zeiten; ein groeberes Gitter
-# kostet dort Ortsfehler aus der Kruemmung.
-#
-# init_us: kurz gegen die Zeit, in der sich die Geschwindigkeit merklich
-# aendert. Die Startgerade misst die MITTLERE Geschwindigkeit ihres
-# Fensters, bei starker Kruemmung also nicht die am Bahnanfang.
-#
-# min_dauer_us: das Doppelte von init_us -- der Filter braucht das
-# Startfenster allein zum Einschwingen.
-#
-# c0, c1, beta: der Vorwaertsversatz haengt auf STELLA an der
-# Partikelgroesse und nicht an der Geschwindigkeit -- STELLAs eigene Form
-# beta*sigma_quer, beta = Versatz / sigma_quer (Journal 16.-18.09.,
-# 11.10.). c0 ist der feste Rest, der nicht an der Groesse haengt, aus
-# einem flachen Optimum auf val (Journal 17.-18.10.).
-#
-# spline_eps: Ziel-RMSE des Splines ueber den korrigierten Ort, aus der
-# Mitte eines flachen Tals auf val (Journal 17.-18.10.).
-#
-# r_mess: die Quervarianz der Eventwolke (Journal 16.-18.09.). Wirksam ist
-# nur q_c/r_mess; der Wert haelt die Kovarianz des Filters lesbar.
-#
-# q_c: aus der Mitte eines flachen Tals, nicht von seinem Rand -- das
-# Minimum liegt nicht fuer jeden Run an derselben Stelle (Journal 25.09.).
-#
-# a_unbekannt: in der Groessenordnung der Beschleunigungen auf STELLA.
-# Zu gross schadet nicht, zu klein schon.
+# STELLA. Wiederholt die Vorgaben aus kern/runconfig.py, damit STELLA wie
+# batch1 ausdruecklich waehlbar ist und test_anker beide Datensaetze gleich
+# liest. Nicht genannte Felder kommen aus kern/runconfig.py. Zuschalten ab
+# [7] mit `datensatz=stella kandidatensatz=stella transformersatz=stella
+# fitsatz=stella`. Die erste Zeile lenkt den Inhalt ins Feld `fit`.
 dt_aus: 1000.0
 init_us: 5000.0
 min_dauer_us: 10000.0

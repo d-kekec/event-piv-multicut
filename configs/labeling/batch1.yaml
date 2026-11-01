@@ -1,3 +1,3 @@
-# Labeling fuer batch1. Zuschalten mit `labeling=batch1`. r_ambig ist auf
-# beiden Datensaetzen gleich.
+# batch1. Nicht genannte Felder kommen aus kern/runconfig.py. Zuschalten mit
+# `labeling=batch1`; nur [1] kennt diese Gruppe, datensatz setzt sie nicht.
 r_assign: 8.0

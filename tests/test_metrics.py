@@ -66,8 +66,8 @@ def test_schwelle_null_zaehlt_als_ja():
 
 
 def test_schwelle_verschiebbar():
-    """Ein Kostenversatz verschiebt die Matrix -- der vorgesehene Regler fuer
-    Stufe 1 des Tracklet-Ansatzes: negativer Versatz kauft Reinheit mit
+    """Ein Kostenversatz verschiebt die Matrix -- der Regler von Stufe 1
+    (solver.cost_offset): negativer Versatz kauft Reinheit mit
     Fragmentierung, also FN gegen FP."""
     y, s = [1, 1, 0, 0], [3.0, 1.0, 2.0, -1.0]
     assert confusion(y, s, threshold=0.0)["fp"] == 1
@@ -182,8 +182,8 @@ def test_auc_gleichstaende_mitteln_sich_bei_grossen_mengen_weg():
     Stark quantisierte Scores (wie (dt, dr) sie erzeugen), aber viele Paare:
     np.argsort ist per Default instabil, die Gleichstaende werden durchmischt
     und das Ergebnis liegt praktisch auf dem korrekten Wert mit mittleren
-    Raengen. Dieser Test ist die Absicherung des Satzes "die dokumentierten
-    0.792 sind nicht betroffen".
+    Raengen. Dieser Test sichert, dass Kennzahlen auf grossen Paarmengen
+    davon nicht betroffen sind.
     """
     rng = np.random.default_rng(0)
     y = rng.integers(0, 2, 50_000)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""CLI-Huelle fuer eventpiv.kette.solve2 -- Hydra, W&B, Aufruf.
+"""CLI-Huelle fuer eventpiv.kette.solve2 -- Hydra, W&B, Aufruf. Stufe [6c].
 
 Ein W&B-Lauf JE RUN, ohne History: ein Solve ist ein Ereignis und keine
 Reihe. Das Netz wird EINMAL geladen und ueber alle Runs benutzt.
@@ -8,8 +8,27 @@ Reihe. Das Netz wird EINMAL geladen und ueber alle Runs benutzt.
 Je Run entstehen ZWEI Dateien: die Kennzahlen als JSON und die Partition
 als npz. Uebersprungen wird an der npz, weil sie die teure ist.
 
-Beispielaufruf:
-    python scripts/solve_stufe2.py selection.split=val selection.runs=[1]
+Aufruf (allgemeine Bedienung: scripts/_cli.py). Ohne selection.runs und
+selection.run_nr alle Runs des Splits; io.overwrite=true loest
+vorhandene neu. Gelesen werden das Netz aus [6b] und je Run (A) und [6a]
+desselben Splits, alle mit denselben Gruppen. Einen anderen Split waehlt
+nur selection.split: kandidaten.split benennt den Trainingsdatensatz des
+Netzes und steht in dessen Pfad. Die train-Runs der Beispiele (8, 13, auf
+batch1 32) liegen im Trainingssatz des Netzes; fuer Kennzahlen val nehmen.
+Auf batch1 ohne transformersatz=batch1 nimmt es still das Netz mit den
+Vorgaben, wenn eines gebaut ist.
+  python scripts/solve_stufe2.py 'selection.runs=[8]'
+  python scripts/solve_stufe2.py selection.split=val 'selection.runs=[<run>]'
+  # batch1
+  E="datensatz=batch1 kandidatensatz=batch1 transformersatz=batch1"
+  python scripts/solve_stufe2.py $E 'selection.runs=[32]'
+  # ueber slurm/solve2.sbatch (Bedarf in dessen Kopf): RUNS und SPLIT
+  # Pflicht; OFFSET ist eine Liste fuer solver2.cost_offset, durch
+  # Leerzeichen getrennt, je Wert ein Lauf; KD_RUNS ersetzt kandidaten.runs,
+  # Overrides in EXTRA, EXTRA_SETS fuehrt mehrere Saetze nacheinander aus,
+  # durch ';' getrennt
+  RUNS="8 13" SPLIT=train sbatch slurm/solve2.sbatch
+  RUNS="32" SPLIT=train EXTRA="$E" sbatch slurm/solve2.sbatch
 """
 from dataclasses import asdict, replace
 from pathlib import Path

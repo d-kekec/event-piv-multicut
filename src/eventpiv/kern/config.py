@@ -7,7 +7,7 @@ Einzige Stelle im Projekt, die weiss, WO etwas liegt. Kein anderes Modul
 enthaelt Hartpfade.
 
 Drei getrennte Wurzeln:
-  PROJECT_ROOT  Code/Configs/Docs   -- im Git-Repo
+  PROJECT_ROOT  Code und Configs    -- im Git-Repo
   DATA_ROOT     Rohdaten            -- ausserhalb, read-only, ueber $EVENTPIV_DATA
   OUT_ROOT      erzeugte Artefakte  -- ausserhalb, ueber $EVENTPIV_OUT
 
@@ -38,18 +38,18 @@ from eventpiv.kern.runconfig import slug
 def _find_project_root(start: Path) -> Path | None:
     """Repo-Wurzel, oder None ausserhalb des Repos.
 
-    None statt einer Ausnahme, weil PROJECT_ROOT nur zwei Verbraucher hat --
-    git_commit() und describe() --, und git_commit laut seinem Docstring nie
-    zum Abbruch fuehren darf. Bei einer regulaeren Installation in
-    site-packages liegt keine pyproject.toml oberhalb; dann meldet
-    git_commit 'unknown', und das ist die richtige Antwort.
+    None statt einer Ausnahme, weil PROJECT_ROOT im Paket nur zwei
+    Verbraucher hat -- git_commit() und describe() --, und git_commit laut
+    seinem Docstring nie zum Abbruch fuehren darf. Bei einer regulaeren
+    Installation in site-packages liegt keine pyproject.toml oberhalb; dann
+    meldet git_commit 'unknown', und das ist die richtige Antwort.
     """
     for kandidat in (start, *start.parents):
         if (kandidat / "pyproject.toml").is_file():
             return kandidat
     return None
 
-# Nur fuer configs/ und docs/ gedacht; Daten/Ausgaben NIE hierueber aufloesen.
+# Fuer git_commit, describe und Tests; Daten/Ausgaben NIE hierueber aufloesen.
 PROJECT_ROOT = _find_project_root(Path(__file__).resolve().parent)
 
 
@@ -162,7 +162,8 @@ def results_dir(create: bool = False) -> Path:
 # Konfigurationsfehler, der wie eine Messung aussieht. 
 # Nur Schreibstellen setzen create=True.
 def wp_dir(nb, create: bool = False) -> Path:
-    """Arbeitspunkt = Nachbarschaft. Wurzel aller abgeleiteten Artefakte."""
+    """Wurzel aller abgeleiteten Artefakte, benannt nach der Nachbarschaft.
+    Alles unter wp/ haengt von der Nachbarschaft ab."""
     return _ensure(OUT_ROOT / "wp" / slug(nb), create)
 
 
@@ -186,9 +187,8 @@ def solve_file(nb, ps, tr, sel, win, sv, create: bool = False) -> Path:
 def tracklet_file(nb, ps, tr, sel, sv, create: bool = False) -> Path:
     """Tracklets EINES Runs. Granularitaet Run, nicht Fenster.
 
-    Bei rund 800 Fenstern je Run und 100 Runs waeren fensterweise Artefakte
-    80 000 Dateien und ebenso viele W&B-Laeufe. Ein Fenster ist stattdessen
-    eine Zeile im Run-Artefakt.
+    Fensterweise Artefakte ergaeben eine Datei und einen W&B-Lauf je Fenster
+    und Run. Ein Fenster ist stattdessen eine Zeile im Run-Artefakt.
 
     Keine eigene Slug-Ebene: was zwei Tracklet-Artefakte desselben Netzes
     unterscheidet, ist der SOLVER, und der steht wie bei solve_file im
@@ -263,8 +263,8 @@ def fit_file(nb, ps, tr, sv, kd, tf, sel, sv2, ft,
              create: bool = False) -> Path:
     """Gefittete Bahnen EINES Runs [7]. Neben dem Solve, mit fit_-Praefix.
 
-    Der Fit-Slug steht im Dateinamen und nicht als Ebene: zwei
-    Arbeitspunkte des Fits sollen nebeneinander liegen, ohne den Baum zu
+    Der Fit-Slug steht im Dateinamen und nicht als Ebene: zwei Fits mit
+    verschiedenen Parametern sollen nebeneinander liegen, ohne den Baum zu
     vertiefen -- dieselbe Ueberlegung wie beim Solver.
     """
     p = solve2_file(nb, ps, tr, sv, kd, tf, sel, sv2, create)
@@ -303,9 +303,9 @@ def build_meta(**extra) -> dict:
     Speicher sind Messungen und gehoeren zu den Kennzahlen der Stufe.
 
     host und slurm_job_id machen ein Artefakt seinem Log zuordenbar
-    (logs/<jobname>-<jobid>.out), sind aber KEINE Identitaet: derselbe Solve
-    liefert auf allen drei Maschinen exakt dieselben Zahlen. Wer sie in die
-    Identitaet zoege, bekaeme fuer einen Lauf zwei Artefakte.
+    (logs/<jobname>-<jobid>.out), sind aber KEINE Identitaet: sie sagen, wo
+    gerechnet wurde, nicht was. Wer sie in die Identitaet zoege, bekaeme
+    fuer einen Lauf zwei Artefakte.
 
     slurm_job_id ist None ausserhalb von SLURM -- das ist die Information,
     nicht ein fehlender Wert.

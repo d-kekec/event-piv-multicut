@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-knoten.py -- BAUSTEIN [6a]: aus dem Tracklet-Artefakt die KNOTEN von Stufe 2.
+knoten.py -- Stufe [6a]: aus dem Tracklet-Artefakt die KNOTEN von Stufe 2.
 
   knoten_bauen  Tracklets als Zeilen: Zentroid, Zeitspanne, GT-Label
   stichprobe    n_events Rohevents je Knoten, plus Maske
@@ -18,12 +18,12 @@ DER VERTRAG zu (A) gilt unveraendert: tracklet_id hat EINEN Eintrag je
 ON-Event des Runs, in der Reihenfolge des polaritaetsgefilterten Stroms.
 Geprueft wird er an der Aufrufstelle -- diese Funktionen sehen nur Arrays.
 
-WARUM DIE STICHPROBE INS ARTEFAKT GEHOERT: 93 000 Knoten je Run mal 32
-Events sind rund 39 MB, dieselbe Groessenordnung wie (A) selbst. Damit ist
-die Auswahl EINGEFROREN: derselbe Knoten traegt in jedem Paar dieselben
-Events, im Training wie im Einsatz, und die Reproduzierbarkeit haengt
-nicht daran, dass jemand denselben Seed setzt. PREIS: Unterabtasten je
-Epoche als Augmentierung ist so nicht moeglich.
+WARUM DIE STICHPROBE INS ARTEFAKT GEHOERT: sie waechst mit Knotenzahl mal
+n_events, nicht mit der Eventzahl des Runs, und friert die Auswahl EIN:
+derselbe Knoten traegt in jedem Paar dieselben Events, im Training wie im
+Einsatz, und die Reproduzierbarkeit haengt nicht daran, dass jemand
+denselben Seed setzt. PREIS: Unterabtasten je Epoche als Augmentierung
+ist so nicht moeglich.
 """
 from __future__ import annotations
 
@@ -88,7 +88,7 @@ def mehrheit(kompakt, werte_n, schluessel):
 
     sieger = np.full(werte_n, -1, np.int64)
     # Bei Gleichstand gewinnt der groessere Schluessel -- willkuerlich, aber
-    # deterministisch, und der Fall ist bei 150+ Events selten.
+    # deterministisch, und der Fall ist bei grossen Tracklets selten.
     treffer = anzahl == best[k_grp]
     sieger[k_grp[treffer]] = s_u[k_s[treffer]]
 
@@ -105,10 +105,8 @@ def knoten_bauen(t_on, x_on, y_on, tracklet_id, *, min_events,
     tracklet_id. Events mit tracklet_id < 0 (kantenlose Knoten) fallen
     heraus, ebenso Knoten unter min_events.
 
-    min_events ist der Kandidatenfilter, und er ist kein Kompromiss: die
-    Groessenverteilung ist zweigipflig, unter 15 Events liegt das Mittel
-    bei 1,8, darueber bei 166,1, und dazwischen liegt fast nichts. Jede
-    Schwelle in dieser Luecke liefert dasselbe (Journal 14.08.2026).
+    min_events ist der Knotenfilter: kleinere Tracklets werden keine Knoten.
+    Begruendet bei kern.runconfig.Kandidaten.
 
     track_id und status_noise sind optional und nur beim Training
     vorhanden. Ohne sie fehlen die gt_-Spalten, alles andere bleibt.
@@ -180,13 +178,11 @@ def stichprobe(knoten: Knoten, t_on, x_on, y_on, *, n_events, seed):
       maske  (m, n_events) bool -- True = echtes Event
 
     FLOAT64 UND NICHT FLOAT32, obwohl das Artefakt float32 ablegt: float32
-    hat 24 signifikante Bits und stellt ganze Zahlen exakt bis 2^24 =
-    16.777.216 dar. Ein Run ist 8.000.000 µs lang, der Abstand zur Grenze
-    betraegt also Faktor 2. Das reicht heute -- die Reserve ist aber
-    kleiner als eine Groessenordnung, und ueberschritten wuerde sie STILL:
-    jeder Zeitstempel raste auf gerade Vielfache, ohne Meldung. Der
-    Aufrufer subtrahiert t_min und castet danach; dann liegen alle Werte
-    unter alpha, wo float32 exakt ist. VERSICHERUNG, keine Reparatur.
+    hat 24 signifikante Bits und stellt ganze Zahlen exakt nur bis 2^24 dar,
+    als µs also rund 16,8 s. Jenseits davon rasteten die Zeitstempel STILL
+    auf gerade Vielfache, ohne Meldung. Der Aufrufer subtrahiert t_min und
+    castet danach; dann liegen alle Werte unter alpha1, wo float32 exakt ist.
+    VERSICHERUNG, keine Reparatur.
 
     Knoten mit weniger als n_events Events fuellen die vorderen Spalten
     und lassen den Rest auf 0 stehen; die Maske traegt die Unterscheidung.
@@ -200,7 +196,7 @@ def stichprobe(knoten: Knoten, t_on, x_on, y_on, *, n_events, seed):
 
     Vektorisiert ueber einen Zufallsschluessel je Event und lexsort: das
     ist eine Ziehung ohne Zuruecklegen je Gruppe, ohne Schleife ueber
-    93 000 Knoten. Die Reihenfolge INNERHALB einer Zeile ist damit
+    die Knoten. Die Reihenfolge INNERHALB einer Zeile ist damit
     zufaellig, und das ist unschaedlich -- waere sie es nicht, waere das
     Modell falsch gebaut.
     """

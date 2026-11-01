@@ -11,7 +11,7 @@ from eventpiv.kette.pairs import collect_pairs
 # ja_frac=1.0 in den meisten Tests: sie pruefen die Fensterlogik, nicht das
 # Ziehen, und sollen deterministisch sein. rng wird trotzdem gebraucht.
 # v_max wirkt nur bei geom="hyperboloid"; hier steht der Vorgabewert aus
-# graph.py, damit die uebrigen Tests unveraendert bleiben.
+# graph.py.
 PARAMS = dict(alpha=1_000.0, r_max=5.0, geom="ellipsoid",
               v_max=V_MAX_DEFAULT, ja_frac=1.0,
               rng=np.random.default_rng(0))
@@ -91,8 +91,8 @@ def test_dt_nicht_negativ(szene):
 
 def test_saubere_szene_liefert_keine_nein_paare():
     """Physikalisch: weit getrennte Partikel liegen ausserhalb von r_max und
-    erzeugen zwischen sich gar keine Paare -- deshalb sind Overlap-Runs die
-    EINZIGE NEIN-Quelle."""
+    erzeugen zwischen sich gar keine Paare -- NEIN liefern nur Runs, in
+    denen sich Partikel begegnen."""
     zeiten = np.arange(6, dtype=np.float64) * 300.0
     t = np.repeat(zeiten, 2)
     x = np.tile(np.array([100.0, 400.0]), 6)        # 300 px auseinander
@@ -137,7 +137,7 @@ def test_unsortierte_zeit_faellt_auf(szene):
 
 
 def test_keine_kante_ueber_die_fenstergrenze():
-    """Der Kern der Umstellung: harter Schnitt bei alpha.
+    """Harter Schnitt bei alpha.
 
     Zwei Events, 2 µs auseinander und 1 px entfernt -- geometrisch klare
     Nachbarn. Sie liegen aber links und rechts der Fenstergrenze bei
@@ -189,7 +189,7 @@ def test_fenster_werden_gezaehlt(szene):
 
 
 def test_mehrdeutige_endpunkte_kommen_herein(szene):
-    """Der Kern des Umbaus.
+    """Mehrdeutige Endpunkte gehen in die Paare ein.
 
     Die Szene traegt bei t=600 ein MEHRDEUTIGES Event. Markiert man
     dasselbe Event stattdessen als RAUSCH, fallen seine Paare weg -- die
@@ -224,8 +224,8 @@ def test_zwei_rauschevents_ergeben_kein_ja():
 
 def test_ambig_zaehler_trennt_den_zuwachs(szene):
     """Ohne diese Zaehler waere nach dem Sammeln nicht mehr zu sagen,
-    welcher Teil der NEIN-Paare ueberhaupt erst durch die Zulassung
-    mehrdeutiger Endpunkte entsteht -- die Kennzahl des Umbaus."""
+    welcher Teil der Paare ueberhaupt erst durch die Zulassung
+    mehrdeutiger Endpunkte entsteht."""
     t, x, y, tid, sta = szene
     _, z = collect_pairs(t, x, y, tid, sta, **PARAMS)
     assert z["n_roh_ja_ambig"] + z["n_roh_nein_ambig"] > 0
@@ -266,10 +266,9 @@ def test_gegen_bruteforce(szene):
     """Die vollstaendige Paarmenge gegen eine offensichtlich korrekte
     Referenz -- absolut, nicht relativ zu einer Referenzdatei.
 
-    Ersetzt die frueheren Tests auf "nur saubere Events" und "kein
-    Doppelzaehlen": beide identifizierten Paare ueber ihre
-    Absolutkoordinaten, und die stehen nicht mehr im Datensatz. Ein
-    Vergleich der ganzen Menge braucht sie nicht und deckt zugleich mehr ab.
+    Prueft Fenstergrenzen, Rauschfilter und Doppelzaehlung zugleich, ohne
+    Paare ueber Absolutkoordinaten zu identifizieren -- die stehen nicht im
+    Datensatz.
     """
     t, x, y, tid, sta = szene
     d, _ = collect_pairs(t, x, y, tid, sta, **PARAMS)

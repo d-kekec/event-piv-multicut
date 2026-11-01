@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-train2.py -- BAUSTEIN [6b]: Training des Paar-Transformers.
+train2.py -- Stufe [6b]: Training des Paar-Transformers.
 
   paar_ziele        Zielwert und Gueltigkeit je Paar, zwei Modi
   lade_kandidaten   die [6a]-Artefakte aller Runs zu EINEM Datensatz
@@ -86,9 +86,8 @@ def paar_ziele(gt, n_gt, gt_anteil, i, j, *, modus, min_anteil):
               und teilverschmolzene (n_gt >= 2) fallen heraus -- fuer
               beide gibt es keine Wahrheit, gegen die man messen koennte.
     mehrheit  Auch verschmolzene, hart nach Mehrheit, ab
-              gt_anteil >= min_anteil. Rund 58 % der verschmolzenen
-              Tracklets liegen darunter; ein hartes Label auf einer
-              knappen Mehrheit waere nahe an einem Muenzwurf.
+              gt_anteil >= min_anteil. Darunter waere ein hartes Label auf
+              einer knappen Mehrheit nahe an einem Muenzwurf.
 
     Die Maske ist eine LOSS-Maske. Im Einsatz laufen alle Paare mit -- ein
     weggelassener Knoten ist ein Stueck Trajektorie, das niemand mehr
@@ -157,7 +156,7 @@ def lade_kandidaten(cfg: Stufe2Cfg, device="cpu") -> Daten:
     n_knoten = sum(m_r)
     # int32 DURCHHALTEN statt aufweiten: paar_i und paar_j sind die beiden
     # groessten Arrays. Torch indiziert mit int32 -- Tokens, Logits und
-    # Gradienten sind bitgleich (geprueft, torch 2.13). Ein Ueberlauf waere
+    # Gradienten sind bitgleich (gilt fuer torch 2.13). Ein Ueberlauf waere
     # STILL: int32 plus zu grossem Versatz ergibt ohne Warnung negative
     # Indizes.
     if n_knoten > np.iinfo(np.int32).max:
@@ -317,8 +316,8 @@ def _epochengroesse(n_ja_topf, n_nein_topf, ratio, max_paare):
 def _ziehe_epoche(ja, nein, n_ja, n_nein, rng):
     """Trainingsmenge EINER Epoche, je Klasse ohne Zuruecklegen.
 
-    Je Epoche neu: bei einem Deckel von Faktor 50 saehe das Netz sonst
-    ueber den ganzen Lauf dieselben 2 % des Datensatzes.
+    Je Epoche neu: bei greifendem Deckel saehe das Netz sonst ueber den
+    ganzen Lauf immer dieselbe Teilmenge des Datensatzes.
     """
     return np.sort(np.concatenate([
         rng.choice(ja, n_ja, replace=False) if n_ja < len(ja) else ja,
@@ -384,7 +383,7 @@ def train_stufe2(cfg: Stufe2Cfg, on_start=None, on_epoch=None):
     Hydra noch W&B.
     """
     tf, kd, cp = cfg.transformer, cfg.kandidaten, cfg.compute
-    # VOR dem Rechnen, nicht danach: ein Abbruch nach einer Stunde Training
+    # VOR dem Rechnen, nicht danach: ein Abbruch nach dem ganzen Training
     # waere die teuerste Art, ueber einen Tippfehler zu stolpern. create
     # bleibt False -- save_checkpoint legt das Verzeichnis selbst an.
     pfad = config.transformer_file(cfg.neighborhood, cfg.pairs, cfg.training,

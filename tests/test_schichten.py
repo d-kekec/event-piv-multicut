@@ -10,11 +10,10 @@ Erlaubte Richtung:
     zeigen     -> alles
 
 Warum ueberhaupt ein Test: die Ordner allein halten nichts. Ein
-`from eventpiv.kette.labels import ...` in bewerten/ laeuft anstandslos, und
-erst Monate spaeter faellt auf, dass die Bewertung von dem abhaengt, was sie
-bewertet. Genau diese Kante gab es (evaluate -> labels.STATUS_*), und sie
-ist nicht durch Aufmerksamkeit aufgefallen, sondern beim Vermessen der
-Importkanten.
+`from eventpiv.kette.labels import ...` in bewerten/ laeuft anstandslos,
+und dass die Bewertung dann von dem abhaengt, was sie bewertet, faellt
+nicht von selbst auf -- etwa bei Statuskonstanten, die deshalb in
+kern.status liegen.
 
 GELESEN WIRD DER QUELLTEXT, nicht der Importgraph zur Laufzeit: der
 Syntaxbaum erfasst auch die Importe in Funktionsruempfen, von denen es hier
@@ -102,7 +101,7 @@ def test_paket_ist_geschichtet():
 
 
 def test_keine_module_direkt_im_paket():
-    """src/eventpiv/ selbst traegt keine Module mehr, nur __init__.py.
+    """src/eventpiv/ selbst traegt keine Module, nur __init__.py.
 
     Ein Modul ohne Schicht waere nicht pruefbar: die Regeln unten greifen
     ueber das Verzeichnis.

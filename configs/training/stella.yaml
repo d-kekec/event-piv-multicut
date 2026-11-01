@@ -1,10 +1,5 @@
-# Training fuer den STELLA-Datensatz. Wird ueber `datensatz=stella`
-# mitgesetzt, einzeln ueber `training=stella`.
-#
-# feature_mode dr: auf diesem Datensatz trennt der Abstand allein. Die
-# NEIN-Paare liegen ueberwiegend nebeneinander statt uebereinander; bei
-# gleicher Fragmentierung verschmilzt dr nicht mehr als drjac. Ohne den
-# Jaccard entfaellt die quadratische Speicher- und Rechenlast im Einsatz.
-#
-# cost_offset bleibt bei der Vorgabe 0.0 und steht deshalb nirgends.
+# STELLA. Wiederholt die Vorgaben aus kern/runconfig.py, damit STELLA wie
+# batch1 ausdruecklich waehlbar ist und test_anker beide Datensaetze gleich
+# liest. Nicht genannte Felder kommen aus kern/runconfig.py. Zuschalten
+# ueber `datensatz=stella`, einzeln mit `training=stella`.
 feature_mode: dr

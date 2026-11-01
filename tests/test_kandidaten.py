@@ -58,7 +58,7 @@ def test_suche_gegen_schleifenreferenz():
 
 
 def test_kanonische_ordnung_und_keine_doppelten():
-    """Der Kontrakt aus graph.py IST die Ordnung aus dem Entwurf: das
+    """Der Kontrakt aus graph.py IST die kanonische Ordnung: das
     Tracklet mit kleinerem t_min ist Nummer 1. Damit ist c_ij = c_ji
     strukturell und nicht durch Mittelung ueber den Tausch."""
     rng = np.random.default_rng(1)
@@ -77,8 +77,8 @@ def test_kanonische_ordnung_und_keine_doppelten():
 def test_gleiches_t_min_ordnet_nach_tracklet_id():
     """Zwei Bruchstuecke desselben Fensters koennen dieselbe erste
     Eventzeit haben. Dann muss der kleinere Zeilenindex vorn stehen -- die
-    Tabelle ist nach tracklet_id sortiert, also ist das dritte Kriterium
-    aus dem Entwurf erfuellt, ohne dass es jemand rechnet."""
+    Tabelle ist nach tracklet_id sortiert, also entscheidet bei Gleichstand
+    die tracklet_id, ohne dass es jemand rechnet."""
     kn = _knoten([5000.0, 5000.0], [10.0, 12.0], [10.0, 10.0])
     i, j = kandidatenpaare(kn, alpha=ALPHA, r_max=R_MAX,
                            geom="hyperboloid", v_max=V_MAX)

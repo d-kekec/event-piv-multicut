@@ -3,7 +3,7 @@
 """
 visualize.py -- Animationen von Rohevents und Clustern.
 
-Zwei Anwendungsfaelle:
+Drei Anwendungsfaelle; [D] steht in visualize_trajektorien:
 
   [A] animate_run()       ein ganzer Run, Events nach Polaritaet eingefaerbt.
                           Zweck: visuell finden, WANN Ueberlappungen und
@@ -392,11 +392,11 @@ def animate_tracklets(cfg: AnimClustersCfg):
     Die Farben trennen sich VON SELBST: solve_run vergibt globale IDs, zwei
     Fenster koennen sich also keine teilen.
 
-    window.t0/window.dt schneiden den Ausschnitt; die Laenge eines
-    Tracklet-Fensters ist neighborhood.alpha und nicht waehlbar. Ein ganzer
-    Run waere hier sinnlos -- 800 Fenster ergaeben ein GIF von Stunden.
+    window.t0/window.dt schneiden den Ausschnitt und muessen gesetzt sein:
+    die Funktion loest die Fenster selbst (solve_run). Die Laenge eines
+    Tracklet-Fensters ist neighborhood.alpha und nicht waehlbar.
 
-    Wir koennen nun auswaehlen welches Panel wir sehen wollen: roh, tracklets, gt.
+    anim.panels waehlt die Panels: roh, tracklets, gt.
 
     Rueckgabe: (gif_pfad, lauf).
     """
@@ -435,9 +435,9 @@ def animate_tracklets(cfg: AnimClustersCfg):
     tracklet_id, zeilen, lauf = solve_run(cfg, model, mu, sig, feature_mode)
 
     # Zweites Laden statt einer weiteren Rueckgabe von solve_run: dieselben
-    # Argumente, also dieselben Arrays, und bei einem Ausschnitt kostet es
-    # Sekundenbruchteile. Die Signatur des Treibers bleibt dafuer, wie sie
-    # ist -- an ihr haengen das Skript und drei Tests.
+    # Argumente, also dieselben Arrays, und ein Ausschnitt ist schnell
+    # geladen. Die Signatur des Treibers bleibt dafuer, wie sie ist -- an
+    # ihr haengen das Skript und Tests.
     gt_pfad = (config.label_file(split, run_nr) if cfg.io.label_dir is None
                else Path(cfg.io.label_dir) / f"run{run_nr}_eventlabels.npz")
     f = lade_fenster(sel, win, polarity=cfg.neighborhood.polarity,

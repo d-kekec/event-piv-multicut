@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 r"""
-kandidaten.py -- BAUSTEIN [6a]: Kandidatenpaare zwischen Tracklets.
+kandidaten.py -- Stufe [6a]: Kandidatenpaare zwischen Tracklets.
 
   kandidatenpaare      welche Knotenpaare der Transformer ueberhaupt sieht
   paar_labels          Label und Gueltigkeit je Paar
@@ -19,7 +19,7 @@ nach tracklet_id sortiert; ein drittes Kriterium braucht es nicht.
 HYPERBOLOID: die Taille r_max deckt die Ausdehnung eines Tracklets, die
 Aufweitung v_max*alpha die Drift zwischen zwei Zentroiden. Welcher Term
 traegt, haengt an alpha: unterhalb von r_max/v_max die Taille, darueber
-die Aufweitung. Am Arbeitspunkt (250 ms) dominiert die Aufweitung.
+die Aufweitung.
 
 PAARE IM SELBEN FENSTER SIND EINGESCHLOSSEN und keine Nebenwirkung.
 Stufe 1 fragmentiert innerhalb eines Fensters absichtlich, damit bei
@@ -31,9 +31,7 @@ ZEIT RELATIV ZUM KNOTEN. Die Stichprobe wird mit t - t_min des eigenen
 Knotens abgelegt. Der Grund ist zuerst die Sache selbst: fuer die
 Normierung je Paar -- Ursprung auf t_min des FRUEHEREN Knotens -- ist die
 relative Form die natuerliche. Nebenbei entfaellt damit die float32-
-Grenze: exakt sind ganze Zahlen bis 2^24 = 16.777.216, ein Run ist
-8.000.000 µs lang, also Faktor 2 Abstand. Relativ liegen alle Werte unter
-alpha und die Frage stellt sich nicht mehr.
+Grenze aus knoten.stichprobe: relativ liegen alle Werte unter alpha1.
 """
 from __future__ import annotations
 
@@ -79,22 +77,18 @@ def paar_labels(knoten, i, j) -> dict:
     tragen. Das schliesst zwei Faelle aus, und beide aus demselben Grund
     -- es gibt keine Wahrheit, gegen die man messen koennte:
 
-      n_gt == 0  reines Rauschen. Gemessen 41,9 % der Tracklets, davon
-                 aber 99,8 % unter min_events; oberhalb bleiben 647 ueber
-                 zehn Runs, mit Mittel 490 Events. Vermutlich Wolken beim
-                 Ein- und Austritt am Bildrand -- dort entstehen kompakte
-                 Ereignisse ohne Box (Journal 14.08.2026).
+      n_gt == 0  reines Rauschen, kein GT-Partikel im Tracklet.
       n_gt >= 2  teilverschmolzen. Enthaelt A zwei Partikel und B eines
                  davon, ist "selbe Trajektorie?" weder ja noch nein.
-                 Betrifft 1,2 bis 1,8 % der Tracklets.
 
     DIE MASKE GILT NUR FUER DEN LOSS, NICHT FUER DEN GRAPHEN. Im Einsatz
     laufen diese Paare mit: ein Knoten, den man weglaesst, ist ein Stueck
     Trajektorie, das niemand mehr verbindet.
 
-    gt_anteil bleibt Diagnose und filtert nicht. Ein Mehrheitslabel unter
-    0,9 heisst unsicher, nicht falsch, und die Aggregation ueber ein
-    ganzes Tracklet macht es robust.
+    gt_anteil filtert hier nicht; erst train2.paar_ziele nutzt es unter
+    label_modus="mehrheit". Ein knappes Mehrheitslabel heisst unsicher,
+    nicht falsch, und die Aggregation ueber ein ganzes Tracklet macht es
+    robust.
 
     Rueckgabe: {} ohne Ground Truth -- dann traegt das Artefakt kein
     Label.
@@ -299,7 +293,7 @@ def kandidaten_fuer_run(cfg: KandidatenCfg, run_nr: int, verbose=True):
                            n_events=kd.n_events, seed=kd.seed)
     # Zeit relativ zum eigenen Knoten -- siehe Modul-Docstring. Nur wo die
     # Maske gilt; Fuell-Token bleiben auf 0. Gerechnet wird in float64,
-    # abgelegt in float32: danach liegen alle Werte unter alpha.
+    # abgelegt in float32: danach liegen alle Werte unter alpha1.
     ev[:, :, 0] = np.where(maske,
                            ev[:, :, 0] - kn.tabelle["t_min"][:, None], 0.0)
     ev = ev.astype(np.float32)
@@ -362,13 +356,12 @@ def kandidaten_fuer_run(cfg: KandidatenCfg, run_nr: int, verbose=True):
 def schreibe_kandidaten(cfg: KandidatenCfg, run_nr, daten, lauf, quelle):
     """Artefakt [6a]: Knoten, Eventstichprobe und Kandidatenpaare.
 
-    EINE Datei je Run, wie bei (A) und (B). Den Umfang bestimmen die
-    Stichprobe (n_events mal drei float32 je Knoten) und die Paare (zehn
-    Byte je Kandidat).
+    EINE Datei je Run, wie bei (A). Den Umfang bestimmen die Stichprobe
+    (n_events mal drei float32 je Knoten) und die Paare (zehn Byte je
+    Kandidat).
 
-    Komprimiert wie (A) und (B) -- der Gewinn auf den Koordinaten ist
-    NICHT gemessen und vermutlich kleiner als dort, weil die Maske und die
-    Indexarrays gut, die Koordinaten schlecht komprimieren.
+    Komprimiert wie (A); Maske und Indexarrays komprimieren gut, die
+    Koordinaten vermutlich schlecht.
 
     LESEN: ev[k] gehoert zu Zeile k der Knotentabelle, maske[k] sagt
     welche Token echt sind, und ev[k, :, 0] ist die Zeit RELATIV zu

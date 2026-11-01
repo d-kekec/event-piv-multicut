@@ -44,11 +44,10 @@ def test_formatzusicherungen(scene):
 def test_track_id_genau_dann_wenn_rauschen(scene):
     """Kernzusicherung des Formats: -1 <=> RAUSCH.
 
-    Frueher galt -1 <=> nicht sauber. Mehrdeutige Events tragen jetzt die
-    track_id ihres naechsten Zentrums: status entscheidet, was ins TRAINING
-    geht, track_id sagt nur, WOHIN ein Event gehoert. Ohne diese Trennung
-    ist die Merge-Rate blind, weil verschmolzene Bereiche ueberwiegend aus
-    mehrdeutigen Events bestehen.
+    Mehrdeutige Events tragen die track_id ihres naechsten Zentrums:
+    track_id sagt, WOHIN ein Event gehoert, status, wie verlaesslich das
+    ist. Ohne diese Trennung ist die Merge-Rate blind, weil verschmolzene
+    Bereiche ueberwiegend aus mehrdeutigen Events bestehen.
     """
     t, x, y, bbox = scene
     tid, st = assign_track_ids(t, x, y, bbox)

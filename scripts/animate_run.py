@@ -2,12 +2,16 @@
 # -*- coding: utf-8 -*-
 """CLI-Huelle fuer visualize.animate_run -- Hydra + Aufruf.
 
-Animiert einen ganzen Run, Farbe = Polaritaet. Zweck: visuell finden, WANN
-Ueberlappungen und Kreuzungen passieren.
+Darstellung [A]: animiert einen ganzen Run, Farbe = Polaritaet. Zweck:
+visuell finden, WANN Ueberlappungen und Kreuzungen passieren.
 
-  python scripts/animate_run.py io.list_runs=true selection.split=train
-  python scripts/animate_run.py selection.split=train selection.run_nr=61
-  python scripts/animate_run.py selection.split=val selection.run_nr=4 \\
+Aufruf (allgemeine Bedienung: scripts/_cli.py). selection.run_nr ist
+Pflicht, ausser bei io.list_runs=true: das listet nur die Runs aller
+Splits. Ohne window.* der ganze Run, t0 und dt in µs. Liest nur Events,
+kein Netz und keine Gruppen; kein sbatch-Skript.
+  python scripts/animate_run.py io.list_runs=true
+  python scripts/animate_run.py selection.run_nr=8
+  python scripts/animate_run.py selection.split=val selection.run_nr=<run> \\
       window.t0=1500000 window.dt=500000 anim.frame_ms=5
 """
 import hydra

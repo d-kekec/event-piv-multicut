@@ -273,7 +273,7 @@ def test_stella_lesarten_der_geschwindigkeit():
 
 def test_stella_lesarten_ueberstehen_einen_leeren_run():
     """Ein Run ohne Bahnen geht ueber den fruehen Ausgang. Fehlten dort die
-    neuen Schluessel, braeche das Pooling mit KeyError ab."""
+    Schluessel der Lesarten, braeche das Pooling mit KeyError ab."""
     bb = _boxen_ms({1: (40, 100.0, 200.0, 0.5)})
     a = stella_fehler(_fit_ms([(0, 0, 40, 101.5, 202.0, 0.5)]), bb)
     leer = stella_fehler(tuple(np.empty(0) for _ in range(5))

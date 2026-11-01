@@ -1,5 +1,3 @@
-# Arbeitspunkt-Defaults kommen aus runconfig.py (SolveCfg), NICHT von hier --
-# hier stehen nur Abweichungen und die Hydra-Einstellungen.
 defaults:
   - solve_schema
   # Platzhalter: ohne Override ignoriert, also gelten die Vorgaben aus

@@ -1,6 +1,3 @@
-# Training fuer batch1. Wird ueber `datensatz=batch1` mitgesetzt, einzeln
-# ueber `training=batch1`.
-#
-# feature_mode drjac: auf batch1 werden die Kosten mit dr allein nie
-# negativ, ohne Jaccard wird nicht geschnitten.
+# batch1. Nicht genannte Felder kommen aus kern/runconfig.py. Zuschalten
+# ueber `datensatz=batch1`, einzeln mit `training=batch1`.
 feature_mode: drjac

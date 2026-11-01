@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 r"""
-solve.py -- BAUSTEIN [4]: NN-Kantenkosten -> Partition eines Fensters.
+solve.py -- Stufe [4]: NN-Kantenkosten -> Partition eines Fensters.
 
   edge_costs          Kosten je Kante aus dem Netz
   solve_window        EIN geladenes Fenster loesen
@@ -13,8 +13,8 @@ Einen ganzen Run abschreiten und das Tracklet-Artefakt schreiben: siehe
 tracklets.py.
 
 solve_window laedt nichts und laeuft ohne Ground Truth wie mit -- also
-auch auf echten Messdaten. Die Prozess-Isolation gegen VRAM-Abstuerze
-liegt in den sbatch-Skripten, nicht hier.
+auch auf echten Messdaten. Die Prozess-Isolation gegen Abstuerze auf der
+Karte liegt in slurm/tracklets.sbatch, ein Prozess je Run, nicht hier.
 """
 from __future__ import annotations
 
@@ -36,23 +36,24 @@ from eventpiv.kette.model import build_features
 
 
 def edge_costs(t, x, y, i, j, model, mu, sig, feature_mode, cp):
-    """Logit je Kante = Multicut-Kantenkosten. Rueckgabe: float32-GPU-Tensor.
+    """Logit je Kante, ohne Versatz. Rueckgabe: float32-GPU-Tensor.
 
-    cp : runconfig.Compute. device_index ist keine Konstante -- auf
-         tujestpolin stecken bis zu sechs Karten in einem Knoten.
+    cp : runconfig.Compute. device_index ist keine Konstante -- ein
+         Rechner kann mehrere Karten tragen.
 
-    Der Logit wird DIREKT als Kosten verwendet, ohne Nachskalierung: durch
-    Sigmoid+BCE ist er die Log-Odds, also genau die von RAMA erwartete
-    Kalibrierung. Die Features entstehen ueber dieselbe build_features wie
-    im Training, nur mit xp=torch statt xp=numpy.
+    Der Logit kommt ohne Nachskalierung zurueck: durch Sigmoid+BCE ist er
+    die Log-Odds, also genau die von RAMA erwartete Kalibrierung. Den
+    Versatz solver.cost_offset addiert erst solve_window. Die Features
+    entstehen ueber dieselbe build_features wie im Training, nur mit
+    xp=torch statt xp=numpy.
     Bei feature_mode="drjac" entsteht jac EINMAL vor der Stapelschleife:
     es ist eine Groesse des Fensters, keine je Kante.
 
     STAPELWEISE, und das ist bei grossen Fenstern kein Detail: die versteckte
-    Schicht ist (n, hidden) gross, bei 80 Mio. Kanten und hidden=8 also
-    2,5 GB -- je Zwischenergebnis, und Linear und Tanh legen je eines an.
-    Auf einen Schlag gerechnet sprengt das die Karte, BEVOR RAMA ueberhaupt
-    startet. Mit batch=4M bleibt die Spitze bei ~150 MB.
+    Schicht ist (n, hidden) gross, in float32 also 4*hidden Byte je Kante --
+    je Zwischenergebnis, und Linear und Tanh legen je eines an. Auf einen
+    Schlag gerechnet sprengt das die Karte, BEVOR RAMA ueberhaupt startet.
+    compute.cost_batch begrenzt die Stapelgroesse und damit die Spitze.
     """
     device, batch = cp.device, cp.cost_batch
     n_edges = len(i)
@@ -90,9 +91,8 @@ def check_consistency(ckpt, nb: Neighborhood, strict: bool = True) -> None:
     kann nicht auseinanderlaufen.
 
     NICHT ueber Neighborhood(**gruppe): fehlt im gespeicherten Block ein
-    Feld, fuellte der Konstruktor still den heutigen Default ein, und ein
-    Netz aus der Zeit vor `geom` verglichen sich als passend zu einer
-    cylinder-Konfiguration.
+    Feld, fuellte der Konstruktor still den heutigen Default ein, und das
+    Netz gaelte als passend zu jeder Konfiguration mit diesem Default.
 
     Netze ohne Metadatenblock laufen mit Warnung und UNGEPRUEFT.
     """
@@ -121,7 +121,8 @@ def info_groups(info: dict) -> dict:
     REGELBASIERT statt handgepflegte Liste: ein spaeter hinzugefuegtes Feld
     landet automatisch irgendwo, statt still zu verschwinden.
       gt_*                       -> gt/    Verteilungsstatistik der GT
-      t_*, vram_peak_gb          -> diag/  Ressourcen, nie Ergebnis
+      t_*, vram_peak_gb, gpu_name,
+      max_rss_mb                 -> diag/  Ressourcen, nie Ergebnis
       alles andere               -> solve/ Instanz und Partition
 
     n_gt landet damit unter solve/, nicht unter gt/ -- absichtlich: es ist
@@ -155,11 +156,9 @@ def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
     vorgerechneten Arrays, ohne Datensatz.
 
     Die Kantenstatistik gegen die GT wird hier gerechnet, wenn das Fenster
-    eine traegt. Frueher kam sie ueber eine Senke herein, weil solve_window
-    die GT nicht kannte -- diese Bedingung traegt jetzt das Fenster selbst
-    (hat_gt), und eine Senke mit genau einer moeglichen Implementierung
-    waere Umweg ohne Wahl. Die Funktion laeuft weiterhin auf Fenstern ohne
-    GT, also auf echten Messdaten.
+    eine traegt (hat_gt). Eine Senke dafuer haette genau eine moegliche
+    Implementierung und waere Umweg ohne Wahl. Die Funktion laeuft auch auf
+    Fenstern ohne GT, also auf echten Messdaten.
 
     Nimmt die Konfiguration statt zwoelf Einzelargumenten entgegen; gelesen
     werden window, neighborhood, solver und compute. Geschrieben wird NIE
@@ -199,7 +198,7 @@ def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
     t_costs = time.time() - tic
     # Vor dem Solver: RAMAs Message-Passing reparametrisiert die Kosten im
     # selben Puffer. Was wir bewerten wollen, ist die Vorhersage des NETZES.
-    # Nur das Vorzeichen, ein bool je Kante -- 1 MB statt 12.
+    # Nur das Vorzeichen, ein bool (1 Byte) je Kante.
     kosten_pos = (costs >= 0).cpu().numpy()
     if verbose:
         versatz = ("" if sv.cost_offset == 0.0
@@ -229,7 +228,7 @@ def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
                   f"dt {kanten['dt_mean']/1000:.2f}ms, "
                   f"dr {kanten['dr_mean']:.2f}px")
             
-    # DREI Clusterzahlen, drei Fragen -- die Luecke dazwischen ist gross:
+    # DREI Clusterzahlen, drei Fragen:
     #   n_clusters_rama       wie viele Cluster hat der Solver gebildet
     #   n_nodes_unassigned    wie viele Knoten hatten gar keine Kante
     #   n_clusters (spaeter)  wie viele davon enthalten ein SAUBERES Event
@@ -256,8 +255,10 @@ def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
             "events_per_ms": n / (_dt / 1000.0) if _dt else float("nan"),
             "t_graph": t_graph, "t_costs": t_costs, "t_rama": t_rama,
             "vram_peak_gb": vram, "gpu_name": gpu_name,
-            # ru_maxrss ist unter Linux KILObytes. Die Spitze liegt im
-            # KDTree, also im RAM, nicht auf der Karte.
+            # ru_maxrss ist unter Linux KILObytes: der Spitzenspeicher des
+            # Prozesses im RAM, nicht auf der Karte. Dazu traegt die Suche im
+            # KDTree bei -- bei Zylinder und Hyperboloid legt sie mehr Paare
+            # an, als nach dem Nachfilter bleiben (graph.neighborhood_pairs).
             "max_rss_mb": round(
                 resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
             **kanten}
@@ -265,7 +266,7 @@ def solve_window(cfg: SolveCfg, fenster: Fenster, model, mu, sig,
 
 
 def solve_and_evaluate(cfg: SolveCfg, verbose=True) -> dict:
-    """Vollstaendige Kette fuer EINEN Run inklusive GT-Abgleich.
+    """Vollstaendige Kette fuer EIN Fenster eines Runs inklusive GT-Abgleich.
 
     Der Modellpfad wird ABGELEITET (config.model_file aus neighborhood, pairs,
     training), nicht uebergeben. cfg.io.model_path ist der Notausgang fuer

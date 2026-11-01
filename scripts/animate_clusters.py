@@ -2,18 +2,24 @@
 # -*- coding: utf-8 -*-
 """CLI-Huelle fuer visualize.animate_clusters -- Hydra + Aufruf.
 
-Loest ein Zeitfenster und animiert Rohevents, RAMA-Cluster und Ground Truth
-nebeneinander. Zweck: Reinheit und Fragmentierung SEHEN statt nur als Zahl
-lesen. Framezahl = window.dt / anim.frame_ms -- ueber ~100 wird das GIF
-unhandlich.
+Darstellung [B]: loest ein Zeitfenster und animiert Rohevents, RAMA-Cluster
+und Ground Truth nebeneinander. Zweck: Reinheit und Fragmentierung SEHEN
+statt nur als Zahl lesen. Framezahl = window.dt / (anim.frame_ms * 1000).
+
+Aufruf (allgemeine Bedienung: scripts/_cli.py). selection.run_nr ist
+Pflicht; ohne window.* gilt das Vorgabefenster aus runconfig.Window, als
+EIN Graph geloest wie in [4]. Braucht das Netz aus [3]. Die Treiberdatei
+configs/animate_clusters.yaml schaltet keine Gruppen zu: es gelten die
+Vorgaben aus kern/runconfig.py. Kein sbatch-Skript.
+  python scripts/animate_clusters.py selection.run_nr=8
 
   # Trail an, Farbe nach Cluster-ID: zeigt Fragmentierung
   python scripts/animate_clusters.py selection.split=train \\
-      selection.run_nr=3 window.dt=100000 anim.frame_ms=2 anim.downscale=2
+      selection.run_nr=8 window.dt=100000 anim.frame_ms=2 anim.downscale=2
 
   # Momentaufnahmen, Farbe nach GT-Mehrheit: zeigt Verschmelzungen
   python scripts/animate_clusters.py selection.split=train \\
-      selection.run_nr=32 anim.frame_ms=0.5 anim.trail=false anim.color_by=gt
+      selection.run_nr=8 anim.frame_ms=0.5 anim.trail=false anim.color_by=gt
 """
 import hydra
 from hydra.core.config_store import ConfigStore

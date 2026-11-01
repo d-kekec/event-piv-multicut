@@ -3,10 +3,9 @@
 """Die ganze Kette [1] -> [2] -> [3] -> [4] ueber einen echten Schreibpfad.
 
 WOZU. Unit-Tests koennen eine Fehlerklasse strukturell nicht fangen: die,
-bei der eine Konfiguration ein PLAUSIBLES Ergebnis erzeugt. Beide
-dokumentierten Vorfaelle gehoeren dazu -- animate_clusters war seit dem
-29.07. kaputt, und ein Doku-Commit loeschte `return loader.load_delta_t(dt)`
-in data.py. pytest blieb beide Male gruen, gefunden hat sie der Anker.
+bei der eine Konfiguration ein PLAUSIBLES Ergebnis erzeugt -- etwa ein
+Ladepfad, der still nichts zurueckgibt, waehrend jeder Test auf fertigen
+Arrays gruen bleibt.
 
 Dieser Test ersetzt den Anker NICHT. Er laeuft auf synthetischen Daten und
 prueft die VERDRAHTUNG -- Pfade, Formate, Aufrufreihenfolge, Vertraege. Er
@@ -15,14 +14,10 @@ beiden beantworten verschiedene Fragen und ersetzen einander nicht.
 
 KEINE HYDRA. Die Konfigurationen werden direkt gebaut, wie in allen
 anderen Tests -- das ist die Probe darauf, dass das Framework in scripts/
-geblieben ist (Code_Karte §3).
+geblieben ist.
 
 SOLVER: die CC-Baseline und device="cpu". Damit braucht der Test weder
-RAMA noch eine freie GPU. Was RAMA auf einer bekannten Instanz liefert,
-steht in RAMA_Anbindung §5.1 und wird hier nicht nachgeprueft.
-
-Laufzeit rund zehn Sekunden -- der langsamste Test der Suite und der
-einzige, der Dateien schreibt.
+RAMA noch eine freie GPU; RAMA selbst prueft er nicht.
 """
 import json
 
@@ -39,11 +34,10 @@ from eventpiv.kette.solve import solve_and_evaluate
 from eventpiv.kette.train import train_edge_nn
 
 # --- Der Arbeitspunkt des Tests ---------------------------------------
-# Nicht die Vorgabewerte: die sind auf STELLA geeicht, die Fixture bildet
-# batch1 nach, in 1 s statt 8 s -- daher der batch1-Arbeitspunkt von
-# Stufe 1. Vollstaendig ausgeschrieben, auch wo es einer Vorgabe
-# entspricht: ein Test soll sich nicht mitverschieben, wenn eine Vorgabe
-# wandert.
+# Nicht die Vorgabewerte: die sind auf STELLA kalibriert, die Fixture
+# bildet batch1 nach -- daher die Werte aus configs/neighborhood/batch1.yaml.
+# Vollstaendig ausgeschrieben, auch wo es einer Vorgabe entspricht: ein Test
+# soll sich nicht mitverschieben, wenn eine Vorgabe wandert.
 NB = dict(alpha=10_000, r_max=5.0, geom="cylinder", v_max=1.02e-4,
           polarity="on")
 
@@ -54,9 +48,9 @@ LB = dict(r_assign=8.0, r_ambig=2.0)
 # Nur die Kreuzungs-Runs: saubere liefern physikalisch null NEIN, und die
 # Kreuzungs-Runs tragen selbst reichlich JA. Zwei Runs sind das Minimum
 # fuer einen run-getrennten Holdout.
-# ON-only halbiert die Knotenzahl der Fixture; die Ausbeute faellt
-# entsprechend. Grob, nicht scharf: die Schwellen fangen "gar nichts
-# gesammelt", nicht eine Abweichung um zehn Prozent.
+# ON-only halbiert die Knotenzahl der Fixture. Grob, nicht scharf: die
+# Schwellen fangen "gar nichts gesammelt", nicht eine Abweichung um zehn
+# Prozent.
 MIND_JA, MIND_NEIN = 300, 50
 
 
@@ -93,7 +87,7 @@ def test_kette_labels_paare_training_solve(mini_datensatz):
             assert meta["label_format"] == LABEL_FORMAT
             assert meta["n"] == len(z["t"])
             # p wird mitgespeichert -- ON-only filtert spaeter DARAUS,
-            # nicht aus dem Eventstrom (Code_Guide §2.4).
+            # nicht aus dem Eventstrom.
             assert set(np.unique(z["p"])) <= {0, 1}
 
     # ---------------------------------------------------------------
@@ -137,8 +131,8 @@ def test_kette_labels_paare_training_solve(mini_datensatz):
     assert mpath == config.model_file(nb, ps, tr)
     assert mpath.exists()
     assert len(start) == 1 and len(epochen) == tr.epochs
-    # Der Holdout ist run-getrennt und stratifiziert -- beide Klassen
-    # muessen drin sein, sonst waeren AUC und TPR NaN.
+    # Der Holdout ist run-getrennt und auf beide Klassen geprueft -- fehlt
+    # eine, waeren AUC und TPR NaN.
     assert not np.isnan(kennzahlen["holdout"]["auc"])
     # Zwei Runs, val_frac=0.2 -> genau einer in den Holdout, einer bleibt
     # im Training. split_runs prueft, dass beide Seiten beide Klassen haben.
@@ -163,7 +157,7 @@ def test_kette_labels_paare_training_solve(mini_datensatz):
 
     assert info["backend"] == "cc"
     assert info["n_events"] > 0 and info["n_edges"] > 0
-    # on_edges hat gefeuert: die GT-Senke reicht diese Felder herein.
+    # solve_window hat die Kanten gegen die GT gemessen.
     assert "edge_ja_frac" in info and "edge_bewertbar_frac" in info
     # cluster_metrics hat gerechnet.
     assert 0.0 <= info["purity_cluster_mean"] <= 1.0
@@ -171,7 +165,7 @@ def test_kette_labels_paare_training_solve(mini_datensatz):
     assert info["n_gt"] >= 2
 
     # ---------------------------------------------------------------
-    # Der Artefaktbaum IST die Abhaengigkeitskette (Code_Karte §4).
+    # Der Artefaktbaum IST die Abhaengigkeitskette.
     # ---------------------------------------------------------------
     wp = mini_datensatz.out / "wp" / slug(nb)
     assert ppath == wp / "pairs" / slug(ps) / "pairs.npz"
@@ -182,7 +176,7 @@ def test_kette_labels_paare_training_solve(mini_datensatz):
     # jenseits der Framework-Grenze. Geprueft wird deshalb der ABGELEITETE
     # Pfad -- samt _cc-Suffix, das den Anker-Dateinamen unberuehrt laesst.
     # Kein Versatz-Suffix: die Vorgabe ist 0,0, der Test faehrt also den
-    # Arbeitspunkt der Kette und nicht einen eigenen.
+    # Betriebspunkt der Vorgaben und nicht einen eigenen.
     sjson = config.solve_file(nb, ps, tr, sel, win, sv)
     assert sjson == (mpath.parent / "solves"
                      / "train_run1_t450000_dt20000_P_cc.json")

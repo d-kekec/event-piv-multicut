@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Der CC-Vergleichssolver. Fuer solve.py gab es bisher keine Testdatei.
+"""Der CC-Vergleichssolver, dazu Fenster, solve_window und solve_run.
 
-Geprueft wird die Baseline, nicht RAMA: RAMA braucht eine GPU, und was es
-auf der bekannten Instanz liefert, steht in RAMA_Anbindung.md §5.1.
+Geprueft wird die Baseline, nicht RAMA: RAMA braucht eine GPU. Fuer die
+bekannte 6-Knoten-Instanz unten liefert RAMA [0,0,0,1,1,1].
 """
 import numpy as np
 import pytest
@@ -35,7 +35,7 @@ def test_negative_kanten_trennen():
 
 
 def test_stimmt_mit_rama_auf_der_bekannten_instanz_ueberein():
-    """Die 6-Knoten-Instanz aus RAMA_Anbindung.md §5.1.
+    """Die bekannte 6-Knoten-Instanz mit einem frustrierten Dreieck.
 
     RAMA liefert dort [0,0,0,1,1,1], beweisbar optimal. CC liefert dieselbe
     Partition -- die negative Kante im frustrierten Dreieck faellt weg, das
@@ -140,9 +140,8 @@ def test_fenster_mit_gt_ist_ausgerichtet(mini_datensatz):
 
 
 def test_solve_window_braucht_keinen_datensatz():
-    """Der eigentliche Gewinn der Aufteilung: die Funktion laedt nichts
-    mehr und laesst sich auf von Hand gebauten Arrays pruefen -- ohne
-    Datensatz, ohne Label-Datei, ohne Pfade."""
+    """solve_window laedt nichts und laesst sich auf von Hand gebauten
+    Arrays pruefen -- ohne Datensatz, ohne Label-Datei, ohne Pfade."""
     from eventpiv.kette.model import EdgeMLP, n_features
 
     rng = np.random.default_rng(0)
@@ -278,8 +277,8 @@ def test_polarity_ist_pflicht():
 
 def test_cost_offset_steht_im_dateinamen():
     """Ohne Suffix ueberschriebe ein Sweep seine eigenen Ergebnisse. Die
-    Vorgabe 0,0 traegt keines -- sie ist der Arbeitspunkt, und seine
-    Dateien sollen die kurzen Namen bekommen."""
+    Vorgabe 0,0 traegt keines -- sie ist der Betriebspunkt der Vorgaben,
+    und seine Dateien sollen die kurzen Namen bekommen."""
     assert Solver().short() == "P"
     assert Solver(cost_offset=-0.5).short() == "P_o-0.5"
     assert Solver(cost_offset=1.0).short() == "P_o1"

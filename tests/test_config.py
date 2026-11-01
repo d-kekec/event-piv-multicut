@@ -18,7 +18,7 @@ def test_pfadfunktionen_legen_nichts_an(tmp_path, monkeypatch, gruppen):
     """Ein Pfad zu FRAGEN darf nichts erzeugen.
 
     Sonst findet ein Lauf mit falschen Overrides ein leeres, selbst
-    angelegtes Verzeichnis vor und meldet "0/9 loesbar" -- ein
+    angelegtes Verzeichnis vor und meldet null loesbare Runs -- ein
     Konfigurationsfehler, der wie eine Messung aussieht.
     """
     nb, ps, tr = gruppen
@@ -65,7 +65,7 @@ def test_project_root_traegt_die_marke():
 
 
 def test_stufe2_haengt_unter_tracklets(tmp_path, monkeypatch, gruppen):
-    """Stufe 2 liest das Tracklet-Artefakt (A) -- der Baum IST die
+    """Stufe 2 liest das Artefakt (A) -- der Baum IST die
     Abhaengigkeitskette, also muss ihr Artefakt darunter haengen.
     """
     nb, ps, tr = gruppen

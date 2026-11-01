@@ -2,26 +2,36 @@
 #SBATCH --job-name=eventpiv-train
 #SBATCH --partition=gpu
 #SBATCH --cpus-per-task=8
-# Der Datensatz traegt 5 Mio. Paare je Run: 50 Mio. bei zehn Runs,
-# 150 Mio. bei dreissig. --time je Aufruf setzen.
+# --time haengt an der Paarzahl, also an pairs.runs; je Aufruf setzen.
 #SBATCH --time=02:00:00
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
 
-# KEIN --gres: train.py rechnet auf der CPU (Befund 28.07.2026). Ein
-# 33-Parameter-MLP braucht keine Karte, und ohne GRES-Anforderung kommt der
-# Job deutlich schneller dran.
-# --cpus-per-task=8: torch parallelisiert die Matrixoperationen ueber Threads.
+# [3] Training: ruft scripts/train_edge_nn.py auf, je Satz ein Lauf.
+#   EXTRA       frei, Overrides, durch Leerzeichen getrennt.
+#   EXTRA_SETS  frei, mehrere Saetze, durch ; getrennt, je Satz ein Lauf.
+# EVENTPIV_DATA und EVENTPIV_OUT muessen gesetzt sein.
+# Allgemeines zu sbatch steht im slurm-Abschnitt von scripts/_cli.py.
+# Bedarf: nur CPU; Groessenordnung zehn GB Arbeitsspeicher.
+# Beispiel:
+#   sbatch slurm/train.sbatch
+#   EXTRA="datensatz=batch1" sbatch slurm/train.sbatch
+# Fehler:
+#   Paar-Datensatz fehlt: die Gruppen muessen die des Paarbaus [2] sein.
+#
+# KEIN --gres: train.py rechnet auf der CPU, das kleine MLP braucht keine
+# Karte. --cpus-per-task: torch parallelisiert die Matrixoperationen ueber
+# Threads.
 
 set -euo pipefail
 export PYTHONUNBUFFERED=1
 export WANDB_SILENT=true
+# An die eigene Umgebung anpassen: venv und Pfad zum Repo.
 source "$HOME/eventpiv-env/bin/activate"
 cd "$HOME/event-piv-multicut"
 
 echo "Node $(hostname)  Job $SLURM_JOB_ID  Start: $(date)"
-# EXTRA_SETS: mehrere Parametersaetze, durch ';' getrennt, NACHEINANDER in
-# derselben Allokation. EXTRA bleibt der Einzelfall.
+# Ist EXTRA_SETS gesetzt, gilt EXTRA nicht.
 SETS="${EXTRA_SETS:-${EXTRA:-}}"
 IFS=';' read -ra _SETS <<< "$SETS"
 for s in "${_SETS[@]}"; do

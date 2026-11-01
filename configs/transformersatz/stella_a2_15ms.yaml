@@ -1,5 +1,7 @@
 # @package transformer
 #
-# Netz zum zweiten STELLA-Arbeitspunkt, zusammen mit
-# `kandidatensatz=stella_a2_15ms`.
+# Netz zum zweiten Arbeitspunkt auf STELLA; wird ab [6b] mit
+# `kandidatensatz=stella_a2_15ms` zusammen gewaehlt. Nicht genannte Felder
+# kommen aus kern/runconfig.py. Die erste Zeile lenkt den Inhalt ins Feld
+# `transformer`.
 epochs: 50

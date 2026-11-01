@@ -6,18 +6,37 @@
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
 
+# [6a] Kandidaten: ruft scripts/build_kandidaten.py je Satz einmal fuer alle
+# Runs auf.
+#   RUNS        Pflicht, die zu bauenden Runs, durch Leerzeichen getrennt.
+#   SPLIT       Pflicht, der Split.
+#   KD_RUNS     frei, ersetzt kandidaten.runs und damit den Slug.
+#   EXTRA       frei, Overrides, durch Leerzeichen getrennt.
+#   EXTRA_SETS  frei, mehrere Saetze, durch ; getrennt, je Satz ein Lauf.
+# EVENTPIV_DATA und EVENTPIV_OUT muessen gesetzt sein.
+# Allgemeines zu sbatch steht im slurm-Abschnitt von scripts/_cli.py.
+# Bedarf: nur CPU; auf dichten Daten mehrere zehn GB Arbeitsspeicher.
+# Beispiel:
+#   RUNS="8 13" SPLIT=train sbatch slurm/kandidaten.sbatch
+#   RUNS="32" SPLIT=train EXTRA="datensatz=batch1 kandidatensatz=batch1" \
+#     sbatch slurm/kandidaten.sbatch
+# Fehler:
+#   v_max-Pruefung bricht ab: kandidatensatz=batch1 zu datensatz=batch1 fehlt.
+#   Tracklets fehlen: erst slurm/tracklets.sbatch mit denselben Gruppen.
+#   [6b] liest alle kandidaten.runs: vorher alle bauen, nicht nur einige.
+#
 # KEIN --gres: build_kandidaten.py importiert torch nicht. Gerechnet wird
-# der KDTree (scipy) und connected_components. Ohne GRES-Anforderung kommt
-# der Job schneller dran.
+# der KDTree (scipy) und connected_components.
 #
 # Ein Prozess fuer ALLE Runs, anders als bei tracklets.sbatch: der
 # Speicher wird nach jedem Run wieder frei. Die Spitze je Run waechst mit
 # seiner Eventzahl und mit kandidaten.alpha, auf dichten Daten auf mehrere
-# zehn GB -- dann per -w die Node waehlen.
+# zehn GB -- dann einen Knoten mit genug Arbeitsspeicher waehlen.
 
 set -euo pipefail
 export PYTHONUNBUFFERED=1
 export WANDB_SILENT=true
+# An die eigene Umgebung anpassen: venv und Pfad zum Repo.
 source "$HOME/eventpiv-env/bin/activate"
 cd "$HOME/event-piv-multicut"
 
@@ -37,12 +56,10 @@ if [ -n "${KD_RUNS:-}" ]; then
   KD_ARG=("kandidaten.runs=[$(echo "$KD_RUNS" | tr ' ' '\n' | sort -n | paste -sd,)]")
 fi
 
-# Mehrere Parametersaetze in EINER Allokation, Semikolon getrennt:
-#   EXTRA_SETS="solver.cost_offset=-0.5;kandidaten.alpha=60000"
+# Etwa EXTRA_SETS="solver.cost_offset=-0.5;kandidaten.alpha=60000".
 EXTRA_SETS="${EXTRA_SETS:-${EXTRA:-}}"
 IFS=';' read -ra SAETZE <<< "$EXTRA_SETS"
-# Wie in tracklets.sbatch: leere Eingabe ergibt ein LEERES Array, die
-# Schleife liefe null Mal und der Job endete wortlos mit Erfolg.
+# Leere Eingabe: ein leerer Satz, sonst liefe die Schleife null Mal.
 if [ ${#SAETZE[@]} -eq 0 ]; then SAETZE=(""); fi
 
 echo "Node $(hostname)  Job $SLURM_JOB_ID  Start: $(date)"

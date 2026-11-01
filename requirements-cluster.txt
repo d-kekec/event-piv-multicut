@@ -1,4 +1,4 @@
-# Python: 3.12.13 (uv-verwaltet, ~/.local/share/uv/python/) — NICHT System-Python
+# Python: 3.12.13 (uv-verwaltet) — NICHT System-Python
 # torch: --index-url https://download.pytorch.org/whl/cu130  Ohne diese URL ist `torch==2.13.0+cu130` nicht installierbar.
 
 contourpy==1.3.3

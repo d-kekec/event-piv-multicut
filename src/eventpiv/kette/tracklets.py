@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 r"""
-tracklets.py -- BAUSTEIN [5a]: einen ganzen Run in Tracklet-Fenstern
+tracklets.py -- Stufe [5a]: einen ganzen Run in Tracklet-Fenstern
 abschreiten und das Ergebnis als Artefakt schreiben.
 
   solve_run           einen Run in anstossenden Fenstern der Laenge alpha
@@ -38,10 +38,10 @@ from eventpiv.kette.solve import solve_window
 def _stumm():
     """Unterdrueckt Ausgaben auf Dateideskriptor 1.
 
-    RAMA meldet je Aufruf "Running purely primal solver"; bei 800 Fenstern
-    je Run ist das 800-mal dieselbe Zeile. Die Meldung kommt aus dem
-    C++-Teil, deshalb reicht contextlib.redirect_stdout nicht -- das ersetzt
-    nur sys.stdout, nicht den Deskriptor darunter.
+    RAMA meldet je Aufruf "Running purely primal solver", also dieselbe
+    Zeile einmal je Fenster. Die Meldung kommt aus dem C++-Teil, deshalb
+    reicht contextlib.redirect_stdout nicht -- das ersetzt nur sys.stdout,
+    nicht den Deskriptor darunter.
 
     stderr bleibt unberuehrt: Fehlermeldungen gehen dorthin und sollen
     sichtbar bleiben. Was hier verloren geht, sind ausschliesslich
@@ -80,7 +80,8 @@ def _nah_fern(zeilen):
 
     merge_event_frac ist dieselbe Rechnung ohne Trennung. Sie steht daneben,
     weil NAH und FERN allein nicht sagen, wie gross der Fehler insgesamt
-    ist -- 8 % auf 7 % der Events sind etwas anderes als 8 % auf allen.
+    ist -- ein Anteil auf wenigen nahen Events ist etwas anderes als
+    derselbe Anteil auf allen.
     """
     out = {"nah_schwelle_px": NAH_PX}
     mi_ges = 0
@@ -123,8 +124,8 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
     Fenstergrenze zerschnittenes Partikel ergibt zwei Tracklets, und das
     ist die beabsichtigte Ausgabe. Verbinden ist Aufgabe von Stufe 2.
 
-    EINMAL geladen, danach mit searchsorted zerlegt -- bei rund 800
-    Fenstern je Run traegt das die Laufzeit.
+    EINMAL geladen, danach mit searchsorted zerlegt -- fensterweises Laden
+    laese die Datei einmal je Fenster.
 
     TRACKLET-IDs SIND GLOBAL: RAMA nummeriert je Fenster ab 0, der Treiber
     addiert einen Versatz. -1 bleibt -1.
@@ -133,9 +134,9 @@ def solve_run(cfg: SolveCfg, model, mu, sig, feature_mode, *,
         on_epoch im Training -- ein Test haengt an eine Liste an, das Skript
         reicht wandb.log durch.
     
-    stumm : RAMAs Statuszeilen unterdruecken. Bei 800 Fenstern je Run ist
-        dieselbe Meldung 800-mal keine Information. Zum Nachsehen, was der
-        Solver meldet, mit stumm=False aufrufen.
+    stumm : RAMAs Statuszeilen unterdruecken. Dieselbe Meldung je Fenster
+        ist keine Information. Zum Nachsehen, was der Solver meldet, mit
+        stumm=False aufrufen.
 
     Rueckgabe: (tracklet_id, zeilen, lauf).
       tracklet_id  int32 je ON-Event des Runs, in der Reihenfolge des
@@ -305,14 +306,13 @@ def schreibe_tracklets(cfg: SolveCfg, tracklet_id, zeilen, lauf):
     (kantenloser Knoten), nicht Tracklet 0.
 
     Warum nicht ueber alle Events: OFF-Events sind keine Knoten und
-    bekaemen durchweg -1 -- das verdoppelte die Datei fuer nichts. Sie
-    werden nachtraeglich ueber die Mehrheit ihrer k naechsten ON-Events
-    zugeordnet.
+    bekaemen durchweg -1 -- das verdoppelte die Datei fuer nichts.
 
     Daneben je Fenster sechs Kennzahlen. `fenster_n_nein` ist die
     Volkszaehlung der Begegnungen: sie sagt, welche Fenster ueberhaupt eine
-    Trennung verlangen, und ist die Grundlage der CROSSING/CLEAN-Trennung
-    bei der Bewertung. -1 heisst "keine GT, also nicht bestimmbar".
+    Trennung verlangen. -1 heisst "keine GT, also nicht bestimmbar".
+    `fenster_t0` ist die Zeit des ersten Events im Fenster, nicht der
+    Rasterpunkt; wer damit schneidet, zieht Events des Folgefensters herein.
 
     Komprimiert gespeichert: das Array ist ueberwiegend aus kurzen Laeufen
     gleicher IDs aufgebaut und schrumpft dabei erheblich.

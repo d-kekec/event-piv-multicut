@@ -19,11 +19,19 @@ eines am aeusseren Rand der anderen, dazwischen der Nachbarschaftsradius.
 
 SPEICHERSPITZE: der Jaccard legt die Nachbarschaftsmatrix eines Fensters
 dicht als float32 an, also (Rate*alpha)^2 * 4 Byte. Sie ist die harte
-Obergrenze fuer die Wahl und folgt allein aus der Dateigroesse.
+Obergrenze fuer die Wahl und folgt allein aus der Dateigroesse. Die Rate
+zaehlt alle Events der Datei; enthaelt ein Datensatz auch OFF-Events,
+ueberschaetzt sie die Last von Stufe 1, die nur ON-Events rechnet.
 
-Aufruf:
+Aufruf ohne Hydra und ohne EVENTPIV_*. <verzeichnis> enthaelt run<N>.dat
+und run<N>_bbox.npy eines Splits. Alle Schluessel sind optional: n Zahl der
+Runs, alpha_us Fensterlaenge in µs, r_wolke und r_max in px fuer die
+SCHWELLE, budget_gib Speicherspitze in GiB, proben Rasterpunkte je Run,
+min_ptk Partikel je Bild als untere Schranke, deckel NEIN-Paare je Run wie
+pairs.max_no. Die Vorgaben des Werkzeugs folgen nicht kern.runconfig.
   python tools/runauswahl.py <verzeichnis> [n=30] [alpha_us=500]
          [r_wolke=...] [r_max=...] [budget_gib=8] [proben=100]
+         [min_ptk=100] [deckel=1e6]
 """
 from __future__ import annotations
 
@@ -36,15 +44,14 @@ KOPF_BYTE = 108        # Prophesee-DAT: fuenf Kommentarzeilen + ev_type/ev_size
 BYTE_JE_EVENT = 8
 
 # Die Rate ist ein Mittel ueber den Run; einzelne Fenster liegen darueber.
-# Gemessen am Paarbau: ein Run mit 49 323 Knoten im Mittel forderte ein
-# Fenster mit 59 850 an -- Faktor 1,21 in der Knotenzahl. Der Speicher
-# geht mit dem Quadrat, also 1,47. Aufgerundet als Sicherheitsfaktor.
+# Sicherheitsfaktor auf den Speicher, der mit dem Quadrat der Knotenzahl
+# je Fenster geht; am Datensatz kalibriert.
 SPITZE = 1.5
 
-# Rohe NEIN-Paare je Fenster, gemessen an einem Run mit 28,2 MEv/s, und
-# der Exponent aus drei Runs ueber 28 bis 99 MEv/s. NEIN braucht zwei
-# Events VERSCHIEDENER Partikel in einer Nachbarschaft, waechst also
-# ueberproportional mit der Dichte. Grobe Schaetzung, kein Messwert.
+# Rohe NEIN-Paare je Fenster als Potenzgesetz der Eventrate: Bezugspunkt
+# (Rate in MEv/s, NEIN-Paare je Fenster) und Exponent, am Datensatz
+# kalibriert, grob. NEIN braucht zwei Events VERSCHIEDENER Partikel in
+# einer Nachbarschaft, waechst also ueberproportional mit der Dichte.
 NEIN_JE_FENSTER_BEI = (28.2, 7027.0)
 NEIN_EXPONENT = 1.85
 
@@ -56,7 +63,7 @@ def _zentren(b: np.ndarray) -> np.ndarray:
 def kennzahlen(bbox_pfad: Path, dat_pfad: Path, schwelle: float,
                alpha_us: float, proben: int) -> dict:
     """Eine Zeile je Run. Rasterpunkte werden gleichmaessig abgetastet --
-    alle zu nehmen kostet das Zwanzigfache fuer dieselbe Aussage."""
+    alle zu nehmen kostet ein Vielfaches fuer dieselbe Aussage."""
     b = np.load(bbox_pfad)
     n_ev = (dat_pfad.stat().st_size - KOPF_BYTE) // BYTE_JE_EVENT
 
@@ -116,7 +123,7 @@ def regel_auswahl(zeilen: list[dict], n_ziel: int, budget_gib: float,
 
     UNTEN ebenfalls eine Schranke. Die Zahl der Begegnungen je Partikel
     folgt bei gleichverteilten Partikeln aus ihrer Zahl allein,
-    N*pi*r^2/(2*A). Unterhalb weniger Dutzend Partikel je Bild liefert ein
+    N*pi*r^2/(2*A). Unterhalb von min_ptk Partikeln je Bild liefert ein
     Run kaum NEIN-Paare -- fuers Training wertlos, als Kontrolle dagegen
     wertvoll: dort DARF nichts verschmelzen.
 

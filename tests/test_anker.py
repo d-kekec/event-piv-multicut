@@ -7,11 +7,11 @@ synthetischen Mini-Datensatz und prueft die VERDRAHTUNG. Welche Zahl
 richtig ist, kann sie nicht wissen. Der Anker kann es -- er haelt fest, was
 ein Arbeitspunkt auf bekannten Daten liefert.
 
-JE DATENSATZ: es laeuft der Anker des Datensatzes, den `eventpiv_use`
-gewaehlt hat (EVENTPIV_NAME); ohne Eintrag wird uebersprungen. Die
-Konfiguration entsteht aus den Gruppendateien unter configs/, gelesen wie
-Hydra sie setzt -- die Werte der Datei ueber den Vorgaben der Dataclass.
-Hydra selbst wird nicht gebraucht.
+JE DATENSATZ: es laeuft der Anker des Datensatzes, den EVENTPIV_NAME nennt;
+EVENTPIV_DATA und EVENTPIV_OUT muessen dazu passen. Ohne Eintrag wird
+uebersprungen. Die Konfiguration entsteht aus den Gruppendateien unter
+configs/, gelesen wie Hydra sie setzt -- die Werte der Datei ueber den
+Vorgaben der Dataclass. Hydra selbst wird nicht gebraucht.
 
 Die Anker brauchen den Datensatz, gebaute Label-Dateien und die
 trainierten Netze und sind deshalb markiert und standardmaessig
@@ -21,14 +21,14 @@ und der Vorgabentest laeuft in jeder Suite.
     pytest -m anker      Stufe 1, je Eintrag ein Fenster, dazu die Slugs
     pytest -m anker2     Stufe 2, ein ganzer Run
 
-Traegt rema einen Datensatz nicht, laufen die Anker als Job:
+Braucht ein Datensatz mehr Arbeitsspeicher, laufen die Anker als Job:
 `sbatch slurm/anker.sbatch`, MARKER waehlt die Stufe.
 
 DIE ZAHLEN SIND KEINE ZIELVORGABE. Sie sind der Stand, gegen den eine
-Aenderung gemessen wird. Aendert sich eine absichtlich, wird sie hier
-angepasst -- im selben Commit wie die Aenderung, mit der Begruendung in der
-Commit-Nachricht. Fehlen sie, misst der Anker und nennt die Werte im
-Skip-Grund (`pytest -rs`).
+Aenderung gemessen wird. Aendern sich die Vorgaben oder ein Arbeitspunkt
+gewollt, werden die Tabellen dieses Tests im selben Commit nachgezogen.
+Fehlen Sollwerte, misst der Anker und nennt die Werte im Skip-Grund
+(`pytest -rs`).
 
 Ein Fenster ist genau ein Stufe-1-Fenster lang (neighborhood.alpha).
 Stufe 2 loest einen ganzen Run am Stueck; ein Ausschnitt waere ein anderes

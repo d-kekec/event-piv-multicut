@@ -82,8 +82,8 @@ def test_keine_selbstkanten_keine_duplikate(wolke):
 def test_geometrien_sind_ineinander_enthalten(wolke):
     """ellipsoid ⊆ cylinder ⊆ hyperboloid -- die Formen sind geschachtelt.
 
-    Ersetzt den frueheren verify-Test: dass die Quaderbedingung das
-    Ellipsoid nicht filtert, ist der Spezialfall ellipsoid ⊆ cylinder.
+    Darin steckt auch, dass die Quaderbedingung das Ellipsoid nicht
+    filtert: der Spezialfall ellipsoid ⊆ cylinder.
     """
     t, x, y = wolke
     mengen = {m: set(als_menge(*neighborhood_pairs(t, x, y, 10_000, 7.0,
@@ -212,7 +212,7 @@ def test_unbekannte_polaritaet_faellt_auf():
 def test_on_only_entfernt_die_gemischtpolaren_kanten(wolke):
     """Der Sinn des Filters, an der Kantenmenge gemessen.
 
-    Die ON- und die OFF-Sichel eines Partikels liegen rund 6 px
+    Auf batch1 liegen die ON- und die OFF-Sichel eines Partikels
     auseinander; die Kanten ZWISCHEN ihnen sind die schwaechste Bindung
     innerhalb eines Partikels und reissen zuerst. Unter "on" bleiben nur
     Kanten uebrig, deren beide Endpunkte positiv sind -- und die Menge ist
@@ -238,7 +238,7 @@ def test_on_only_entfernt_die_gemischtpolaren_kanten(wolke):
 # --- jaccard_paare: der gemeinsame Nachbaranteil -----------------------
 
 def _jaccard_brute(i, j, n):
-    """O(Grad)-Referenz ueber echte Mengen -- unabhaengig von scipy.sparse."""
+    """O(Grad)-Referenz ueber echte Mengen -- unabhaengig vom Matrixprodukt."""
     nachbarn = [set() for _ in range(n)]
     for a, b in zip(i.tolist(), j.tolist()):
         nachbarn[a].add(b)

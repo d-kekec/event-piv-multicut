@@ -12,8 +12,9 @@ authors = [{ name = "Devrim" }]
 
 # NUR Pakete, die per pip aus PyPI kommen und nicht anders installiert werden.
 # BEWUSST NICHT hier drin:
-#   torch    -> braucht --index-url .../whl/cu126 (CUDA-Variante), s. BA_Umgebung_Setup.md §7
-#   rama_py  -> wird aus Git kompiliert (GCC-13-Workaround), ebenda
+#   torch    -> braucht die --index-url seiner CUDA-Variante, siehe Kopf von
+#               requirements-cluster.txt
+#   rama_py  -> wird aus Git kompiliert
 # Beide würden von pip sonst in falscher Variante nachinstalliert.
 dependencies = [
     "numpy>=1.24",

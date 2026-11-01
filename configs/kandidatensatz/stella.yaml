@@ -1,33 +1,11 @@
 # @package kandidaten
 #
-# Das Feld heisst `kandidaten`, die Gruppe `kandidatensatz` -- ein
-# Verzeichnis `configs/kandidaten/` stuende neben der Treiberdatei
-# configs/kandidaten.yaml. Die Zeile oben sagt Hydra, wohin der Inhalt
-# gehoert.
-#
-# Kandidatensatz fuer den STELLA-Datensatz, ab [6a]. Zuschalten mit
-# `datensatz=stella kandidatensatz=stella`.
-#
-# runs: dieselben dreissig Runs wie im Paarbau, aufsteigend -- die
-# Reihenfolge geht in den Hash ein. Die Kontrollruns gehoeren nicht
-# hierher: sie werden ueber selection.runs gebaut und geloest und liegen
-# dann unter demselben Slug.
-#
-# v_max: dieselbe Groesse wie neighborhood.v_max, die schnellste
-# Partikelgeschwindigkeit ueber alle Runs, in px/µs (0,00179 px/µs sind
-# 1,79 px/ms). Die Drift ist ueber die Zeitspannen beider Stufen linear;
-# der Suchkoerper muss die Fortsetzung der schnellsten Partikel enthalten.
-# KandidatenCfg prueft die Gleichheit.
-#
-# r_max: die Taille. Sie deckt den Abstand der Zentroide zweier Knoten
-# derselben Bahn bei kleinem dt, vor allem Bruchstuecke im selben Fenster;
-# die Drift traegt die Aufweitung v_max * dt.
-#
-# alpha: Reichweite zwischen den t_min zweier Knoten, in µs.
-#
-# min_events 1: jedes Tracklet wird ein Knoten, auch ein Einzelevent;
-# kantenlose Events (tracklet_id < 0) bleiben ohne Knoten. n_events bleibt
-# bei der Vorgabe. Vergleich mit 2 und 15 -> Journal 27.09.-02.10.
+# STELLA. Wiederholt die Vorgaben aus kern/runconfig.py, damit STELLA wie
+# batch1 ausdruecklich waehlbar ist und test_anker beide Datensaetze gleich
+# liest. Nicht genannte Felder kommen aus kern/runconfig.py. Zuschalten ab
+# [6a] mit `datensatz=stella kandidatensatz=stella`. Die erste Zeile lenkt
+# den Inhalt ins Feld `kandidaten`. runs aufsteigend: die Reihenfolge geht
+# in den Hash ein. v_max muss neighborhood.v_max gleichen (KandidatenCfg).
 runs: [2, 6, 8, 9, 13, 18, 23, 28, 30, 37, 38, 41, 42, 43, 46, 48, 49, 54,
        55, 64, 65, 66, 72, 80, 82, 85, 92, 93, 96, 98]
 v_max: 0.00179

@@ -13,8 +13,8 @@ from eventpiv.kern.runconfig import (Neighborhood, canonical, same_neighborhood,
 
 
 def test_kanonische_form_ignoriert_int_float():
-    """3 und 3.0 duerfen NICHT auseinanderlaufen -- sonst erzeugte derselbe
-    Arbeitspunkt zwei Verzeichnisse, und check_consistency schluege an."""
+    """3 und 3.0 duerfen NICHT auseinanderlaufen -- sonst erzeugte dieselbe
+    Nachbarschaft zwei Verzeichnisse, und check_consistency schluege an."""
     assert canonical(Neighborhood(r_max=3)) == canonical(Neighborhood(r_max=3.0))
 
 
@@ -27,8 +27,8 @@ def test_v_max_gehoert_zur_identitaet():
 
 
 def test_unbekannte_auswahlwerte_fallen_zur_konfigurationszeit_auf():
-    """Frueher fiel das erst tief im Lauf auf -- da stand der Slug schon und
-    ein Verzeichnis hiess danach."""
+    """Faellt ein unbekannter Wert erst tief im Lauf auf, steht der Slug
+    schon und ein Verzeichnis heisst danach."""
     from eventpiv.kern.runconfig import Training
 
     with pytest.raises(ValueError, match="geom"):
@@ -87,7 +87,7 @@ def test_d_model_teilbar_durch_n_heads():
 
 
 def test_stufe2_identitaet_haengt_an_jedem_feld():
-    """Der lesbare Kern nennt fuenf bzw. vier Felder, den Rest traegt der
+    """Der lesbare Kern nennt je fuenf Felder, den Rest traegt der
     Hash. Zwei Kandidatensaetze, die sich nur in min_events unterscheiden,
     duerfen nicht denselben Pfad bekommen -- sie enthalten verschiedene
     Knoten."""
@@ -120,10 +120,9 @@ def test_kandidaten_v_max_muss_zur_nachbarschaft_passen():
 
 
 def test_weight_ist_kein_gueltiger_imbalance_modus():
-    """Die Gewichtung war seit Wochen unbenutzt und tat in beiden Stufen
-    Verschiedenes -- Stufe 1 gewichtete nur, Stufe 2 zog zusaetzlich. Ein
-    alter Aufruf muss zur Konfigurationszeit abbrechen, nicht still ein
-    anderes Verhalten liefern."""
+    """Eine Gewichtung gibt es in keiner Stufe. Ein Aufruf mit
+    imbalance="weight" muss zur Konfigurationszeit abbrechen, nicht still
+    ein anderes Verhalten liefern."""
     from eventpiv.kern.runconfig import Training, Transformer
 
     with pytest.raises(ValueError, match="imbalance"):

@@ -137,7 +137,7 @@ def test_kalman_gleiche_zeiten_dt_aus_und_t_aus():
 
 
 def test_kalman_vertraegt_doppelte_zeitstempel():
-    """Rund 2,8 % der Events teilen sich einen Stempel. Ohne die
+    """Events koennen sich einen Zeitstempel teilen. Ohne die
     h > 0-Bedingung entstuende dort eine Vorhersage ueber dt = 0."""
     from eventpiv.kette.trajektorien import kalman_bahn
 
@@ -258,8 +258,8 @@ def test_glaetter_verbessert_den_bahnanfang():
 def test_a_unbekannt_erreicht_den_filter():
     """Die Streuung der Startbeschleunigung wirkt: auf einer stark
     gekruemmten Bahn trifft ein grosszuegiger Wert den Bahnanfang, ein zu
-    kleiner haelt die Beschleunigung zu lange bei null. Die Vorgabe
-    bleibt 100 -- ohne das Feld rechnet der Filter wie bisher."""
+    kleiner haelt die Beschleunigung zu lange bei null. Ohne Angabe
+    rechnet kalman_bahn mit a_unbekannt = 100, das prueft der Schluss."""
     from eventpiv.kette.trajektorien import kalman_bahn
 
     n = 20_000
@@ -283,7 +283,8 @@ def test_a_unbekannt_erreicht_den_filter():
 
 
 def test_fit_slug_trennt_glaetter():
-    """Zwei Fit-Arbeitspunkte muessen nebeneinander liegen koennen."""
+    """Zwei Fits mit verschiedenen Parametern muessen nebeneinander liegen
+    koennen."""
     from eventpiv.kern.runconfig import Fit, slug
 
     assert slug(Fit(glaetten=True)) != slug(Fit(glaetten=False))
@@ -345,7 +346,7 @@ def test_quer_streuung_ohne_auswertbare_events_ist_nan():
 
 
 def test_fitte_run_beta_schiebt_um_beta_mal_querstreuung():
-    """beta = 0 ist der alte Weg, Bit fuer Bit. beta > 0 schiebt jede
+    """beta = 0 ist der Weg ohne beta, Bit fuer Bit. beta > 0 schiebt jede
     Bahn um beta*sigma_quer gegen die Bewegung, und der Fit schluckt die
     Querstreuung nicht."""
     from eventpiv.kette.trajektorien import (fitte_run, gruppiere,

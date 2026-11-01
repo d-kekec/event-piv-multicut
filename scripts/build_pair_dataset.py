@@ -1,6 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""CLI-Huelle fuer eventpiv.kette.pairs -- Hydra, W&B, Aufruf."""
+"""CLI-Huelle fuer eventpiv.kette.pairs -- Hydra, W&B, Aufruf. Stufe [2].
+
+Aufruf (allgemeine Bedienung: scripts/_cli.py). Die Quelle setzen
+pairs.split und pairs.runs, nicht selection; die Labels dieser Runs
+muessen vorliegen. Nach einer Aenderung an neighborhood.* ist alles ab [2]
+neu zu bauen: es liegt unter dem Slug der Nachbarschaft.
+  python scripts/build_pair_dataset.py
+  # batch1; datensatz=batch1 kennt dieses Schema nicht
+  python scripts/build_pair_dataset.py neighborhood=batch1 pairsampling=batch1
+  # ueber slurm/pairs.sbatch (Bedarf in dessen Kopf): Overrides in EXTRA
+  sbatch slurm/pairs.sbatch
+  EXTRA="neighborhood=batch1 pairsampling=batch1" sbatch slurm/pairs.sbatch
+"""
 from dataclasses import asdict
 
 import hydra

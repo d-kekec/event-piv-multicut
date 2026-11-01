@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Bewertung nach STELLA §4.1 ueber vorhandene Fit-Dateien aus [7].
+"""Bewertet vorhandene Fit-Dateien aus [7] mit den Kennzahlen von STELLA.
 
-Je Run und ueber alle Runs gepoolt: MedAE in Ort und Geschwindigkeit mit
-P25 und P75, MedAE_u relativ zu |U^| = 0,6 px/ms, t_covered und
+Kennzahlen nach STELLA (Sachs et al., 2026), Abschnitt 4.1, je Run und
+ueber alle Runs gepoolt: MedAE in Ort und Geschwindigkeit mit P25 und
+P75, MedAE_u relativ zu |U^| (U_NORM_STELLA), t_covered und
 N_tracks/N_gt, dazu der Anteil verworfener Bahnen. Definition und
 Auslegung stehen in bewerten/evaluate_trajektorien.py (stella_fehler).
 
@@ -20,8 +21,12 @@ Boxen ueber EVENTPIV_DATA; [7] laeuft dafuer nicht neu. Der Stamm folgt
 ohne Angabe aus den Vorgaben von Solver, Solver2 und Fit, ein anderer
 ueber --stamm.
 
-Aufruf mit dem solves-Verzeichnis aus dem Fit-Log:
-    python tools/stella_bewertung.py <solves> val 1 2 3 --json <pfad>
+Aufruf ohne Hydra; EVENTPIV_DATA und EVENTPIV_OUT wie in scripts/_cli.py.
+<solves> ist das Verzeichnis, dessen Dateien fit_trajektorien hinter "->"
+meldet; ein Run ohne Fit-Datei wird uebersprungen.
+    python tools/stella_bewertung.py <solves> val <runs>
+    python tools/stella_bewertung.py <solves> val <runs> --json <ziel>.json
+    python tools/stella_bewertung.py <solves> val <runs> --stamm <stamm>
 """
 import argparse
 import json

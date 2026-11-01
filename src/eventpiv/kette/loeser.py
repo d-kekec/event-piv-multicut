@@ -45,8 +45,8 @@ def solve_multicut(i, j, costs_gpu, num_nodes, cp, mode="PD"):
                          "(cudaErrorIllegalAddress), vorher abfangen.")
 
     # int32-Cast auf der CPU: torch.as_tensor(int64_array) legt sonst erst
-    # ein int64-Array auf der GPU an und castet danach -- bei 80 Mio. Kanten
-    # 636 MB je Richtung umsonst.
+    # ein int64-Array auf der GPU an und castet danach -- 8 Byte je Kante
+    # und Richtung umsonst.
     i_t = torch.as_tensor(np.ascontiguousarray(i, np.int32), device=cp.device)
     j_t = torch.as_tensor(np.ascontiguousarray(j, np.int32), device=cp.device)
     c_t = costs_gpu.contiguous().to(torch.float32)

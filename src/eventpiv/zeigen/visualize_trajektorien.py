@@ -5,8 +5,8 @@ visualize_trajektorien.py -- Darstellung [D]: was Stufe 2 aus Stufe 1 macht.
 
   animate_trajektorien   Tracklets | Trajektorien | GT, ganzer Run
 
-DAS BILD DER STUFE. Links wechseln saemtliche Farben alle alpha µs, weil
-dort neue Tracklets beginnen. Rechts stehen sie ueber acht Sekunden. Der
+DAS BILD DER STUFE. Links wechseln saemtliche Farben alle alpha1, weil
+dort neue Tracklets beginnen. Rechts stehen sie ueber den ganzen Run. Der
 Unterschied zwischen beiden Panels IST das Ergebnis; Fragmentierung und
 Identitaetswechsel sind darin sichtbar, ohne dass eine Kennzahl noetig
 waere.
@@ -17,12 +17,12 @@ color_lookup, render_panel, compose, save_gif -- werden importiert und
 nicht kopiert.
 
 DER TRACKLET-PANEL BRAUCHT KEINEN SOLVE. Artefakt (A) traegt tracklet_id
-je ON-Event des ganzen Runs, fertig gerechnet. animate_tracklets ruft
-solve_run nur, weil es zu seiner Entstehungszeit noch kein Artefakt gab;
-ueber acht Sekunden waere das ein GPU-Job von Minuten.
+je ON-Event des ganzen Runs, fertig gerechnet. animate_tracklets loest
+dagegen selbst (solve_run) und verlangt einen Ausschnitt (window.t0,
+window.dt).
 
-STUFE 2 WIRD GELESEN, NICHT GELOEST: die Partition liegt seit [6c] als
-npz neben der Kennzahlen-JSON. Kein Rueckfallpfad auf Neurechnen -- zwei
+STUFE 2 WIRD GELESEN, NICHT GELOEST: die Partition legt [6c] als npz
+neben der Kennzahlen-JSON ab. Kein Rueckfallpfad auf Neurechnen -- zwei
 Wege zur selben Partition, von denen einer selten laeuft, veralten still.
 Damit braucht [D] weder GPU noch Netz.
 
@@ -291,7 +291,7 @@ def animate_trajektorien(cfg: AnimTrajCfg):
                else Path(cfg.io.out_path))
     p_tag = "_" + "".join(w[0] for w in wahl)
     # Der Fit-Slug nur mit fit-Panel -- sonst schrieben zwei
-    # Fit-Arbeitspunkte in dieselbe Datei.
+    # Fits mit verschiedenen Parametern in dieselbe Datei.
     f_tag = f"_{slug(cfg.fit)}" if "fit" in wahl else ""
     # BEIDE Solver: Stufe 1 waehlt die Quelle, Stufe 2 die Rechnung. Ohne
     # den ersten schrieben zwei cost_offset-Werte in dieselbe Datei.

@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""CLI-Huelle fuer eventpiv.kette.train -- Hydra, W&B, Aufruf.
+"""CLI-Huelle fuer eventpiv.kette.train -- Hydra, W&B, Aufruf. Stufe [3].
 
 Die Framework-Grenze: hier sind Hydra UND W&B bekannt, in src/eventpiv/
 keines von beiden. train.py liefert verschachtelte Kennzahlen an zwei
 Senken; was daraus wird, entscheidet diese Datei.
+
+Aufruf (allgemeine Bedienung: scripts/_cli.py). Die Gruppen muessen die
+des Paarbaus [2] sein: sie leiten den Eingabepfad ab.
+  python scripts/train_edge_nn.py
+  # batch1; datensatz=batch1 setzt neighborhood, pairsampling und training
+  python scripts/train_edge_nn.py datensatz=batch1
+  # ueber slurm/train.sbatch (Bedarf in dessen Kopf): Overrides in EXTRA;
+  # EXTRA_SETS fuehrt mehrere Saetze nacheinander aus, durch ';' getrennt
+  sbatch slurm/train.sbatch
+  EXTRA="datensatz=batch1" sbatch slurm/train.sbatch
 """
 from dataclasses import asdict
 
@@ -53,9 +63,9 @@ def senken(run):
 def main(dcfg: DictConfig) -> None:
     cfg: TrainCfg = to_cfg(dcfg)
 
-    # group = Arbeitspunkt, name = Paar-Datensatz + Netz. group allein
-    # reicht nicht: unter einem Arbeitspunkt liegen mehrere Paar-Datensaetze.
-    # slug() setzt resolve_derived voraus -- to_cfg hat das erledigt.
+    # group = Nachbarschaft (wp/), name = Paar-Datensatz + Netz. group
+    # allein reicht nicht: darunter liegen mehrere Paar-Datensaetze.
+    # slug() braucht die Dataclass, nicht den DictConfig -- to_cfg liefert sie.
     run = wandb.init(
         project=PROJECT,
         group=slug(cfg.neighborhood),

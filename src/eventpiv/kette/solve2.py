@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 r"""
-solve2.py -- BAUSTEIN [6c]: den Stufe-2-Graphen EINES Runs loesen.
+solve2.py -- Stufe [6c]: den Stufe-2-Graphen EINES Runs loesen.
 
   kanten_kosten   Logits fuer alle Kandidatenpaare, stapelweise
   kompakt         RAMA-Clusternummern lueckenlos von 0 an
@@ -11,7 +11,7 @@ solve2.py -- BAUSTEIN [6c]: den Stufe-2-Graphen EINES Runs loesen.
   schreibe_trajektorien   Trajektorien-ID je ON-Event als npz
 
 EIN SOLVE JE RUN, nicht je Fenster. Das ist der Sinn der Stufe:
-Trajektorien laufen ueber alle achthundert Fenster, und ein Ausschnitt
+Trajektorien laufen ueber alle Fenster des Runs, und ein Ausschnitt
 zerschnitte genau das, was hier zusammengefuegt werden soll. Stufe 1 muss
 fensterweise loesen, Stufe 2 darf es nicht.
 
@@ -60,13 +60,14 @@ from eventpiv.kette.transformer import baue_tokens
 def kanten_kosten(model, norm, daten, i, j, *, batch, device):
     """Logits fuer alle Kandidatenpaare. Rueckgabe: float32-Tensor (P,).
 
-    Stapelweise, weil 3 Mio. Paare mal 65 Tokens nicht gleichzeitig auf die
-    Karte passen -- der KNOTENtensor tut es, und genau dafuer nimmt
+    Stapelweise, weil alle Paare mal 2*n_events+1 Tokens nicht gleichzeitig
+    auf die Karte passen -- der KNOTENtensor tut es, und genau dafuer nimmt
     baue_tokens Indizes.
 
-    Der Logit geht UNVERAENDERT als Kantenkosten weiter: das Netz lernt mit
+    Der Logit kommt ohne Nachskalierung zurueck: das Netz lernt mit
     BCEWithLogits die Log-Odds, die Nullstelle liegt damit bei p = 0,5, und
-    RAMA liest das Vorzeichen. Dieselbe Begruendung wie in Stufe 1.
+    RAMA liest das Vorzeichen. Dieselbe Begruendung wie in Stufe 1. Den
+    Versatz solver2.cost_offset addiert erst solve2_run.
     """
     ev, maske, t_min, x_c, y_c = daten
     aus = torch.empty(len(i), dtype=torch.float32, device=device)
@@ -226,7 +227,7 @@ def solve2_run(cfg: Solve2Cfg, model, norm, run_nr, verbose=True):
             tid_gt, status = g["track_id"][mask_on], g["status"][mask_on]
             # Zeitstempel je ON-Event. Ohne sie sind IDSW und Frag nicht
             # definiert; cluster_metrics gewinnt daraus zusaetzlich
-            # gt_visible_ms_median, das bisher nur in Stufe 1 anfiel.
+            # gt_visible_ms_median.
             t_gt = g["t"][mask_on]
         if len(tid_gt) != len(tid_ev):
             raise SystemExit(
@@ -235,11 +236,11 @@ def solve2_run(cfg: Solve2Cfg, model, norm, run_nr, verbose=True):
         # Rasterweite fuer IDSW und Frag AUS DEM DATENSATZ, nicht aus einer
         # Konstanten und nicht aus der Konfiguration. Feiner als die
         # GT-Abtastung ist die Referenz nicht aufgeloest; darunter messen
-        # beide Masse die Abtastdichte statt des benannten Phaenomens
-        # (Journal 17.08.). Kein Konfigurationswert, weil delta die
-        # PARTITION nicht beruehrt: er gehoerte weder in die Identitaet --
-        # der Baum behauptete eine Abhaengigkeit, die es nicht gibt -- noch
-        # daneben, wo zwei Werte dieselbe Datei still ueberschrieben.
+        # beide Masse die Abtastdichte statt des benannten Phaenomens. Kein
+        # Konfigurationswert, weil delta die PARTITION nicht beruehrt: er
+        # gehoerte weder in die Identitaet -- der Baum behauptete eine
+        # Abhaengigkeit, die es nicht gibt -- noch daneben, wo zwei Werte
+        # dieselbe Datei still ueberschrieben.
         delta_gt = gt_raster_dt(load_bbox(sel.split, run_nr))
         for name, lab in (("stufe1", lab_vorher), ("stufe2", lab_ev)):
             lauf[name] = {**cluster_metrics(lab, tid_gt, status, t=t_gt),
@@ -293,9 +294,8 @@ def solve2_run(cfg: Solve2Cfg, model, norm, run_nr, verbose=True):
 
 
 def schreibe_solve2(cfg: Solve2Cfg, run_nr, lauf) -> Path:
-    """Ergebnis [6c] als JSON. Die Cluster selbst werden NICHT abgelegt --
-    sie sind aus Artefakt und Netz reproduzierbar, und die Visualisierung
-    rechnet sie ohnehin neu."""
+    """Kennzahlen [6c] als JSON. Die Partition legt schreibe_trajektorien
+    daneben ab, unter demselben Stamm (config.trajektorien_file)."""
     sel = replace(cfg.selection, run_nr=run_nr)
     out = (Path(cfg.io.out_path) if cfg.io.out_path
            else config.solve2_file(cfg.neighborhood, cfg.pairs, cfg.training,

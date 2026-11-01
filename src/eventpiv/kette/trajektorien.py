@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-trajektorien.py -- BAUSTEIN [7]: aus der Partition die BAHNEN.
+trajektorien.py -- Stufe [7]: aus der Partition die BAHNEN.
 
   lade_on_strom      (t, x, y) des ON-Stroms eines Runs, ohne Ground Truth
   gruppiere          Events nach Trajektorie, CSR-artig
@@ -11,6 +11,7 @@ trajektorien.py -- BAUSTEIN [7]: aus der Partition die BAHNEN.
   quer_streuung      Streuung der Events quer zur gefitteten Bahn
   spline_bahn        Ort und Geschwindigkeit einer Bahn aus einem Spline
   fitte_run          alle Bahnen eines Runs
+  schreibe_fit       das Artefakt [7], eine Datei je Run
 
 Was [6c] als Event -> Trajektorie ablegt, wird hier zur Eingabe des Fits:
 je Trajektorie drei gleich lange Arrays in aufsteigender Zeit.
@@ -124,11 +125,11 @@ def bahn(tr: Trajektorien, i: int, t, x, y):
 
 
 # Zustand je Achse: (Position px, Geschwindigkeit px/s, Beschleunigung
-# px/s^2). INTERN SEKUNDEN, weil die Kovarianz sonst ueber achtzehn
-# Groessenordnungen spannt: in µs traegt die Position 1e-4 und die
-# Beschleunigung 1e-22, und das liegt an der float64-Grenze. Die Zeit
-# kommt in µs herein und geht in µs hinaus; umgerechnet wird an genau
-# zwei Stellen, hier markiert mit S_JE_US.
+# px/s^2). INTERN SEKUNDEN: die Varianz der Beschleunigung hat px^2/s^4
+# und schrumpft in µs um 10^24, die des Orts nicht. Die Kovarianz waere
+# dann schlechter konditioniert, als float64 bei der Inversion im
+# Glaetter verkraftet. Die Zeit kommt in µs herein und geht in µs hinaus;
+# umgerechnet wird an genau zwei Stellen, hier markiert mit S_JE_US.
 S_JE_US = 1e-6
 MIN_EVENTS_FIT = 10
 
@@ -189,14 +190,16 @@ def _rts_rueckwaerts(t, zp, zv, za, wp, wv, wa, pf, qc):
     ALLE C GEMEINSAM, GESTAPELT: anders als im Vorwaertslauf haengt C_k
     nur an P_k und h_k, nicht am vorigen C. Beide liegen fertig vor, also
     rechnet NumPy die Inversen in einem Zug. Sequentiell bleibt nur das
-    Mischen. Preis: rund 400 Byte je Event waehrend der Rechnung.
+    Mischen. Preis: fuenf 3x3-Matrizen in float64 je Event waehrend der
+    Rechnung.
 
     Bei h = 0 ist A die Einheit und C damit ebenfalls -- die geglaettete
     Schaetzung wird unveraendert uebernommen, was zur selben Zeit richtig
     ist. Kein Sonderfall noetig.
 
     Die GEGLAETTETE Kovarianz wird nicht gefuehrt: sie ginge nur in
-    Fehlerbalken ein, und die sind verworfen (Journal 13.09.).
+    Fehlerbalken ein, und dafuer taugt P nicht -- der Filter setzt
+    unabhaengige Messfehler voraus, die Events einer Wolke sind korreliert.
     """
     n = len(t)
     h = (t[1:] - t[:-1]) * S_JE_US
@@ -270,7 +273,7 @@ def kalman_bahn(t, x, y, *, r_mess, q_c, dt_aus=None, t_aus=None,
     t_aus     Ausgabezeitpunkte in µs, oder None -- genau eines von
               beiden. Explizite Zeiten vermeiden das Interpolieren beim
               Vergleich mit einem fremden Raster.
-    init_us   Fenster fuer den Startzustand
+    init_us   Fenster fuer den Startzustand, µs
     glaetten  RTS-Rueckwaertslauf anschliessen
     a_unbekannt  Streuung der Startbeschleunigung, px/s^2
 
@@ -290,19 +293,18 @@ def kalman_bahn(t, x, y, *, r_mess, q_c, dt_aus=None, t_aus=None,
 
     DAS PROZESSRAUSCHEN HAENGT AN DER ZEIT, NICHT AN DER ZAHL DER
     MESSUNGEN. Ein fester Zuschlag je Schritt waere bei gleichmaessiger
-    Abtastung dasselbe, hier nicht: bei 36 500 Events je Sekunde
-    akkumulierte er das 36 500-fache je Sekunde, und der Filter hielte
-    seine eigene Beschleunigung fuer unbestimmt. Gerechnet wird deshalb
-    die Q-Matrix des Modells mit weissem Ruck.
+    Abtastung dasselbe, hier nicht: bei n Events je Sekunde akkumulierte er
+    das n-fache je Sekunde, und der Filter hielte seine eigene
+    Beschleunigung fuer unbestimmt. Gerechnet wird deshalb die Q-Matrix des
+    Modells mit weissem Ruck.
 
     OHNE glaetten IST DER FILTER KAUSAL: an jeder Stelle kennt er nur die
     Vergangenheit, laeuft jeder Richtungsaenderung hinterher und hat am
-    Bahnanfang gar nichts. Der Glaetter behebt beides, kostet einen
-    zweiten Durchgang und rund 96 Byte je Event.
+    Bahnanfang gar nichts. Der Glaetter behebt beides und kostet einen
+    zweiten Durchgang samt dem Speicher von _rts_rueckwaerts.
 
     Bei gleichem Zeitstempel wird NICHT vorhergesagt, nur korrigiert --
-    ohne Zeit vergeht keine Modellunsicherheit. Rund 2,8 % der Events
-    teilen sich einen Stempel.
+    ohne Zeit vergeht keine Modellunsicherheit.
     """
     t = np.asarray(t, np.float64)
     x = np.asarray(x, np.float64)
@@ -330,7 +332,8 @@ def kalman_bahn(t, x, y, *, r_mess, q_c, dt_aus=None, t_aus=None,
     p01 = p02 = p12 = 0.0
 
     # Zustand und Kovarianz je Event. Der Glaetter braucht sie; ohne ihn
-    # kostet es 96 Byte je Event und macht die Ausgabe vektorisierbar.
+    # kosten sie zwoelf float64 je Event und machen die Ausgabe
+    # vektorisierbar.
     zp = np.empty(n); zv = np.empty(n); za = np.empty(n)
     wp = np.empty(n); wv = np.empty(n); wa = np.empty(n)
     pf = np.empty((n, 6))
@@ -347,9 +350,9 @@ def kalman_bahn(t, x, y, *, r_mess, q_c, dt_aus=None, t_aus=None,
             #   A = [[1, h, h^2/2], [0, 1, h], [0, 0, 1]]
             # P ist symmetrisch, also genuegen sechs statt neun Eintraege.
             # aij ist die Zwischenmatrix A P. Ausgeschrieben statt
-            # A @ P @ A.T, weil die Schleife je Bahn hunderttausendfach
-            # laeuft und ein 3x3-Matrixprodukt in NumPy dort ein
-            # Vielfaches der zwoelf Additionen kostet.
+            # A @ P @ A.T, weil die Schleife einmal je Event laeuft und ein
+            # 3x3-Matrixprodukt in NumPy dort ein Vielfaches der zwoelf
+            # Additionen kostet.
             a00 = p00 + h * p01 + g * p02
             a01 = p01 + h * p11 + g * p12
             a02 = p02 + h * p12 + g * p22
@@ -414,14 +417,11 @@ def versatz_korrektur(x, y, u, v, *, c0, c1):
     Schwerpunkt also in Bewegungsrichtung versetzt.
 
     Betrag c0 + c1*|u|. c0 gilt je Aufruf, also je Bahn: fitte_run legt
-    dort beta*sigma_quer dazu, STELLAs eigene Form (Sachs et al., Gl. 1).
-    Auf STELLA haengt der Versatz an der Partikelgroesse und nicht an der
-    Geschwindigkeit, dort gilt c0 = c1 = 0. Auf batch1 waechst er mit der
-    Geschwindigkeit bei konstanter Querstreuung -- das bildet
-    beta*sigma_quer nicht ab, dort gilt beta = 0.
+    dort beta*sigma_quer dazu, die Form aus STELLA (Sachs et al., 2026),
+    Gl. 1. Welche Terme ein Datensatz braucht, steht bei kern.runconfig.Fit.
 
-    u, v in px/µs; c1 in px je (px/ms), daher der Faktor 1e3. c0 = c1 = 0
-    schaltet die Korrektur ab.
+    u, v in px/µs; c0 in px; c1 in px je (px/ms), daher der Faktor 1e3.
+    c0 = c1 = 0 schaltet die Korrektur ab.
     """
     b = np.hypot(u, v)
     e = np.maximum(b, 1e-12)
@@ -566,7 +566,7 @@ def schreibe_fit(out, cfg, run_nr, spalten):
 
     spalten: (t, x, y, ux, uy, trajektorie_id) aus
     fitte_run. Eine Spalte je Punkt und kein CSR: wer die Datei oeffnet,
-    sieht acht gleich lange Spalten und weiss, was er hat. Nach Bahnen
+    sieht sechs gleich lange Spalten und weiss, was er hat. Nach Bahnen
     aufteilen geht mit searchsorted, die IDs liegen gruppiert.
     """
     from pathlib import Path
