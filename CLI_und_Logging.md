@@ -60,7 +60,7 @@ Gruppen der Stufen davor.
 | [7] | `fit_trajektorien.py` | fit · selection | neighborhood · pairs · training · solver · kandidaten · transformer · solver2 |
 | [A] | `animate_run.py` | selection · window · anim | – |
 | [B], [C] | `animate_clusters.py`, `animate_tracklets.py` | wie [4], dazu anim | wie [4] |
-| [D] | `animate_trajektorien.py` | selection · window · anim | wie [7], für das Fit-Panel dazu fit |
+| [D] | `animate_trajektorien.py` | selection · window · anim | wie [7], für die Panels fit und geschw dazu fit |
 | – | `evaluate_pairs.py` | – | neighborhood · pairs · training |
 | – | `identify_overlap_runs.py` | selection · overlap | – |
 
@@ -377,17 +377,32 @@ Datei. Die drei Schwellen bestimmen die Listen.
 | `show_gt` | – | `true` | – | GT-Panel zeigen. |
 | `crop` | – | `true` | `true` | Auf den belegten Bildbereich zuschneiden. |
 | `downscale` / `point` | `1` / `1` | `1` / `2` | `1` / `2` | Bildverkleinerung und Punktgröße. |
+| `png` | – | – | `false` | Einzelbild statt GIF. |
+| `ausschnitt` | – | – | `[]` | `[x0,y0,x1,y1]` in Sensorpixeln, x1 und y1 ausschließlich; hat Vorrang vor `crop`. |
+| `zoom` | – | – | `1` | Vergrößerung: ein Sensorpixel wird `zoom` × `zoom` Bildpunkte. |
+| `u_max` | – | – | `0.0` | px/ms. Oberes Ende der Farbskala von `geschw`; `0`: 99. Perzentil über alle Bahnen des Runs. |
 
 [A] färbt nach Polarität. `color_by=gt` zeigt Reinheitsfehler, verbirgt aber
 Fragmentierung. In [B] und [C] setzt der Trail an jeder Fenstergrenze neu an,
 so bleibt die Grenze sichtbar; in [D] gleitet er, und sie verschwindet. Für
-[D] stehen `roh`, `tracklets`, `trajektorien`, `fit` und `gt` zur Wahl,
-`min_size` wirkt dort auf Tracklets und Trajektorien zugleich. [D] liest (A),
-die Partition aus [6c] und für `fit` die Bahnen aus [7]; fehlt eine Datei,
-bricht es mit deren Namen ab. Listen auf der Kommandozeile quoten:
-`"anim.panels='fit,gt'"`. Die Framezahl ist die Dauer durch `frame_ms`, in
-[A] zusätzlich durch `speedup`; über etwa hundert Frames wird ein GIF
-unhandlich.
+[D] stehen `roh`, `tracklets`, `trajektorien`, `fit`, `gt` und `geschw` zur
+Wahl, `min_size` wirkt dort auf Tracklets und Trajektorien zugleich. `geschw`
+zeigt nur die gefitteten Bahnen, gefärbt nach dem Betrag der Geschwindigkeit
+mit viridis, daneben die Farbskala in px/ms; Werte über `u_max` tragen die
+oberste Farbe. [D] liest (A), die Partition aus [6c] und für `fit` und
+`geschw` die Bahnen aus [7]; fehlt eine Datei, bricht es mit deren Namen ab.
+Listen auf der Kommandozeile quoten: `"anim.panels='fit,gt'"`. Die Framezahl
+ist die Dauer durch `frame_ms`, in [A] zusätzlich durch `speedup`; über etwa
+hundert Frames wird ein GIF unhandlich.
+
+Mit `png=true` schreibt [D] statt des GIF ein PNG für den Druck: den Stand am
+Ende von `window`, mit Bahnen und Boxmitten ab `window.t0` und den Events der
+letzten `trail_ms`; `frame_ms` und `hold_ms` wirken dann nicht. Über den
+Panels steht nur ihre Marke (a), (b), …, ein einzelnes Panel bleibt ohne, und
+jedes Panel bekommt einen Rahmen. Die Schrift ist in Pixeln ein Vierzigstel
+der Breite aller Panels. `ausschnitt` und `zoom` wirken auf GIF und PNG;
+`zoom` setzt die Bahnen dabei ins feinere Raster. Fenster und Ausschnitt
+stehen im Dateinamen, sobald sie gesetzt sind.
 
 ### A4 · Gruppendateien
 

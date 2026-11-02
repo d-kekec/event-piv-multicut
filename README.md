@@ -1,6 +1,6 @@
 # event-piv-multicut
 
-Event-basierte Particle Image Velocimetry: aus den Rohdaten einer
+Event-basierte Particle Tracking Velocimetry: aus den Rohdaten einer
 Event-Kamera Partikel-Trajektorien rekonstruieren, formuliert als
 **Multicut-Problem** und gelöst mit [RAMA](https://github.com/pawelswoboda/RAMA).
 
@@ -45,7 +45,7 @@ Die Begriffe — Tracklet, Trajektorie, Slug, Arbeitspunkt, die Stufen [1] bis
 | `src/eventpiv/kern/` | Pfade (`config.py`), Konfiguration und Vorgaben (`runconfig.py`), Laden der Rohdaten |
 | `src/eventpiv/kette/` | die Stufen [1] bis [7] |
 | `src/eventpiv/bewerten/` | Kennzahlen gegen die Ground Truth |
-| `src/eventpiv/zeigen/` | die Darstellungen [A] bis [D], als GIF |
+| `src/eventpiv/zeigen/` | die Darstellungen [A] bis [D] als GIF, [D] auch als PNG |
 | `src/eventpiv/psee_io/` | Eventloader aus der Prophesee-Toolbox, Fremdcode |
 | `scripts/` | je Stufe und Darstellung ein Aufrufskript mit Hydra; die Bedienung erklärt `scripts/_cli.py` |
 | `configs/` | Hydra: je Stufe eine Treiberdatei, in Unterordnern die Gruppendateien je Datensatz |
@@ -376,7 +376,7 @@ Auf batch1 braucht jede Stufe ihre Gruppen:
 | [3], [4], [5a] | `datensatz=batch1` |
 | [6a] | `datensatz=batch1 kandidatensatz=batch1` |
 | [6b], [6c], [D] | `datensatz=batch1 kandidatensatz=batch1 transformersatz=batch1` |
-| [7], [D] mit Fit-Panel | wie [6c], dazu `fitsatz=batch1` |
+| [7], [D] mit Panel `fit` oder `geschw` | wie [6c], dazu `fitsatz=batch1` |
 
 `datensatz=batch1` setzt neighborhood, pairsampling und training zusammen;
 [1] und [2] kennen es nicht. [A] braucht keine Gruppe. [B] und [C] schalten
@@ -427,7 +427,8 @@ neighborhood, pairs, training, kandidaten, transformer und fit, `<s1>` und
 `<s2>` die Kurznamen von solver und solver2. Die Pfade baut `kern/config.py`.
 
 **Ansehen.** Die Darstellungen schreiben GIFs nach
-`$EVENTPIV_OUT/results/animations/`, mit `io.out_path` anderswohin:
+`$EVENTPIV_OUT/results/animations/`, mit `io.out_path` anderswohin, [D] mit
+`anim.png=true` auch ein PNG:
 
 ```bash
 python scripts/animate_run.py selection.run_nr=8          # [A] Rohevents
@@ -437,7 +438,7 @@ python scripts/animate_trajektorien.py selection.run_nr=8 # [D] Tracklets, Traje
 ```
 
 [B] und [C] lösen selbst und brauchen das Netz aus [3]; [D] liest die
-Artefakte aus [5a] und [6c], mit Fit-Panel auch aus [7].
+Artefakte aus [5a] und [6c], mit den Panels `fit` und `geschw` auch aus [7].
 
 **Bewerten.** Mit Label-Dateien messen die Stufen gegen die Ground Truth und
 legen die Kennzahlen in W&B ab, dazu in JSON neben den Artefakten:

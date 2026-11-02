@@ -737,9 +737,23 @@ class AnimTraj(_Typed):
     point: int = 2
     min_size: int = 15
     crop: bool = True
-    # Komma-getrennt: roh, tracklets, trajektorien, fit, gt.
-    # fit liest die Bahnen von [7] und braucht dafuer die Fit-Gruppe.
+    # Komma-getrennt: roh, tracklets, trajektorien, fit, gt, geschw.
+    # fit und geschw lesen die Bahnen von [7] und brauchen dafuer die
+    # Fit-Gruppe.
     panels: str = "tracklets,trajektorien,gt"
+    # Einzelbild statt GIF: der Stand am Ende von window, Bahnen ab
+    # window.t0, Events der letzten trail_ms. frame_ms und hold_ms wirken
+    # dann nicht.
+    png: bool = False
+    # [x0, y0, x1, y1] in Sensorpixeln, x1 und y1 ausschliesslich; hat
+    # Vorrang vor crop. Leer: crop entscheidet.
+    ausschnitt: list[int] = field(default_factory=list)
+    # Vergroesserung: ein Sensorpixel wird zoom x zoom Bildpunkte.
+    zoom: int = 1
+    # Oberes Ende der Farbskala im geschw-Panel, px/ms; groessere Werte
+    # bekommen die oberste Farbe. 0: das 99. Perzentil ueber alle Bahnen
+    # des Runs.
+    u_max: float = 0.0
 
 
 # ============================================================
@@ -909,7 +923,7 @@ class AnimTrajCfg:
 
     Die Animation LIEST die Partition aus dem Artefakt von [6c], statt sie
     zu loesen -- sie braucht damit weder GPU noch Netz. `fit` wirkt nur,
-    wenn das fit-Panel gewaehlt ist.
+    wenn das fit- oder das geschw-Panel gewaehlt ist.
 
     window schneidet nur die ANZEIGE zu. Die Farben eines Ausschnitts
     waeren sonst andere als die des vollen Laufs, und genau ihre

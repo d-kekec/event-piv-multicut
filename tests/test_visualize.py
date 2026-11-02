@@ -11,8 +11,9 @@ import numpy as np
 import pytest
 
 from eventpiv.kern.status import STATUS_AMBIG, STATUS_CLEAN
-from eventpiv.zeigen.visualize import (GREY, color_lookup, distinct_colors,
-                                majority_gt_colors)
+from eventpiv.zeigen.visualize import (GREY, VIRIDIS, color_lookup,
+                                       distinct_colors, majority_gt_colors,
+                                       render_panel, viridis)
 
 
 def ist_grau(farbe):
@@ -117,3 +118,32 @@ def test_determinismus():
     b = color_lookup(ids)
     np.testing.assert_array_equal(a[0], b[0])
     np.testing.assert_array_equal(a[1], b[1])
+
+
+def test_zoom_vergroessert_ohne_zu_verschieben():
+    """Fuer Events ist zoom eine reine Vergroesserung: jedes Pixel wird ein
+    Block, nichts wandert. Abstand zum rechten und unteren Rand, weil
+    _paint dort kappt."""
+    rng = np.random.default_rng(0)
+    x, y = rng.integers(0, 38, 60), rng.integers(0, 28, 60)
+    farben, alle = distinct_colors(60), np.ones(60, bool)
+    a = render_panel(x, y, farben, alle, shape=(30, 40), downscale=1,
+                     point=2)
+    b = render_panel(x, y, farben, alle, shape=(90, 120), downscale=1,
+                     point=2, zoom=3)
+    np.testing.assert_array_equal(b, a.repeat(3, axis=0).repeat(3, axis=1))
+
+
+def test_viridis_kappt_an_den_enden():
+    """Werte ausserhalb [0, 1], etwa ueber u_max, bekommen die Endfarbe,
+    statt ueber die Tabelle hinauszugreifen."""
+    f = viridis([-0.5, 0.0, 1.0, 3.0])
+    np.testing.assert_array_equal(f[:2], VIRIDIS[[0, 0]])
+    np.testing.assert_array_equal(f[2:], VIRIDIS[[-1, -1]])
+
+
+def test_viridis_wird_monoton_heller():
+    """viridis waechst monoton in der Helligkeit; eine vertippte Stuetzstelle
+    braeche das."""
+    hell = VIRIDIS @ np.array([0.2126, 0.7152, 0.0722])
+    assert np.all(np.diff(hell) > 0)

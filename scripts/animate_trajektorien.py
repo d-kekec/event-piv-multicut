@@ -3,15 +3,16 @@
 """CLI-Huelle fuer visualize_trajektorien.animate_trajektorien.
 
 Darstellung [D]: stellt Tracklets, Trajektorien und GT eines Runs
-nebeneinander. Gelesen werden die Artefakte von (A), [6c] und fuer das
-fit-Panel [7] -- also dieselben Gruppen und Overrides wie beim
+nebeneinander. Gelesen werden die Artefakte von (A), [6c] und fuer die
+Panels fit und geschw [7] -- also dieselben Gruppen und Overrides wie beim
 schreibenden Lauf. window schneidet nur die Anzeige zu.
 
 Aufruf (allgemeine Bedienung: scripts/_cli.py). selection.run_nr ist
 Pflicht; ohne window.* der ganze Run, t0 und dt in µs. anim.panels waehlt
-aus roh, tracklets, trajektorien, fit, gt; fit liest die Bahnen von [7]
-und braucht dieselben fit.*-Werte wie dort. Rechnet nichts nach: kein
-Netz, keine GPU.
+aus roh, tracklets, trajektorien, fit, gt, geschw; fit und geschw lesen
+die Bahnen von [7] und brauchen dieselben fit.*-Werte wie dort.
+anim.png=true schreibt statt des GIF ein PNG mit dem Stand am Ende von
+window. Rechnet nichts nach: kein Netz, keine GPU.
   python scripts/animate_trajektorien.py selection.run_nr=8
   python scripts/animate_trajektorien.py selection.split=val \\
       selection.run_nr=<run>
@@ -23,7 +24,15 @@ Netz, keine GPU.
   # mehrere Panels als EIN Wert, mit fit-Panel
   P="anim.panels='trajektorien,fit,gt'"
   python scripts/animate_trajektorien.py selection.run_nr=8 "$P"
-  # batch1; mit fit-Panel zusaetzlich fitsatz=batch1
+  # Einzelbild: Ausschnitt in Sensorpixeln, vierfach vergroessert
+  python scripts/animate_trajektorien.py selection.split=val \\
+      selection.run_nr=<run> "anim.panels='fit,gt'" anim.png=true \\
+      window.t0=2000000 window.dt=200000 anim.trail_ms=4 \\
+      'anim.ausschnitt=[400,200,700,400]' anim.zoom=4
+  # nur die Geschwindigkeit, Skala bis 1 px/ms
+  python scripts/animate_trajektorien.py selection.split=val \\
+      selection.run_nr=<run> anim.panels=geschw anim.png=true anim.u_max=1
+  # batch1; mit fit- oder geschw-Panel zusaetzlich fitsatz=batch1
   E="datensatz=batch1 kandidatensatz=batch1 transformersatz=batch1"
   python scripts/animate_trajektorien.py selection.run_nr=32 $E
   # ueber slurm/animate_trajektorien.sbatch (Bedarf in dessen Kopf): SPLIT

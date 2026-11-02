@@ -36,8 +36,9 @@ FARBWAHL (wichtig fuer die Interpretation!):
   Clusterzuordnung (RAMA vergibt -1 fuer Knoten ohne Kante) bzw. ohne
   verlaessliches GT-Label (status != 0).
 
-Nur Pillow, kein ffmpeg -- Ausgabe ist ein GIF. Matplotlib wird bewusst
-nicht verwendet.
+Nur Pillow, kein ffmpeg -- Ausgabe ist ein GIF, in [D] auf Wunsch ein PNG.
+Matplotlib wird bewusst nicht verwendet; die Farbskala viridis steht
+deshalb als Stuetzstellen hier.
 """
 from __future__ import annotations
 
@@ -58,6 +59,7 @@ BG = np.array([255, 255, 255], np.uint8)      # Hintergrund
 GREY = np.array([200, 200, 200], np.uint8)    # Rauschen / keine Zuordnung
 ON_COLOR = np.array([220, 40, 40], np.uint8)  # Polaritaet 1
 OFF_COLOR = np.array([40, 60, 220], np.uint8)  # Polaritaet 0
+TINTE = (40, 40, 40)                          # Schrift und Rahmen im Druck
 
 
 # ============================================================
@@ -131,6 +133,26 @@ def majority_gt_colors(labels, track_id, status, *, min_size=1, ignore=(-1,)):
     return lab_uniq, colors
 
 
+# viridis (van der Walt und Smith, CC0) an 17 Stuetzstellen, 0, 1/16, ...,
+# 1, aus Matplotlib abgelesen. Dazwischen linear interpoliert; so kommt die
+# Skala ohne Matplotlib aus.
+VIRIDIS = np.array([
+    [68, 1, 84], [72, 24, 106], [71, 45, 123], [66, 64, 134],
+    [59, 82, 139], [51, 99, 141], [44, 114, 142], [38, 130, 142],
+    [33, 145, 140], [31, 160, 136], [40, 174, 128], [63, 188, 115],
+    [94, 201, 98], [132, 212, 75], [173, 220, 48], [216, 226, 25],
+    [253, 231, 37]], np.uint8)
+
+
+def viridis(werte) -> np.ndarray:
+    """Farbe je Wert aus [0, 1] als uint8 (n, 3). Werte ausserhalb bekommen
+    die Farbe des naechsten Endes."""
+    w = np.clip(np.asarray(werte, np.float64), 0.0, 1.0)
+    stuetz = np.linspace(0.0, 1.0, len(VIRIDIS))
+    return np.stack([np.interp(w, stuetz, VIRIDIS[:, k]) for k in range(3)],
+                    axis=-1).round().astype(np.uint8)
+
+
 # ============================================================
 # Zeichnen
 # ============================================================
@@ -145,16 +167,22 @@ def _paint(canvas, xs, ys, colors, point):
             canvas[yy, xx] = colors
 
 
-def render_panel(x, y, colors, mask, *, shape, downscale, point, crop=None):
+def render_panel(x, y, colors, mask, *, shape, downscale, point, crop=None,
+                 zoom=1):
     """Ein Panel: Events der Maske an ihrer Position, in ihrer Farbe.
 
-    crop: (y0, y1, x0, x1) in BEREITS herunterskalierten Koordinaten.
+    zoom vergroessert: ein Sensorpixel wird zoom x zoom Bildpunkte, point
+    waechst mit. Gebrochene Koordinaten, etwa die der gefitteten Bahn,
+    landen dabei im feineren Raster statt auf dem ganzen Sensorpixel.
+    shape und crop (y0, y1, x0, x1) gelten im Raster des Panels, also nach
+    zoom und downscale.
     """
     h, w = shape
     canvas = np.tile(BG, (h, w, 1))
     if mask.any():
-        _paint(canvas, (x[mask] // downscale).astype(np.int64),
-               (y[mask] // downscale).astype(np.int64), colors[mask], point)
+        _paint(canvas, (x[mask] * zoom // downscale).astype(np.int64),
+               (y[mask] * zoom // downscale).astype(np.int64), colors[mask],
+               point * zoom)
     if crop is not None:
         y0, y1, x0, x1 = crop
         canvas = canvas[y0:y1, x0:x1]
@@ -209,8 +237,111 @@ def _crop_box(x, y, downscale, shape, rand=12):
 
 
 # ============================================================
+# Einzelbild fuer den Druck
+# ============================================================
+
+def _schrift(groesse):
+    """Skalierbare Schrift, groesse in Pixeln. compose nimmt die Bitmap-
+    Schrift, die nur eine Groesse kennt. Braucht Pillow >= 10.1."""
+    return ImageFont.load_default(size=groesse)
+
+
+def _striche(u_max, n=5):
+    """Runde Skalenwerte von 0 bis hoechstens u_max, etwa n Stueck."""
+    roh = u_max / (n - 1)
+    zehn = 10.0 ** np.floor(np.log10(roh))
+    schritt = next(f * zehn for f in (1, 2, 2.5, 5, 10) if f * zehn >= roh)
+    return np.arange(0.0, u_max * (1 + 1e-9), schritt)
+
+
+def farbleiste(hoehe, u_max, groesse, einheit):
+    """Farbskala von viridis, gleich hoch wie das Panel, das sie erklaert.
+
+    Unten 0, oben u_max, Striche an runden Werten, darueber die Einheit.
+    Rueckgabe: uint8-Array (hoehe, breite, 3), zum Anhaengen rechts an das
+    Panel.
+    """
+    f = _schrift(groesse)
+    luft, balken = groesse // 2, groesse
+    strich, dicke = max(groesse // 4, 2), max(groesse // 16, 1)
+    oben, unten = round(2 * groesse), hoehe - round(0.6 * groesse)
+    if unten - oben < groesse:
+        raise ValueError(f"Panel {hoehe} px hoch, zu niedrig fuer die "
+                         "Farbskala")
+    werte = _striche(u_max)
+    texte = [f"{round(v, 9):g}" for v in werte]
+    rechts = luft + balken + strich + luft // 2
+    breite = max(rechts + max(f.getbbox(s)[2] for s in texte),
+                 luft + f.getbbox(einheit)[2]) + luft // 2
+
+    feld = np.tile(BG, (hoehe, breite, 1))
+    anteil = (unten - 1 - np.arange(oben, unten)) / max(unten - 1 - oben, 1)
+    feld[oben:unten, luft:luft + balken] = viridis(anteil)[:, None, :]
+    img = Image.fromarray(feld)
+    d = ImageDraw.Draw(img)
+    d.rectangle([luft, oben, luft + balken - 1, unten - 1], outline=TINTE,
+                width=dicke)
+    for v, s in zip(werte, texte):
+        y = round(unten - 1 - v / u_max * (unten - 1 - oben))
+        d.line([(luft + balken, y), (luft + balken + strich, y)], fill=TINTE,
+               width=dicke)
+        d.text((rechts, y), s, font=f, fill=TINTE, anchor="lm")
+    d.text((luft, oben - round(0.75 * groesse)), einheit, font=f,
+           fill=TINTE, anchor="ls")
+    return np.asarray(img)
+
+
+def rahmen(panel, dicke):
+    """Rahmen um ein Panel, nach innen gezeichnet: die Groesse bleibt. Ohne
+    ihn verschwindet der weisse Grund des Panels auf weissem Papier."""
+    p = panel.copy()
+    p[:dicke] = TINTE
+    p[-dicke:] = TINTE
+    p[:, :dicke] = TINTE
+    p[:, -dicke:] = TINTE
+    return p
+
+
+def tafel(panels, marken, groesse):
+    """Panels nebeneinander fuer den Druck: weisser Grund, ueber jedem Panel
+    nur seine Marke wie (a). Ohne Marken keine Kopfzeile.
+
+    Rueckgabe: PIL-Image.
+    """
+    kopf = round(1.4 * groesse) if marken else 0
+    h = max(p.shape[0] for p in panels)
+    w = sum(p.shape[1] for p in panels) + groesse * (len(panels) - 1)
+    canvas = np.tile(BG, (h + kopf, w, 1))
+    off = 0
+    for p in panels:
+        canvas[kopf:kopf + p.shape[0], off:off + p.shape[1]] = p
+        off += p.shape[1] + groesse
+    img = Image.fromarray(canvas)
+    if marken:
+        d = ImageDraw.Draw(img)
+        f = _schrift(groesse)
+        off = 0
+        for p, m in zip(panels, marken):
+            d.text((off, kopf - round(0.3 * groesse)), m, font=f,
+                   fill=TINTE, anchor="ls")
+            off += p.shape[1] + groesse
+    return img
+
+
+def save_png(bild, path):
+    """Speichert ein Einzelbild und meldet Groesse und Pfad."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    bild.save(path)
+    print(f"-> {path}  ({path.stat().st_size / 1e6:.1f} MB, "
+          f"{bild.width} x {bild.height} px)")
+    return path
+
+
+# ============================================================
 # [A] ganzer Run
 # ============================================================
+
 def animate_run(cfg: AnimRunCfg):
     """Animiert einen ganzen Run (oder ein Teilstueck), Farbe = Polaritaet."""
     sel, win, an = cfg.selection, cfg.window, cfg.anim

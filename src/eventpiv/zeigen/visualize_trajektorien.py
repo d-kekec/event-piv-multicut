@@ -34,6 +34,15 @@ Fit-Gruppe muss deshalb dieselbe sein wie beim Fit-Lauf.
 window schneidet nur die ANZEIGE. Die Farben werden einmal ueber den
 ganzen Run vergeben: die eines Ausschnitts waeren sonst andere als die des
 vollen Laufs, und genau ihre Stabilitaet ist die Aussage.
+
+DER GESCHW-PANEL zeigt nur die gefitteten Bahnen, gefaerbt nach dem Betrag
+ihrer Geschwindigkeit aus [7], mit Farbskala. Auch die Skala gilt fuer den
+ganzen Run, wie die Farben.
+
+EINZELBILD FUER DEN DRUCK. anim.png schreibt statt des GIF ein PNG mit dem
+Stand am Ende von window: Bahnen und Boxmitten ab window.t0, Events der
+letzten trail_ms. Kein Titel, kein Zeitstempel; ueber den Panels steht nur
+ihre Marke (a), (b), ..., ein einzelnes Panel bleibt ohne.
 """
 from __future__ import annotations
 
@@ -48,10 +57,11 @@ from eventpiv.kern.graph import polarity_mask
 from eventpiv.kern.runconfig import AnimTrajCfg, slug
 from eventpiv.kern.status import STATUS_CLEAN
 from eventpiv.zeigen.visualize import (GREY, SENSOR_H, SENSOR_W, _crop_box,
-                                       color_lookup, compose, render_panel,
-                                       save_gif)
+                                       color_lookup, compose, farbleiste,
+                                       rahmen, render_panel, save_gif,
+                                       save_png, tafel, viridis)
 
-PANEL_NAMEN = ("roh", "tracklets", "trajektorien", "fit", "gt")
+PANEL_NAMEN = ("roh", "tracklets", "trajektorien", "fit", "gt", "geschw")
 
 
 DUNKEL = 0.75           # Bahnlinie gegen ihre Eventwolke abgesetzt
@@ -108,7 +118,8 @@ def _partition(cfg, run_nr):
 
 
 def _fit(cfg):
-    """Gefittete Bahnen aus dem Artefakt von [7]: (t, x, y, trajektorie_id).
+    """Gefittete Bahnen aus dem Artefakt von [7]:
+    (t, x, y, trajektorie_id, ux, uy), u in px/µs.
 
     Der Pfad haengt am Fit-Slug. Eine andere Fit-Gruppe als beim Fit-Lauf
     findet die Datei nicht, statt still einen anderen Fit zu zeigen.
@@ -122,7 +133,8 @@ def _fit(cfg):
             "Erst scripts/fit_trajektorien.py mit denselben Gruppen laufen "
             "lassen -- [D] fittet nicht nach.")
     with np.load(pfad) as d:
-        return d["t"], d["x"], d["y"], d["trajektorie_id"]
+        return (d["t"], d["x"], d["y"], d["trajektorie_id"], d["ux"],
+                d["uy"])
 
 
 def _gt_mitten(cfg, run_nr, gt_ids):
@@ -140,9 +152,10 @@ def _gt_mitten(cfg, run_nr, gt_ids):
 
 
 def animate_trajektorien(cfg: AnimTrajCfg):
-    """Animiert Tracklets, Partition und Fit eines Runs aus den Artefakten.
+    """Animiert Tracklets, Partition und Fit eines Runs aus den Artefakten,
+    mit anim.png als Einzelbild.
 
-    Rueckgabe: (gif_pfad, lauf).
+    Rueckgabe: (pfad, lauf), pfad zum GIF oder PNG.
     """
     sel, win, an = cfg.selection, cfg.window, cfg.anim
     run_nr = sel.run_nr
@@ -154,6 +167,20 @@ def animate_trajektorien(cfg: AnimTrajCfg):
     if unbekannt or not wahl:
         raise SystemExit(f"anim.panels={an.panels!r} -- erlaubt sind "
                          f"{', '.join(PANEL_NAMEN)} (Komma-getrennt)")
+    if an.ausschnitt:
+        if len(an.ausschnitt) != 4:
+            raise SystemExit(f"anim.ausschnitt={an.ausschnitt} -- erwartet "
+                             "[x0,y0,x1,y1] in Sensorpixeln")
+        x0, y0, x1, y1 = an.ausschnitt
+        if not (0 <= x0 < x1 <= SENSOR_W and 0 <= y0 < y1 <= SENSOR_H):
+            raise SystemExit(f"anim.ausschnitt={an.ausschnitt} -- verlangt "
+                             f"0 <= x0 < x1 <= {SENSOR_W} und "
+                             f"0 <= y0 < y1 <= {SENSOR_H}")
+    if an.zoom < 1:
+        raise SystemExit(f"anim.zoom={an.zoom} -- mindestens 1")
+    if an.u_max < 0:
+        raise SystemExit(f"anim.u_max={an.u_max} -- 0 (automatisch) oder "
+                         "positiv")
 
     # --- Stufe 1 aus dem Artefakt, ohne Solve
     tpfad = config.tracklet_file(cfg.neighborhood, cfg.pairs, cfg.training,
@@ -205,8 +232,9 @@ def animate_trajektorien(cfg: AnimTrajCfg):
     if "trajektorien" in wahl:
         _panel("trajektorien", "Stufe 2: Trajektorien",
                x, y, _farben(lab_ev, an.min_size), t, nein)
+    bahnen = _fit(cfg) if {"fit", "geschw"} & set(wahl) else None
     if "fit" in wahl:
-        tfp, xfp, yfp, idfp = _fit(cfg)
+        tfp, xfp, yfp, idfp, _, _ = bahnen
         uniq, tab = color_lookup(lab_ev, min_size=an.min_size)
         # Fit und Partition teilen den ID-Raum. Eine ID, die die Partition
         # nicht kennt, bekaeme ueber searchsorted still eine fremde Farbe.
@@ -226,6 +254,20 @@ def animate_trajektorien(cfg: AnimTrajCfg):
                np.concatenate([nein, np.ones(len(tfp), bool)]))
         print(f"  Fit: {len(np.unique(idfp))} Bahnen, "
               f"{len(tfp):,} Stuetzpunkte", flush=True)
+    u_max = None                                     # Skala von geschw
+    if "geschw" in wahl:
+        tfp, xfp, yfp, _, ux, uy = bahnen
+        if len(tfp) == 0:
+            raise SystemExit("Das Fit-Artefakt hat keine Stuetzpunkte.")
+        betrag = np.hypot(ux, uy) * 1e3              # px/µs -> px/ms
+        u_max = an.u_max or float(np.percentile(betrag, 99))
+        # Nur die Bahnen, ohne Events: die Farbe traegt die Geschwindigkeit,
+        # auf einer Skala fuer alle Bahnen des Runs.
+        _panel("geschw", "Fit: Betrag der Geschwindigkeit", xfp, yfp,
+               viridis(betrag / u_max), tfp, np.ones(len(tfp), bool))
+        print(f"  geschw: |u| Median {np.median(betrag):.3f}, P99 "
+              f"{np.percentile(betrag, 99):.3f} px/ms; Skala 0 bis "
+              f"{u_max:.3f} px/ms", flush=True)
     if "gt" in wahl:
         if gt is None:
             # Kein Abbruch: ohne Labels gibt es das Panel nicht, der Rest
@@ -254,9 +296,76 @@ def animate_trajektorien(cfg: AnimTrajCfg):
             f"Ausschnitt [{lo}, {hi}) enthaelt keine Events -- der Run laeuft "
             f"von {t[0]:.0f} bis {t[-1]:.0f} µs.")
 
-    shape = (SENSOR_H // an.downscale, SENSOR_W // an.downscale)
-    zuschnitt = (_crop_box(x[sicht], y[sicht], an.downscale, shape)
-                 if an.crop else None)
+    zf, ds = an.zoom, an.downscale
+    shape = (SENSOR_H * zf // ds, SENSOR_W * zf // ds)
+    if an.ausschnitt:
+        x0, y0, x1, y1 = an.ausschnitt
+        zuschnitt = (y0 * zf // ds, y1 * zf // ds,
+                     x0 * zf // ds, x1 * zf // ds)
+    elif an.crop:
+        zuschnitt = _crop_box(x[sicht] * zf, y[sicht] * zf, ds, shape,
+                              rand=12 * zf)
+    else:
+        zuschnitt = None
+    gem = dict(shape=shape, downscale=ds, point=an.point, crop=zuschnitt,
+               zoom=zf)
+    spur = an.trail_ms * 1000.0
+
+    def _bilder(ev_ab, bis):
+        """Je Panel ein Bild: Events ab ev_ab, Bahnen und Boxmitten ab lo,
+        alles vor bis."""
+        panels = []
+        for p in wahl:
+            xs, ys, farben, ts, kum, _ = quelle[p]
+            unten = np.where(kum, lo, ev_ab)
+            m = (ts >= lo) & (ts >= unten) & (ts < bis)
+            panels.append(render_panel(xs, ys, farben, m, **gem))
+        return panels
+
+    def _fertig(panels, groesse, druck):
+        """Im Druck ein Rahmen je Panel; rechts am geschw-Panel die Skala."""
+        aus = []
+        for p, bild in zip(wahl, panels):
+            if druck:
+                bild = rahmen(bild, max(groesse // 16, 1))
+            if p == "geschw":
+                bild = np.hstack([bild, farbleiste(bild.shape[0], u_max,
+                                                   groesse, "px/ms")])
+            aus.append(bild)
+        return aus
+
+    out_dir = (config.results_dir() / "animations" if cfg.io.out_path is None
+               else Path(cfg.io.out_path))
+    # geschw als u: g steht schon fuer gt.
+    p_tag = "_" + "".join("u" if w == "geschw" else w[0] for w in wahl)
+    # Der Fit-Slug nur mit Panels aus [7] -- sonst schrieben zwei
+    # Fits mit verschiedenen Parametern in dieselbe Datei.
+    f_tag = f"_{slug(cfg.fit)}" if {"fit", "geschw"} & set(wahl) else ""
+    # Fenster und Ausschnitt, sobald gesetzt: zwei Bilder eines Runs liegen
+    # so nebeneinander, statt sich zu ueberschreiben.
+    w_tag = (f"_{win.short()}"
+             if win.t0 is not None or win.dt is not None else "")
+    a_tag = ("_a" + "-".join(str(v) for v in an.ausschnitt)
+             if an.ausschnitt else "")
+    # BEIDE Solver: Stufe 1 waehlt die Quelle, Stufe 2 die Rechnung. Ohne
+    # den ersten schrieben zwei cost_offset-Werte in dieselbe Datei.
+    name = (f"traj_{sel.split}_run{run_nr}_{slug(cfg.kandidaten)}_"
+            f"{slug(cfg.transformer)}_{cfg.solver.short()}_"
+            f"{cfg.solver2.short()}{f_tag}{p_tag}{w_tag}{a_tag}")
+
+    if an.png:
+        # Der Stand bei hi: Events der letzten trail_ms, Bahnen ab lo.
+        panels = _bilder(hi - spur, hi)
+        # Schrift in Pixeln: ein Vierzigstel der Breite aller Panels.
+        groesse = max(12, round(sum(b.shape[1] for b in panels) / 40))
+        marken = ([f"({chr(ord('a') + i)})" for i in range(len(wahl))]
+                  if len(wahl) > 1 else [])
+        print(f"Einzelbild: Bahnen ab {lo:.0f} µs, Events ab "
+              f"{hi - spur:.0f} µs, Ende {hi:.0f} µs, {len(wahl)} Panel(s)",
+              flush=True)
+        pfad = save_png(tafel(_fertig(panels, groesse, druck=True), marken,
+                              groesse), out_dir / f"{name}.png")
+        return pfad, lauf
 
     schritt = an.frame_ms * 1000.0
     starts = np.arange(lo, hi, schritt)
@@ -269,35 +378,16 @@ def animate_trajektorien(cfg: AnimTrajCfg):
               "anim.downscale erhoehen oder anim.panels einzeln waehlen.",
               flush=True)
 
-    gem = dict(shape=shape, downscale=an.downscale, point=an.point,
-               crop=zuschnitt)
     frames = []
     for s in starts:
-        panels = []
-        for p in wahl:
-            xs, ys, farben, ts, kum, _ = quelle[p]
-            # GLEITENDER Trail fuer Events, anders als in
-            # animate_tracklets: dort wird an der Fenstergrenze
-            # zurueckgesetzt, damit sie sichtbar bleibt -- hier soll sie
-            # gerade verschwinden. Kumulative Punkte (Bahn, Boxmitte)
-            # bleiben ab Fensteranfang stehen.
-            unten = np.where(kum, lo, s - an.trail_ms * 1000.0)
-            m = ((ts >= lo) & (ts < hi) & (ts < s + schritt) & (ts >= unten))
-            panels.append(render_panel(xs, ys, farben, m, **gem))
+        # GLEITENDER Trail fuer Events, anders als in animate_tracklets:
+        # dort wird an der Fenstergrenze zurueckgesetzt, damit sie sichtbar
+        # bleibt -- hier soll sie gerade verschwinden. Kumulative Punkte
+        # (Bahn, Boxmitte) bleiben ab Fensteranfang stehen.
+        panels = _fertig(_bilder(s - spur, min(s + schritt, hi)), 12,
+                         druck=False)
         frames.append(compose(panels, [quelle[p][5] for p in wahl],
                               f"{(s - t[0])/1000:.0f} ms"))
-
-    out_dir = (config.results_dir() / "animations" if cfg.io.out_path is None
-               else Path(cfg.io.out_path))
-    p_tag = "_" + "".join(w[0] for w in wahl)
-    # Der Fit-Slug nur mit fit-Panel -- sonst schrieben zwei
-    # Fits mit verschiedenen Parametern in dieselbe Datei.
-    f_tag = f"_{slug(cfg.fit)}" if "fit" in wahl else ""
-    # BEIDE Solver: Stufe 1 waehlt die Quelle, Stufe 2 die Rechnung. Ohne
-    # den ersten schrieben zwei cost_offset-Werte in dieselbe Datei.
-    name = (f"traj_{sel.split}_run{run_nr}_{slug(cfg.kandidaten)}_"
-            f"{slug(cfg.transformer)}_{cfg.solver.short()}_"
-            f"{cfg.solver2.short()}{f_tag}{p_tag}.gif")
-    pfad = save_gif(frames, out_dir / name,
+    pfad = save_gif(frames, out_dir / f"{name}.gif",
                     an.hold_ms or max(an.frame_ms * 2, 60))
     return pfad, lauf
